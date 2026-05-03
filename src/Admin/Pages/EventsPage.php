@@ -8,7 +8,9 @@ if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Admin\AbstractAdminPage;
 use EventsInviteManager\Admin\AdminMenu;
+use EventsInviteManager\Email\EmailService;
 use EventsInviteManager\Models\Event;
+use EventsInviteManager\Models\Invitee;
 use EventsInviteManager\Models\Location;
 use EventsInviteManager\Models\LocationLibrary;
 
@@ -17,6 +19,17 @@ use EventsInviteManager\Models\LocationLibrary;
  */
 final class EventsPage extends AbstractAdminPage
 {
+    /** @var EmailService Used when sending event invite emails from the admin. */
+    private EmailService $emailService;
+
+    /**
+     * @param EmailService $emailService
+     */
+    public function __construct(EmailService $emailService)
+    {
+        $this->emailService = $emailService;
+    }
+
     /**
      * Dispatches event-page form submissions and GET actions.
      *
@@ -30,6 +43,10 @@ final class EventsPage extends AbstractAdminPage
             'delete_event'              => $this->handleDeleteEvent(),
             'add_lodging_to_event'      => $this->handleAddLodgingToEvent(),
             'remove_lodging_from_event' => $this->handleRemoveLodgingFromEvent(),
+            'add_invitee_to_event'      => $this->handleAddInviteeToEvent(),
+            'remove_invitee_from_event' => $this->handleRemoveInviteeFromEvent(),
+            'send_event_invite'         => $this->handleSendEventInvite(),
+            'send_all_event_invites'    => $this->handleSendAllEventInvites(),
             default                     => null,
         };
     }
@@ -245,7 +262,7 @@ final class EventsPage extends AbstractAdminPage
     }
 
     /**
-     * Processes deleting an event (and all its invitees) via a GET request with a nonce.
+     * Processes deleting an event and its invitation associations via a GET request with a nonce.
      *
      * @return void
      */
@@ -349,6 +366,144 @@ final class EventsPage extends AbstractAdminPage
     }
 
     /**
+     * Adds an existing global invitee profile to an event.
+     *
+     * @return void
+     */
+    private function handleAddInviteeToEvent(): void
+    {
+        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_add_invitee_to_event')) {
+            wp_die('Security check failed.');
+        }
+
+        $eventId   = (int) ($_POST['event_id'] ?? 0);
+        $inviteeId = (int) ($_POST['invitee_id'] ?? 0);
+
+        if ($eventId <= 0 || $inviteeId <= 0 || Event::find($eventId) === null || Invitee::find($inviteeId) === null) {
+            wp_redirect(add_query_arg([
+                'page'      => AdminMenu::PAGE_EVENTS,
+                'action'    => 'edit',
+                'id'        => $eventId ?: null,
+                'eim_error' => 'invitee_required',
+            ], admin_url('admin.php')) . '#eim-event-invitees');
+            exit;
+        }
+
+        Invitee::inviteToEvent($inviteeId, $eventId);
+
+        wp_redirect(add_query_arg([
+            'page'        => AdminMenu::PAGE_EVENTS,
+            'action'      => 'edit',
+            'id'          => $eventId,
+            'eim_message' => 'event_invitee_added',
+        ], admin_url('admin.php')) . '#eim-event-invitees');
+        exit;
+    }
+
+    /**
+     * Removes an invitee from an event without deleting the global invitee profile.
+     *
+     * @return void
+     */
+    private function handleRemoveInviteeFromEvent(): void
+    {
+        $eventId   = (int) ($_GET['event_id'] ?? 0);
+        $inviteeId = (int) ($_GET['invitee_id'] ?? 0);
+        $nonce     = (string) ($_GET['_wpnonce'] ?? '');
+
+        if (!wp_verify_nonce($nonce, 'eim_remove_invitee_' . $eventId . '_' . $inviteeId)) {
+            wp_die('Security check failed.');
+        }
+
+        Invitee::removeFromEvent($inviteeId, $eventId);
+
+        wp_redirect(add_query_arg([
+            'page'        => AdminMenu::PAGE_EVENTS,
+            'action'      => 'edit',
+            'id'          => $eventId,
+            'eim_message' => 'event_invitee_removed',
+        ], admin_url('admin.php')) . '#eim-event-invitees');
+        exit;
+    }
+
+    /**
+     * Sends an event invite email to a single event invitee.
+     *
+     * @return void
+     */
+    private function handleSendEventInvite(): void
+    {
+        $eventId   = (int) ($_GET['event_id'] ?? 0);
+        $inviteeId = (int) ($_GET['invitee_id'] ?? 0);
+        $nonce     = (string) ($_GET['_wpnonce'] ?? '');
+
+        if (!wp_verify_nonce($nonce, 'eim_send_event_invite_' . $eventId . '_' . $inviteeId)) {
+            wp_die('Security check failed.');
+        }
+
+        $event   = Event::find($eventId);
+        $invitee = Invitee::findForEvent($inviteeId, $eventId);
+
+        if ($event && $invitee) {
+            $sent = $this->emailService->sendInvite($event, $invitee);
+            if ($sent) {
+                Invitee::markInviteSentForEvent($inviteeId, $eventId);
+            }
+            $message = $sent ? 'invite_sent' : 'invite_failed';
+        } else {
+            $message = 'not_found';
+        }
+
+        wp_redirect(add_query_arg([
+            'page'        => AdminMenu::PAGE_EVENTS,
+            'action'      => 'edit',
+            'id'          => $eventId,
+            'eim_message' => $message,
+        ], admin_url('admin.php')) . '#eim-event-invitees');
+        exit;
+    }
+
+    /**
+     * Sends event invite emails to all event invitees who have not received one.
+     *
+     * @return void
+     */
+    private function handleSendAllEventInvites(): void
+    {
+        $eventId = (int) ($_GET['event_id'] ?? 0);
+        $nonce   = (string) ($_GET['_wpnonce'] ?? '');
+
+        if (!wp_verify_nonce($nonce, 'eim_send_all_event_invites_' . $eventId)) {
+            wp_die('Security check failed.');
+        }
+
+        $event     = Event::find($eventId);
+        $sentCount = 0;
+
+        if ($event) {
+            foreach (Invitee::forEvent($eventId) as $invitee) {
+                if ($invitee->inviteSentAt !== null) {
+                    continue;
+                }
+
+                if ($this->emailService->sendInvite($event, $invitee)) {
+                    Invitee::markInviteSentForEvent($invitee->id, $eventId);
+                    $sentCount++;
+                }
+            }
+        }
+
+        wp_redirect(add_query_arg([
+            'page'        => AdminMenu::PAGE_EVENTS,
+            'action'      => 'edit',
+            'id'          => $eventId,
+            'eim_message' => 'invites_sent',
+            'count'       => $sentCount,
+        ], admin_url('admin.php')) . '#eim-event-invitees');
+        exit;
+    }
+
+    /**
      * Renders the events list page: admin notices, calendar (when events exist), and the events table.
      *
      * @return void
@@ -410,7 +565,7 @@ final class EventsPage extends AbstractAdminPage
                                 admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=delete_event&id=' . $event->id),
                                 'eim_delete_event_' . $event->id
                             );
-                            $inviteesUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&event_id=' . $event->id);
+                            $inviteesUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=edit&id=' . $event->id . '#eim-event-invitees');
                             ?>
                             <tr>
                                 <td>
@@ -451,7 +606,7 @@ final class EventsPage extends AbstractAdminPage
                                     <a href="<?= esc_url($editUrl); ?>">Edit</a> |
                                     <a href="<?= esc_url($inviteesUrl); ?>">Invitees</a> |
                                     <a href="<?= esc_url($deleteUrl); ?>"
-                                       onclick="return confirm('Delete <?= esc_js($event->name); ?> and all its invitees? This cannot be undone.');">Delete</a>
+                                       onclick="return confirm('Delete <?= esc_js($event->name); ?> and its event invitations? Invitee profiles will not be deleted.');">Delete</a>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -955,7 +1110,130 @@ final class EventsPage extends AbstractAdminPage
 
                 <?php submit_button($isNew ? 'Create Event' : 'Update Event'); ?>
             </form>
+
+            <?php if (!$isNew): ?>
+                <?php $this->renderEventInviteesSection($event); ?>
+            <?php endif; ?>
         </div>
+        <?php
+    }
+
+    /**
+     * Renders the event-specific invitee assignment and invite status section.
+     *
+     * Invitee profiles are not edited here; this section only associates existing
+     * global invitees with the current event and handles event-specific email sends.
+     *
+     * @param Event $event
+     * @return void
+     */
+    private function renderEventInviteesSection(Event $event): void
+    {
+        $invitees   = Invitee::forEvent($event->id);
+        $dateFormat = get_option('date_format');
+        $sendAllUrl = wp_nonce_url(
+            admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=send_all_event_invites&event_id=' . $event->id),
+            'eim_send_all_event_invites_' . $event->id
+        );
+        $addInviteeUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&action=add');
+        ?>
+        <hr id="eim-event-invitees" style="margin:32px 0 20px;">
+        <h2>Invited Invitees</h2>
+        <p class="description">
+            Add existing invitees to this event here. Create or edit invitee profiles from the Invitees page.
+        </p>
+
+        <form method="post" action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS)); ?>" class="eim-event-invitee-add-form">
+            <?php wp_nonce_field('eim_add_invitee_to_event'); ?>
+            <input type="hidden" name="eim_action" value="add_invitee_to_event">
+            <input type="hidden" name="event_id" value="<?= esc_attr($event->id); ?>">
+            <input type="hidden" id="eim_event_invitee_id" name="invitee_id" value="">
+
+            <div class="eim-invitee-picker-wrap">
+                <label class="screen-reader-text" for="eim_event_invitee_search">Search invitees to add</label>
+                <input type="text"
+                       id="eim_event_invitee_search"
+                       class="regular-text"
+                       placeholder="Search existing invitees..."
+                       autocomplete="off"
+                       data-event-id="<?= esc_attr($event->id); ?>">
+                <button type="submit" class="button">Add to Event</button>
+                <a href="<?= esc_url($addInviteeUrl); ?>" class="button">Create Invitee</a>
+            </div>
+            <p id="eim_event_invitee_selected" class="description" style="margin-top:6px;"></p>
+        </form>
+
+        <?php if (!empty($invitees)): ?>
+            <p style="margin-top:14px;">
+                <a href="<?= esc_url($sendAllUrl); ?>" class="button"
+                   onclick="return confirm('Send invite emails to all event invitees who have not yet received one?');">
+                    Send All Unsent Invites
+                </a>
+            </p>
+        <?php endif; ?>
+
+        <table class="wp-list-table widefat fixed striped" style="margin-top:12px;">
+            <thead>
+                <tr>
+                    <th style="width:14%;">First Name</th>
+                    <th style="width:14%;">Last Name</th>
+                    <th style="width:22%;">Email</th>
+                    <th style="width:14%;">Phone</th>
+                    <th style="width:11%;">Invite Sent</th>
+                    <th style="width:11%;">Registered</th>
+                    <th style="width:14%;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if (empty($invitees)): ?>
+                    <tr>
+                        <td colspan="7">No invitees have been added to this event yet.</td>
+                    </tr>
+                <?php else: ?>
+                    <?php foreach ($invitees as $invitee): ?>
+                        <?php
+                        $editUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&action=edit&id=' . $invitee->id);
+                        $sendUrl = wp_nonce_url(
+                            admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=send_event_invite&event_id=' . $event->id . '&invitee_id=' . $invitee->id),
+                            'eim_send_event_invite_' . $event->id . '_' . $invitee->id
+                        );
+                        $removeUrl = wp_nonce_url(
+                            admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=remove_invitee_from_event&event_id=' . $event->id . '&invitee_id=' . $invitee->id),
+                            'eim_remove_invitee_' . $event->id . '_' . $invitee->id
+                        );
+                        ?>
+                        <tr>
+                            <td><strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($invitee->firstName); ?></a></strong></td>
+                            <td><?= esc_html($invitee->lastName); ?></td>
+                            <td><a href="mailto:<?= esc_attr($invitee->email); ?>"><?= esc_html($invitee->email); ?></a></td>
+                            <td><?= esc_html($invitee->phone ?: '-'); ?></td>
+                            <td>
+                                <?php if ($invitee->inviteSentAt): ?>
+                                    <?= esc_html(date_i18n($dateFormat, strtotime($invitee->inviteSentAt))); ?>
+                                <?php else: ?>
+                                    <span style="color:#999;">-</span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <?php if ($invitee->isRegistered): ?>
+                                    <span style="color:#00a32a;font-weight:600;">
+                                        Yes<?= $invitee->registeredAt ? ' - ' . esc_html(date_i18n($dateFormat, strtotime($invitee->registeredAt))) : ''; ?>
+                                    </span>
+                                <?php else: ?>
+                                    <span style="color:#999;">No</span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <a href="<?= esc_url($editUrl); ?>">Edit Profile</a> |
+                                <a href="<?= esc_url($sendUrl); ?>">Send Invite</a> |
+                                <a href="<?= esc_url($removeUrl); ?>"
+                                   onclick="return confirm('Remove <?= esc_js($invitee->fullName()); ?> from this event? Their invitee profile will remain.');">Remove</a>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </tbody>
+        </table>
         <?php
     }
 }

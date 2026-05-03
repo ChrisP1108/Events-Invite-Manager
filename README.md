@@ -19,10 +19,10 @@ Each event can have a single venue selected from the location library. Typing in
 Events can offer multiple lodging options to invitees. Lodging locations are selected from the library using the same autocomplete search. On new events, one or more initial lodging locations can be added at creation time; additional locations can be added or removed from the event edit screen.
 
 ### Invitees
-Add and manage invitees per event, each with a first name, last name, email address, and optional postal address. Every invitee receives a unique cryptographically generated invite code that is embedded in their personal RSVP link.
+Add and manage invitees globally, each with a first name, last name, email address, phone number, and optional postal address. The Invitees admin table supports AJAX search, sortable columns, and event tags linking to every event the person has been invited to.
 
 ### Email Invites
-Send invite emails to individual invitees or to all invitees who have not yet been sent an invite. Email subject lines and body content are fully customizable using template tags. A separate "From Name" and "From Email" can be set per event, or the site's default WordPress sender can be used.
+From an event edit screen, add existing invitees to that event and send invite emails to individual invitees or to all invitees who have not yet been sent an invite. Email subject lines and body content are fully customizable using template tags. A separate "From Name" and "From Email" can be set per event, or the site's default WordPress sender can be used.
 
 ### RSVP Confirmation Flow
 When an invitee visits their RSVP page, they enter their email address to receive a 6-digit confirmation code (valid for 15 minutes). Entering the correct code marks them as registered. This two-step flow prevents unauthorized registrations while keeping the process frictionless for genuine guests.
@@ -56,10 +56,10 @@ The events list includes a monthly calendar grid. Events with a date appear as l
 
 1. Upload the `events-invite-manager` directory to `/wp-content/plugins/`.
 2. Activate the plugin through **Plugins → Installed Plugins** in the WordPress admin.
-3. On activation, the plugin automatically creates the required database tables (`eim_events`, `eim_invitees`, `eim_locations`, `eim_location_library`).
+3. On activation, the plugin automatically creates the required database tables (`eim_events`, `eim_invitees`, `eim_event_invitees`, `eim_locations`, `eim_location_library`).
 4. Deactivating the plugin **preserves all data**. Tables are only removed by uninstalling or deleting the plugin manually.
 
-> **Note:** If you add new features that require database schema changes, deactivate and reactivate the plugin to trigger `DatabaseManager::createTables()`, which uses `dbDelta` for safe, idempotent updates.
+> **Note:** Database schema changes are applied automatically on plugin load via `DatabaseManager::maybeUpgrade()`, which uses `dbDelta` for safe, idempotent updates.
 
 ---
 
@@ -91,11 +91,11 @@ After saving, you are taken to the event edit screen where additional lodging lo
 
 ### 3 — Add invitees
 
-Open the event and click through to **Invitees**, or navigate to **Events Invite Manager → Invitees** and select the event. Add each guest with their name and email address. Each invitee automatically receives a unique invite code stored in the database.
+Navigate to **Events Invite Manager → Invitees** and add each guest with their name, email address, phone number, and optional postal address. The global invitee table can be searched via AJAX, sorted by column, and shows event tags for every event the person has been invited to.
 
 ### 4 — Send invites
 
-From the Invitees list, use **Send Invite** on an individual row, or click **Send All Unsent** to dispatch invites to every invitee who has not yet received one. Each email contains the invitee's personal RSVP link with their invite code embedded as a query parameter.
+Open the event edit screen, add existing invitees to the event's **Invited Invitees** list, then use **Send Invite** on an individual row or **Send All Unsent** to dispatch invites to every event invitee who has not yet received one. Each email contains the invitee's personal RSVP link with an event-specific invite code embedded as a query parameter.
 
 ### 5 — Build your RSVP page
 
@@ -120,7 +120,7 @@ Template tags are replaced with live values at send time. Tags are case-insensit
 | `{{ last_name }}`   | Invitee's last name |
 | `{{ full_name }}`   | First and last name combined |
 | `{{ email }}`       | Invitee's email address |
-| `{{ invite_code }}` | The invitee's unique invite code |
+| `{{ invite_code }}` | The invitee's unique invite code for this event |
 | `{{ rsvp_url }}`    | Full RSVP page URL with `?invite_code=…&event_id=…` appended |
 
 ### Confirmation code email
@@ -194,7 +194,8 @@ Verifies the confirmation code against the stored transient and marks the invite
 | Table | Description |
 |-------|-------------|
 | `{prefix}eim_events`           | Event records |
-| `{prefix}eim_invitees`         | Invitee records with unique invite codes |
+| `{prefix}eim_invitees`         | Global invitee profile records |
+| `{prefix}eim_event_invitees`   | Event invitation assignments with invite codes and registration/send status |
 | `{prefix}eim_locations`        | Venue and lodging location assignments per event |
 | `{prefix}eim_location_library` | Centralized location library (source of truth for autocomplete) |
 

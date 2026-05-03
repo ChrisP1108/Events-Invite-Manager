@@ -211,7 +211,7 @@ class RestController
             ], 200);
         }
 
-        Invitee::markRegistered($invitee->id);
+        Invitee::markRegisteredForEvent($invitee->id, $eventId);
 
         return new WP_REST_Response([
             'success' => true,

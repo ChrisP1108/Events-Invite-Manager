@@ -8,26 +8,13 @@ if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Admin\AbstractAdminPage;
 use EventsInviteManager\Admin\AdminMenu;
-use EventsInviteManager\Email\EmailService;
-use EventsInviteManager\Models\Event;
 use EventsInviteManager\Models\Invitee;
 
 /**
- * Handles invitee-related admin actions and rendering.
+ * Handles global invitee-related admin actions, rendering, and AJAX search.
  */
 final class InviteesPage extends AbstractAdminPage
 {
-    /** @var EmailService Used when sending invite emails from the admin. */
-    private EmailService $emailService;
-
-    /**
-     * @param EmailService $emailService
-     */
-    public function __construct(EmailService $emailService)
-    {
-        $this->emailService = $emailService;
-    }
-
     /**
      * Dispatches invitee-page form submissions and GET actions.
      *
@@ -39,44 +26,103 @@ final class InviteesPage extends AbstractAdminPage
         match ($action) {
             'save_invitee'   => $this->handleSaveInvitee(),
             'delete_invitee' => $this->handleDeleteInvitee(),
-            'send_invite'    => $this->handleSendInvite(),
-            'send_all'       => $this->handleSendAllInvites(),
             default          => null,
         };
     }
 
     /**
+     * Handles the wp_ajax_eim_search_invitees AJAX action for the global list table.
+     *
+     * Searches invitee profile fields and invited event names, then returns rendered
+     * table rows so the browser can replace the table body without a full page load.
+     *
+     * Expected GET params: nonce, query, sort, order.
+     * Returns JSON: { success: true, data: { html, count } }
+     *
+     * @return void
+     */
+    public function handleAjaxSearchInvitees(): void
+    {
+        check_ajax_referer('eim_search_invitees_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions.', 403);
+        }
+
+        $query = sanitize_text_field(wp_unslash($_GET['query'] ?? ''));
+        $sort  = $this->sanitizeSortKey((string) ($_GET['sort'] ?? 'last_name'));
+        $order = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
+        $rows  = Invitee::listForAdmin($query, $sort, $order);
+
+        ob_start();
+        $this->renderInviteeRows($rows);
+        $html = (string) ob_get_clean();
+
+        wp_send_json_success([
+            'html'  => $html,
+            'count' => count($rows),
+        ]);
+    }
+
+    /**
+     * Handles the wp_ajax_eim_suggest_invitees AJAX action for event invitee assignment.
+     *
+     * Searches global invitees that are not already invited to the supplied event.
+     * Used by the event edit page's autocomplete picker.
+     *
+     * Expected GET params: nonce, query, event_id.
+     * Returns JSON: { success: true, data: [ { id, name, email, phone, label }, ... ] }
+     *
+     * @return void
+     */
+    public function handleAjaxSuggestInvitees(): void
+    {
+        check_ajax_referer('eim_suggest_invitees_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions.', 403);
+        }
+
+        $query   = sanitize_text_field(wp_unslash($_GET['query'] ?? ''));
+        $eventId = (int) ($_GET['event_id'] ?? 0);
+
+        if ($eventId <= 0 || mb_strlen($query) < 2) {
+            wp_send_json_success([]);
+        }
+
+        $results = Invitee::searchAvailableForEvent($query, $eventId);
+        $payload = array_map(static fn(Invitee $invitee): array => [
+            'id'    => $invitee->id,
+            'name'  => $invitee->fullName(),
+            'email' => $invitee->email,
+            'phone' => $invitee->phone,
+            'label' => trim($invitee->fullName() . ' - ' . $invitee->email),
+        ], $results);
+
+        wp_send_json_success($payload);
+    }
+
+    /**
      * Renders the Invitees admin page, dispatching to the list or add/edit form.
      *
-     * Requires a valid event_id in the URL; shows an event picker when absent.
+     * Invitees are managed globally here. Event assignment is handled from each
+     * event's edit screen by selecting existing invitees.
      *
      * @return void
      */
     public function renderPage(): void
     {
-        $eventId = (int) ($_GET['event_id'] ?? 0);
-        $action  = $_GET['action'] ?? 'list';
-
-        if ($eventId === 0) {
-            $this->renderEventPickerFor();
-            return;
-        }
-
-        $event = Event::find($eventId);
-        if (!$event) {
-            $this->renderError('Event not found.', admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS));
-            return;
-        }
+        $action = $_GET['action'] ?? 'list';
 
         match ($action) {
-            'add'   => $this->renderInviteeForm($event, null),
-            'edit'  => $this->renderInviteeForm($event, Invitee::find((int) ($_GET['id'] ?? 0))),
-            default => $this->renderInviteesList($event),
+            'add'   => $this->renderInviteeForm(null),
+            'edit'  => $this->renderInviteeForm(Invitee::find((int) ($_GET['id'] ?? 0))),
+            default => $this->renderInviteesList(),
         };
     }
 
     /**
-     * Processes creating or updating an invitee from the admin form.
+     * Processes creating or updating an invitee profile from the admin form.
      *
      * @return void
      */
@@ -86,24 +132,21 @@ final class InviteesPage extends AbstractAdminPage
             wp_die('Security check failed.');
         }
 
-        $id      = (int) ($_POST['invitee_id'] ?? 0);
-        $eventId = (int) ($_POST['event_id'] ?? 0);
-
+        $id = (int) ($_POST['invitee_id'] ?? 0);
         $data = [
-            'event_id'       => $eventId,
-            'first_name'     => sanitize_text_field($_POST['first_name'] ?? ''),
-            'last_name'      => sanitize_text_field($_POST['last_name'] ?? ''),
-            'email'          => sanitize_email($_POST['email'] ?? ''),
-            'street_address' => sanitize_text_field($_POST['street_address'] ?? ''),
-            'city'           => sanitize_text_field($_POST['city'] ?? ''),
-            'state'          => sanitize_text_field($_POST['state'] ?? ''),
-            'zip_code'       => sanitize_text_field($_POST['zip_code'] ?? ''),
+            'first_name'     => sanitize_text_field(wp_unslash($_POST['first_name'] ?? '')),
+            'last_name'      => sanitize_text_field(wp_unslash($_POST['last_name'] ?? '')),
+            'email'          => sanitize_email(wp_unslash($_POST['email'] ?? '')),
+            'phone'          => sanitize_text_field(wp_unslash($_POST['phone'] ?? '')),
+            'street_address' => sanitize_text_field(wp_unslash($_POST['street_address'] ?? '')),
+            'city'           => sanitize_text_field(wp_unslash($_POST['city'] ?? '')),
+            'state'          => sanitize_text_field(wp_unslash($_POST['state'] ?? '')),
+            'zip_code'       => sanitize_text_field(wp_unslash($_POST['zip_code'] ?? '')),
         ];
 
         if (empty($data['first_name']) || empty($data['last_name']) || empty($data['email'])) {
             wp_redirect(add_query_arg([
                 'page'      => AdminMenu::PAGE_INVITEES,
-                'event_id'  => $eventId,
                 'action'    => $id ? 'edit' : 'add',
                 'id'        => $id ?: null,
                 'eim_error' => 'required_fields',
@@ -121,22 +164,22 @@ final class InviteesPage extends AbstractAdminPage
 
         wp_redirect(add_query_arg([
             'page'        => AdminMenu::PAGE_INVITEES,
-            'event_id'    => $eventId,
             'eim_message' => $message,
         ], admin_url('admin.php')));
         exit;
     }
 
     /**
-     * Processes deleting a single invitee via a GET request with a nonce.
+     * Processes deleting a single invitee profile via a GET request with a nonce.
+     *
+     * Deleting an invitee also removes their event invitation associations.
      *
      * @return void
      */
     private function handleDeleteInvitee(): void
     {
-        $id      = (int) ($_GET['id'] ?? 0);
-        $eventId = (int) ($_GET['event_id'] ?? 0);
-        $nonce   = (string) ($_GET['_wpnonce'] ?? '');
+        $id    = (int) ($_GET['id'] ?? 0);
+        $nonce = (string) ($_GET['_wpnonce'] ?? '');
 
         if (!wp_verify_nonce($nonce, 'eim_delete_invitee_' . $id)) {
             wp_die('Security check failed.');
@@ -146,201 +189,151 @@ final class InviteesPage extends AbstractAdminPage
 
         wp_redirect(add_query_arg([
             'page'        => AdminMenu::PAGE_INVITEES,
-            'event_id'    => $eventId,
             'eim_message' => 'invitee_deleted',
         ], admin_url('admin.php')));
         exit;
     }
 
     /**
-     * Sends an invite email to a single invitee via a GET request with a nonce.
+     * Renders the global invitees list table.
      *
      * @return void
      */
-    private function handleSendInvite(): void
+    private function renderInviteesList(): void
     {
-        $inviteeId = (int) ($_GET['id'] ?? 0);
-        $eventId   = (int) ($_GET['event_id'] ?? 0);
-        $nonce     = (string) ($_GET['_wpnonce'] ?? '');
-
-        if (!wp_verify_nonce($nonce, 'eim_send_invite_' . $inviteeId)) {
-            wp_die('Security check failed.');
-        }
-
-        $invitee = Invitee::find($inviteeId);
-        $event   = Event::find($eventId);
-
-        if ($invitee && $event) {
-            $sent    = $this->emailService->sendInvite($event, $invitee);
-            $message = $sent ? 'invite_sent' : 'invite_failed';
-            if ($sent) {
-                Invitee::markInviteSent($inviteeId);
-            }
-        } else {
-            $message = 'not_found';
-        }
-
-        wp_redirect(add_query_arg([
-            'page'        => AdminMenu::PAGE_INVITEES,
-            'event_id'    => $eventId,
-            'eim_message' => $message,
-        ], admin_url('admin.php')));
-        exit;
-    }
-
-    /**
-     * Sends invite emails to all invitees who have not yet received one.
-     *
-     * @return void
-     */
-    private function handleSendAllInvites(): void
-    {
-        $eventId = (int) ($_GET['event_id'] ?? 0);
-        $nonce   = (string) ($_GET['_wpnonce'] ?? '');
-
-        if (!wp_verify_nonce($nonce, 'eim_send_all_' . $eventId)) {
-            wp_die('Security check failed.');
-        }
-
-        $event     = Event::find($eventId);
-        $sentCount = 0;
-
-        if ($event) {
-            foreach (Invitee::forEvent($eventId) as $invitee) {
-                if ($invitee->inviteSentAt !== null) {
-                    continue;
-                }
-                if ($this->emailService->sendInvite($event, $invitee)) {
-                    Invitee::markInviteSent($invitee->id);
-                    $sentCount++;
-                }
-            }
-        }
-
-        wp_redirect(add_query_arg([
-            'page'        => AdminMenu::PAGE_INVITEES,
-            'event_id'    => $eventId,
-            'eim_message' => 'invites_sent',
-            'count'       => $sentCount,
-        ], admin_url('admin.php')));
-        exit;
-    }
-
-    /**
-     * Renders the invitees list table for a specific event.
-     *
-     * @param Event $event
-     * @return void
-     */
-    private function renderInviteesList(Event $event): void
-    {
-        $invitees   = Invitee::forEvent($event->id);
-        $message    = (string) ($_GET['eim_message'] ?? '');
-        $error      = (string) ($_GET['eim_error'] ?? '');
-        $sentCount  = (int) ($_GET['count'] ?? 0);
-        $addUrl     = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&event_id=' . $event->id . '&action=add');
-        $sendAllUrl = wp_nonce_url(
-            admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&event_id=' . $event->id . '&action=send_all'),
-            'eim_send_all_' . $event->id
-        );
-        $dateFormat = get_option('date_format');
+        $message = (string) ($_GET['eim_message'] ?? '');
+        $error   = (string) ($_GET['eim_error'] ?? '');
+        $search  = sanitize_text_field(wp_unslash($_GET['s'] ?? ''));
+        $sort    = $this->sanitizeSortKey((string) ($_GET['sort'] ?? 'last_name'));
+        $order   = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
+        $rows    = Invitee::listForAdmin($search, $sort, $order);
+        $addUrl  = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&action=add');
         ?>
         <div class="wrap">
-            <h1 class="wp-heading-inline">
-                Invitees &mdash; <?= esc_html($event->name); ?>
-            </h1>
+            <h1 class="wp-heading-inline">Invitees</h1>
             <a href="<?= esc_url($addUrl); ?>" class="page-title-action">Add Invitee</a>
-            <a href="<?= esc_url($sendAllUrl); ?>" class="page-title-action"
-               onclick="return confirm('Send invite emails to all invitees who have not yet received one?');">
-               Send All Unsent Invites
-            </a>
-            <a href="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS)); ?>" class="page-title-action">← All Events</a>
             <hr class="wp-header-end">
 
-            <?php $this->renderNotice($message, $error, $sentCount); ?>
+            <?php $this->renderNotice($message, $error); ?>
 
-            <?php if (empty($invitees)): ?>
-                <p>No invitees yet. <a href="<?= esc_url($addUrl); ?>">Add the first invitee.</a></p>
-            <?php else: ?>
-                <table class="wp-list-table widefat fixed striped">
-                    <thead>
-                        <tr>
-                            <th style="width:12%;">Name</th>
-                            <th style="width:18%;">Email</th>
-                            <th>Address</th>
-                            <th style="width:14%;">Invite Code</th>
-                            <th style="width:10%;">Invite Sent</th>
-                            <th style="width:10%;">Registered</th>
-                            <th style="width:14%;">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($invitees as $invitee): ?>
-                            <?php
-                            $editUrl   = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&event_id=' . $event->id . '&action=edit&id=' . $invitee->id);
-                            $deleteUrl = wp_nonce_url(
-                                admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&event_id=' . $event->id . '&action=delete_invitee&id=' . $invitee->id),
-                                'eim_delete_invitee_' . $invitee->id
-                            );
-                            $sendUrl   = wp_nonce_url(
-                                admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&event_id=' . $event->id . '&action=send_invite&id=' . $invitee->id),
-                                'eim_send_invite_' . $invitee->id
-                            );
-                            ?>
-                            <tr>
-                                <td><strong><?= esc_html($invitee->fullName()); ?></strong></td>
-                                <td><?= esc_html($invitee->email); ?></td>
-                                <td><?= esc_html($invitee->formattedAddress() ?: '—'); ?></td>
-                                <td><code style="font-size:11px;word-break:break-all;"><?= esc_html($invitee->inviteCode); ?></code></td>
-                                <td>
-                                    <?php if ($invitee->inviteSentAt): ?>
-                                        <?= esc_html(date_i18n($dateFormat, strtotime($invitee->inviteSentAt))); ?>
-                                    <?php else: ?>
-                                        <span style="color:#999;">—</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <?php if ($invitee->isRegistered): ?>
-                                        <span style="color:#00a32a;font-weight:600;">
-                                            ✓ <?= esc_html(date_i18n($dateFormat, strtotime($invitee->registeredAt ?? ''))); ?>
-                                        </span>
-                                    <?php else: ?>
-                                        <span style="color:#999;">No</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <a href="<?= esc_url($editUrl); ?>">Edit</a> |
-                                    <a href="<?= esc_url($sendUrl); ?>">Send Invite</a> |
-                                    <a href="<?= esc_url($deleteUrl); ?>"
-                                       onclick="return confirm('Delete <?= esc_js($invitee->fullName()); ?>?');">Delete</a>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            <?php endif; ?>
+            <p class="description" style="margin-bottom:16px;">
+                Add and edit invitee profiles here. Invite people to specific events from the event edit screen.
+            </p>
+
+            <div class="eim-invitee-table-controls">
+                <label class="screen-reader-text" for="eim-invitee-search">Search invitees</label>
+                <input type="search"
+                       id="eim-invitee-search"
+                       class="regular-text"
+                       value="<?= esc_attr($search); ?>"
+                       placeholder="Search invitees or invited events..."
+                       autocomplete="off">
+                <span id="eim-invitee-count" class="description">
+                    <?= esc_html(count($rows)); ?> result<?= count($rows) === 1 ? '' : 's'; ?>
+                </span>
+                <span id="eim-invitee-loading" class="spinner" aria-hidden="true"></span>
+            </div>
+
+            <table id="eim-invitees-table"
+                   class="wp-list-table widefat fixed striped"
+                   data-sort="<?= esc_attr($sort); ?>"
+                   data-order="<?= esc_attr($order); ?>">
+                <thead>
+                    <tr>
+                        <th style="width:14%;"><?= $this->sortLink('First Name', 'first_name', $sort, $order, $search); ?></th>
+                        <th style="width:14%;"><?= $this->sortLink('Last Name', 'last_name', $sort, $order, $search); ?></th>
+                        <th style="width:22%;"><?= $this->sortLink('Email', 'email', $sort, $order, $search); ?></th>
+                        <th style="width:14%;"><?= $this->sortLink('Phone', 'phone', $sort, $order, $search); ?></th>
+                        <th><?= $this->sortLink('Invited Events', 'events', $sort, $order, $search); ?></th>
+                        <th style="width:12%;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="eim-invitees-table-body">
+                    <?php $this->renderInviteeRows($rows); ?>
+                </tbody>
+            </table>
         </div>
         <?php
     }
 
     /**
-     * Renders the add/edit invitee form for a specific event.
+     * Renders invitee table rows for both the initial page load and AJAX responses.
      *
-     * @param Event        $event
+     * @param array<int, array{invitee: Invitee, events: array<int, array{id: int, name: string}>}> $rows
+     * @return void
+     */
+    private function renderInviteeRows(array $rows): void
+    {
+        if (empty($rows)) {
+            ?>
+            <tr class="eim-no-results">
+                <td colspan="6">No invitees found.</td>
+            </tr>
+            <?php
+            return;
+        }
+
+        foreach ($rows as $row) {
+            /** @var Invitee $invitee */
+            $invitee = $row['invitee'];
+            $editUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&action=edit&id=' . $invitee->id);
+            $deleteUrl = wp_nonce_url(
+                admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&action=delete_invitee&id=' . $invitee->id),
+                'eim_delete_invitee_' . $invitee->id
+            );
+            ?>
+            <tr>
+                <td><a href="<?= esc_url($editUrl); ?>"><?= esc_html($invitee->firstName); ?></a></td>
+                <td><a href="<?= esc_url($editUrl); ?>"><?= esc_html($invitee->lastName); ?></a></td>
+                <td><a href="mailto:<?= esc_attr($invitee->email); ?>"><?= esc_html($invitee->email); ?></a></td>
+                <td><a href="tel:<?= esc_html($invitee->phone ?: '-');?>"><?= esc_html(str_replace('-', '', $invitee->phone)); ?></a></td>
+                <td>
+                    <?php if (empty($row['events'])): ?>
+                        <span style="color:#999;">Not invited yet</span>
+                    <?php else: ?>
+                        <span class="eim-tag-list">
+                            <?php foreach ($row['events'] as $event): ?>
+                                <?php $eventUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=edit&id=' . $event['id'] . '#eim-event-invitees'); ?>
+                                <a class="eim-event-tag" href="<?= esc_url($eventUrl); ?>">
+                                    <?= esc_html($event['name']); ?>
+                                </a>
+                            <?php endforeach; ?>
+                        </span>
+                    <?php endif; ?>
+                </td>
+                <td>
+                    <a href="<?= esc_url($editUrl); ?>">Edit</a> |
+                    <a href="<?= esc_url($deleteUrl); ?>"
+                       onclick="return confirm('Delete <?= esc_js($invitee->fullName()); ?> and remove them from all events?');">Delete</a>
+                </td>
+            </tr>
+            <?php
+        }
+    }
+
+    /**
+     * Renders the add/edit invitee profile form.
+     *
      * @param Invitee|null $invitee Existing invitee to edit, or null when adding a new one.
      * @return void
      */
-    private function renderInviteeForm(Event $event, ?Invitee $invitee): void
+    private function renderInviteeForm(?Invitee $invitee): void
     {
+        if (isset($_GET['id']) && $invitee === null) {
+            $this->renderError('Invitee not found.', admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES));
+            return;
+        }
+
         $isNew   = $invitee === null;
         $message = (string) ($_GET['eim_message'] ?? '');
         $error   = (string) ($_GET['eim_error'] ?? '');
-        $backUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&event_id=' . $event->id);
+        $backUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES);
         $title   = $isNew ? 'Add Invitee' : 'Edit Invitee';
+        $events  = $isNew ? [] : Invitee::eventsForInvitee($invitee->id);
         ?>
         <div class="wrap">
-            <h1><?= esc_html($title); ?> &mdash; <?= esc_html($event->name); ?></h1>
-            <a href="<?= esc_url($backUrl); ?>">← Back to Invitees</a>
+            <h1><?= esc_html($title); ?></h1>
+            <a href="<?= esc_url($backUrl); ?>">Back to Invitees</a>
             <hr class="wp-header-end">
 
             <?php $this->renderNotice($message, $error); ?>
@@ -349,7 +342,6 @@ final class InviteesPage extends AbstractAdminPage
                 <?php wp_nonce_field('eim_save_invitee'); ?>
                 <input type="hidden" name="eim_action" value="save_invitee">
                 <input type="hidden" name="invitee_id" value="<?= esc_attr($isNew ? 0 : $invitee->id); ?>">
-                <input type="hidden" name="event_id" value="<?= esc_attr($event->id); ?>">
 
                 <table class="form-table" role="presentation">
                     <tr>
@@ -377,6 +369,15 @@ final class InviteesPage extends AbstractAdminPage
                         <td>
                             <input type="email" id="eim_email" name="email" class="regular-text"
                                    value="<?= esc_attr($isNew ? '' : $invitee->email); ?>" required>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">
+                            <label for="eim_phone">Phone</label>
+                        </th>
+                        <td>
+                            <input type="tel" id="eim_phone" name="phone" class="regular-text"
+                                   value="<?= esc_attr($isNew ? '' : $invitee->phone); ?>">
                         </td>
                     </tr>
                     <tr>
@@ -417,10 +418,21 @@ final class InviteesPage extends AbstractAdminPage
                     </tr>
                     <?php if (!$isNew): ?>
                         <tr>
-                            <th scope="row">Invite Code</th>
+                            <th scope="row">Invited Events</th>
                             <td>
-                                <code><?= esc_html($invitee->inviteCode); ?></code>
-                                <p class="description">Generated automatically at creation; cannot be changed.</p>
+                                <?php if (empty($events)): ?>
+                                    <span style="color:#999;">Not invited to any events yet.</span>
+                                <?php else: ?>
+                                    <span class="eim-tag-list">
+                                        <?php foreach ($events as $event): ?>
+                                            <?php $eventUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=edit&id=' . $event['id'] . '#eim-event-invitees'); ?>
+                                            <a class="eim-event-tag" href="<?= esc_url($eventUrl); ?>">
+                                                <?= esc_html($event['name']); ?>
+                                            </a>
+                                        <?php endforeach; ?>
+                                    </span>
+                                <?php endif; ?>
+                                <p class="description">Add or remove this invitee from events on each event edit screen.</p>
                             </td>
                         </tr>
                     <?php endif; ?>
@@ -430,5 +442,63 @@ final class InviteesPage extends AbstractAdminPage
             </form>
         </div>
         <?php
+    }
+
+    /**
+     * Builds a sortable table header link with AJAX data attributes and GET fallback.
+     *
+     * @param string $label
+     * @param string $key
+     * @param string $currentSort
+     * @param string $currentOrder
+     * @param string $search
+     * @return string
+     */
+    private function sortLink(string $label, string $key, string $currentSort, string $currentOrder, string $search): string
+    {
+        $isCurrent = $currentSort === $key;
+        $nextOrder = $isCurrent && $currentOrder === 'asc' ? 'desc' : 'asc';
+        $url = add_query_arg([
+            'page'  => AdminMenu::PAGE_INVITEES,
+            'sort'  => $key,
+            'order' => $nextOrder,
+            's'     => $search !== '' ? $search : null,
+        ], admin_url('admin.php'));
+        $indicator = $isCurrent ? ($currentOrder === 'asc' ? '^' : 'v') : '';
+
+        return sprintf(
+            '<a href="%s" class="eim-sort-link" data-sort="%s" data-order="%s">%s <span aria-hidden="true">%s</span></a>',
+            esc_url($url),
+            esc_attr($key),
+            esc_attr($nextOrder),
+            esc_html($label),
+            esc_html($indicator)
+        );
+    }
+
+    /**
+     * Sanitizes an invitee table sort key against the allowed column list.
+     *
+     * @param string $key
+     * @return string
+     */
+    private function sanitizeSortKey(string $key): string
+    {
+        $key = sanitize_key($key);
+
+        return in_array($key, ['first_name', 'last_name', 'email', 'phone', 'events'], true)
+            ? $key
+            : 'last_name';
+    }
+
+    /**
+     * Sanitizes an invitee table sort direction.
+     *
+     * @param string $order
+     * @return string
+     */
+    private function sanitizeSortOrder(string $order): string
+    {
+        return strtolower($order) === 'desc' ? 'desc' : 'asc';
     }
 }

@@ -53,8 +53,8 @@ final class AdminMenu
         $emailService = new EmailService(new TemplateRenderer());
 
         $this->aboutPage     = new AboutPage();
-        $this->eventsPage    = new EventsPage();
-        $this->inviteesPage  = new InviteesPage($emailService);
+        $this->eventsPage    = new EventsPage($emailService);
+        $this->inviteesPage  = new InviteesPage();
         $this->locationsPage = new LocationsPage();
     }
 
@@ -69,6 +69,8 @@ final class AdminMenu
         add_action('admin_init',            [$this, 'processFormSubmissions']);
         add_action('admin_enqueue_scripts', [$this, 'enqueueScripts']);
         add_action('wp_ajax_eim_search_locations', [$this->locationsPage, 'handleAjaxSearchLocations']);
+        add_action('wp_ajax_eim_search_invitees',  [$this->inviteesPage, 'handleAjaxSearchInvitees']);
+        add_action('wp_ajax_eim_suggest_invitees', [$this->inviteesPage, 'handleAjaxSuggestInvitees']);
         add_filter('script_loader_tag',     [$this, 'addModuleTypeToScript'], 10, 2);
     }
 
@@ -95,9 +97,9 @@ final class AdminMenu
     /**
      * Enqueues admin assets for the plugin pages.
      *
-     * The shared admin stylesheet loads on all plugin pages. The location
-     * autocomplete script loads on the event add/edit screen with configs for
-     * both the venue field and the inline lodging-add field.
+     * The shared admin stylesheet loads on all plugin pages. Location autocomplete
+     * loads on event add/edit screens. Invitee search loads on the Invitees page
+     * and event edit screens where existing invitees can be assigned to events.
      *
      * @param string $_hookSuffix Current admin page hook suffix (unused; we check $_GET directly).
      * @return void
@@ -117,6 +119,30 @@ final class AdminMenu
             [],
             EIM_VERSION
         );
+
+        if ($page === self::PAGE_INVITEES || ($page === self::PAGE_EVENTS && $action === 'edit')) {
+            wp_enqueue_script(
+                'eim-admin-invitees',
+                EIM_PLUGIN_URL . 'assets/js/admin-invitees.js',
+                [],
+                EIM_VERSION,
+                true
+            );
+
+            wp_localize_script('eim-admin-invitees', 'eimInviteesAdmin', [
+                'searchNonce'  => wp_create_nonce('eim_search_invitees_nonce'),
+                'suggestNonce' => wp_create_nonce('eim_suggest_invitees_nonce'),
+                'table'        => [
+                    'enabled' => $page === self::PAGE_INVITEES,
+                    'sort'    => sanitize_key($_GET['sort'] ?? 'last_name'),
+                    'order'   => strtolower((string) ($_GET['order'] ?? 'asc')) === 'desc' ? 'desc' : 'asc',
+                ],
+                'event'        => [
+                    'enabled' => $page === self::PAGE_EVENTS && $action === 'edit',
+                    'id'      => (int) ($_GET['id'] ?? 0),
+                ],
+            ]);
+        }
 
         if ($page !== self::PAGE_EVENTS || !in_array($action, ['add', 'edit'], true)) {
             return;

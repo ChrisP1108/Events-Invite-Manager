@@ -150,7 +150,7 @@ final class Event
     }
 
     /**
-     * Deletes an event and all of its associated invitees and lodging locations.
+     * Deletes an event and all of its invitation associations and lodging locations.
      *
      * @param int $id
      * @return bool
@@ -159,7 +159,7 @@ final class Event
     {
         global $wpdb;
 
-        $wpdb->delete(DatabaseManager::inviteesTable(), ['event_id' => $id]);
+        $wpdb->delete(DatabaseManager::eventInviteesTable(), ['event_id' => $id]);
         Location::deleteForEvent($id);
         $result = $wpdb->delete(DatabaseManager::eventsTable(), ['id' => $id]);
 
@@ -175,7 +175,7 @@ final class Event
     {
         global $wpdb;
 
-        $table = DatabaseManager::inviteesTable();
+        $table = DatabaseManager::eventInviteesTable();
 
         return (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$table} WHERE event_id = %d", $this->id));
     }
@@ -189,7 +189,7 @@ final class Event
     {
         global $wpdb;
 
-        $table = DatabaseManager::inviteesTable();
+        $table = DatabaseManager::eventInviteesTable();
 
         return (int) $wpdb->get_var(
             $wpdb->prepare("SELECT COUNT(*) FROM {$table} WHERE event_id = %d AND is_registered = 1", $this->id)

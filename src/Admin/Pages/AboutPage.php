@@ -151,8 +151,8 @@ final class AboutPage extends AbstractAdminPage
                     <div>
                         <h3>Add your invitees</h3>
                         <p>
-                            Open the event's <strong>Invitees</strong> list and add each guest with their name and email address.
-                            Every invitee receives a unique invite code automatically — no manual code management required.
+                            Go to <strong>Invitees</strong> and add each guest with their name, email address, and optional phone/address details.
+                            The searchable invitee table also shows which events each person has been invited to.
                             <a href="<?= esc_url($inviteesUrl); ?>">Go to Invitees →</a>
                         </p>
                     </div>
@@ -163,9 +163,9 @@ final class AboutPage extends AbstractAdminPage
                     <div>
                         <h3>Send invites</h3>
                         <p>
-                            From the Invitees list, click <strong>Send Invite</strong> for an individual guest or use
-                            <strong>Send All Unsent</strong> to dispatch to everyone who hasn't received an invite yet.
-                            Each email contains the guest's personal RSVP link with their invite code embedded.
+                            Open an event, add existing invitees to its <strong>Invited Invitees</strong> list, then click
+                            <strong>Send Invite</strong> for an individual guest or <strong>Send All Unsent</strong>.
+                            Each event invitation receives its own unique RSVP invite code automatically.
                         </p>
                     </div>
                 </div>
@@ -219,7 +219,7 @@ final class AboutPage extends AbstractAdminPage
             [
                 'icon'  => 'dashicons-groups',
                 'title' => 'Invitee Management',
-                'body'  => 'Add guests with name, email, and optional address. Every invitee gets a unique cryptographically generated invite code embedded in their personal RSVP link.',
+                'body'  => 'Add guests globally with name, email, phone, and optional address. The Invitees table supports AJAX search, sortable columns, and event tags linking back to each event.',
             ],
             [
                 'icon'  => 'dashicons-email-alt',

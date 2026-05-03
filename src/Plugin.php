@@ -8,6 +8,7 @@ if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Admin\AdminMenu;
 use EventsInviteManager\Api\RestController;
+use EventsInviteManager\Database\DatabaseManager;
 use EventsInviteManager\Updates\GitHubUpdater;
 
 /**
@@ -54,6 +55,8 @@ final class Plugin
      */
     public function init(): void
     {
+        DatabaseManager::maybeUpgrade();
+
         $this->adminMenu      = new AdminMenu();
         $this->restController = new RestController();
 
