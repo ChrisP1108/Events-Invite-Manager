@@ -8,6 +8,7 @@ if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Admin\AdminMenu;
 use EventsInviteManager\Api\RestController;
+use EventsInviteManager\Updates\GitHubUpdater;
 
 /**
  * Main plugin bootstrap class.
@@ -58,6 +59,7 @@ final class Plugin
 
         $this->adminMenu->register();
         $this->restController->register();
+        GitHubUpdater::init();
     }
 
     /**
