@@ -1,0 +1,17 @@
+.sub-heading {
+    display: block;
+    padding: 0px !important;
+    margin: 32px 0 24px !important;
+}
+
+.sub-heading * {
+    margin: 0;
+}
+
+.form-table :is(th, td) {
+    padding: 20px;
+}
+
+h1 {
+    padding: 0 !important;
+}
