@@ -1,16 +1,23 @@
 /**
  * Entry point for the location autocomplete system.
  *
- * Uses a dynamic import() so this file works correctly whether WordPress
- * serves it as a plain script or as a type="module" script. Static import
- * statements require type="module" on the <script> tag; dynamic import()
- * is valid in any JavaScript context and resolves module paths relative to
- * this file's URL, so the module files in ./modules/ still benefit from full
- * ES module scope (strict mode, private imports, etc.).
+ * The module path is constructed from the baseUrl value injected by
+ * wp_localize_script rather than from a relative path. Relative paths in
+ * dynamic import() resolve against the document URL when the script runs
+ * without type="module", which points at the WordPress admin directory rather
+ * than the plugin's assets directory, producing a 404. Using an absolute URL
+ * bypasses that resolution ambiguity and works correctly in both module and
+ * non-module script contexts.
  */
 (async () => {
     'use strict';
 
-    const { LocationAutocompleteApp } = await import('./modules/LocationAutocompleteApp.js');
+    const baseUrl = window.eimLocationAC?.baseUrl;
+    if (!baseUrl) return;
+
+    const { LocationAutocompleteApp } = await import(
+        `${baseUrl}/modules/LocationAutocompleteApp.js`
+    );
+
     new LocationAutocompleteApp();
 })();

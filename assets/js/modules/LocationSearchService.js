@@ -31,7 +31,13 @@ export class LocationSearchService {
         if (query.length < 2) return [];
 
         try {
-            const url = new URL(ajaxurl);
+            // Use window.location.href as the base so the constructor handles both
+            // absolute URLs (https://site.local/wp-admin/admin-ajax.php) and the
+            // root-relative path (/wp-admin/admin-ajax.php) that WordPress uses in
+            // some configurations. Passing only the first argument fails on relative
+            // strings because URL requires an absolute base when no second argument
+            // is supplied.
+            const url = new URL(ajaxurl, window.location.href);
             url.searchParams.set('action', 'eim_search_locations');
             url.searchParams.set('nonce',  this.#nonce);
             url.searchParams.set('query',  query);
@@ -40,7 +46,8 @@ export class LocationSearchService {
             const { success, data } = await response.json();
 
             return success && data.length > 0 ? data : [];
-        } catch {
+        } catch (err) {
+            console.error('[EIM] Location search failed:', err);
             return [];
         }
     }

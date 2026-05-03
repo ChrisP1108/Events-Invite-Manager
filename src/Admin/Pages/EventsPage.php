@@ -841,38 +841,44 @@ final class EventsPage extends AbstractAdminPage
                             <th scope="row">Lodging Locations</th>
                             <td>
                                 <div id="eim-lodging-init-rows">
-                                    <div class="eim-lodging-init-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+                                    <div class="eim-lodging-init-row" style="margin-bottom:8px;">
                                         <input type="hidden" class="eim-lodging-init-library-id" name="lodging_init_library_id[]" value="">
                                         <input type="hidden" class="eim-lodging-init-street"     name="lodging_init_street[]">
                                         <input type="hidden" class="eim-lodging-init-city"       name="lodging_init_city[]">
                                         <input type="hidden" class="eim-lodging-init-state"      name="lodging_init_state[]">
                                         <input type="hidden" class="eim-lodging-init-zip"        name="lodging_init_zip[]">
                                         <input type="hidden" class="eim-lodging-init-is-other"   name="lodging_init_is_other[]" value="">
-                                        <input type="text" class="eim-lodging-init-name regular-text"
-                                               name="lodging_init_name[]" placeholder="Search locations library…" autocomplete="off">
-                                        <label style="white-space:nowrap;">Order:
-                                            <input type="number" class="eim-lodging-init-sort" name="lodging_init_sort[]" value="0" min="0" style="width:58px;">
-                                        </label>
-                                        <button type="button" class="button eim-remove-lodging-row">Remove</button>
+                                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">
+                                            <input type="text" class="eim-lodging-init-name regular-text"
+                                                   name="lodging_init_name[]" placeholder="Search locations library…" autocomplete="off">
+                                            <label style="white-space:nowrap;">Order:
+                                                <input type="number" class="eim-lodging-init-sort" name="lodging_init_sort[]" value="0" min="0" style="width:58px;">
+                                            </label>
+                                            <button type="button" class="button eim-remove-lodging-row">Remove</button>
+                                        </div>
+                                        <p class="eim-lodging-init-display" style="margin:0;color:#3c434a;font-size:13px;display:none;"></p>
                                     </div>
                                 </div>
                                 <button type="button" id="eim-add-lodging-row" class="button" style="margin-bottom:8px;">+ Add Another Location</button>
                                 <p class="description">Optional. Select locations from the library. More can be added after saving.</p>
 
                                 <template id="eim-lodging-init-row-template">
-                                    <div class="eim-lodging-init-row" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+                                    <div class="eim-lodging-init-row" style="margin-bottom:8px;">
                                         <input type="hidden" class="eim-lodging-init-library-id" name="lodging_init_library_id[]" value="">
                                         <input type="hidden" class="eim-lodging-init-street"     name="lodging_init_street[]">
                                         <input type="hidden" class="eim-lodging-init-city"       name="lodging_init_city[]">
                                         <input type="hidden" class="eim-lodging-init-state"      name="lodging_init_state[]">
                                         <input type="hidden" class="eim-lodging-init-zip"        name="lodging_init_zip[]">
                                         <input type="hidden" class="eim-lodging-init-is-other"   name="lodging_init_is_other[]" value="">
-                                        <input type="text" class="eim-lodging-init-name regular-text"
-                                               name="lodging_init_name[]" placeholder="Search locations library…" autocomplete="off">
-                                        <label style="white-space:nowrap;">Order:
-                                            <input type="number" class="eim-lodging-init-sort" name="lodging_init_sort[]" value="0" min="0" style="width:58px;">
-                                        </label>
-                                        <button type="button" class="button eim-remove-lodging-row">Remove</button>
+                                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">
+                                            <input type="text" class="eim-lodging-init-name regular-text"
+                                                   name="lodging_init_name[]" placeholder="Search locations library…" autocomplete="off">
+                                            <label style="white-space:nowrap;">Order:
+                                                <input type="number" class="eim-lodging-init-sort" name="lodging_init_sort[]" value="0" min="0" style="width:58px;">
+                                            </label>
+                                            <button type="button" class="button eim-remove-lodging-row">Remove</button>
+                                        </div>
+                                        <p class="eim-lodging-init-display" style="margin:0;color:#3c434a;font-size:13px;display:none;"></p>
                                     </div>
                                 </template>
                             </td>
@@ -939,6 +945,7 @@ final class EventsPage extends AbstractAdminPage
                                         </label>
                                         <button type="submit" class="button">Add Location</button>
                                     </div>
+                                    <p id="eim_lodging_add_display" style="margin:4px 0 0;color:#3c434a;font-size:13px;display:none;"></p>
                                     <p class="description">Start typing to search the locations library.</p>
                                 </form>
                             </td>

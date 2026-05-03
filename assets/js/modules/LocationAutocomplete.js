@@ -117,7 +117,6 @@ export class LocationAutocomplete {
                 ? 'Please select a location from the library.'
                 : ''
         );
-
         clearTimeout(this.#debounceTimer);
         this.#debounceTimer = setTimeout(() => this.#doSearch(this.#nameInput.value.trim()), 300);
     }

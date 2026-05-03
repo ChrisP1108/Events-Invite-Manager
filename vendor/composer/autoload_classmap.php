@@ -7,17 +7,4 @@ $baseDir = dirname($vendorDir);
 
 return array(
     'Composer\\InstalledVersions' => $vendorDir . '/composer/InstalledVersions.php',
-    'EventsInviteManager\\Admin\\AbstractAdminPage' => $baseDir . '/src/Admin/AbstractAdminPage.php',
-    'EventsInviteManager\\Admin\\AdminMenu' => $baseDir . '/src/Admin/AdminMenu.php',
-    'EventsInviteManager\\Admin\\Pages\\EventsPage' => $baseDir . '/src/Admin/Pages/EventsPage.php',
-    'EventsInviteManager\\Admin\\Pages\\InviteesPage' => $baseDir . '/src/Admin/Pages/InviteesPage.php',
-    'EventsInviteManager\\Admin\\Pages\\LodgingPage' => $baseDir . '/src/Admin/Pages/LodgingPage.php',
-    'EventsInviteManager\\Api\\RestController' => $baseDir . '/src/Api/RestController.php',
-    'EventsInviteManager\\Database\\DatabaseManager' => $baseDir . '/src/Database/DatabaseManager.php',
-    'EventsInviteManager\\Email\\EmailService' => $baseDir . '/src/Email/EmailService.php',
-    'EventsInviteManager\\Email\\TemplateRenderer' => $baseDir . '/src/Email/TemplateRenderer.php',
-    'EventsInviteManager\\Models\\Event' => $baseDir . '/src/Models/Event.php',
-    'EventsInviteManager\\Models\\Invitee' => $baseDir . '/src/Models/Invitee.php',
-    'EventsInviteManager\\Models\\Location' => $baseDir . '/src/Models/Location.php',
-    'EventsInviteManager\\Plugin' => $baseDir . '/src/Plugin.php',
 );

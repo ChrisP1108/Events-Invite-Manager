@@ -73,6 +73,7 @@ export class LodgingRowManager {
                 return selector ? rowEl.querySelector(selector) : null;
             },
             libraryIdEl:   rowEl.querySelector('.eim-lodging-init-library-id'),
+            displayEl:     rowEl.querySelector('.eim-lodging-init-display'),
             searchService: this.#searchService,
         });
     }

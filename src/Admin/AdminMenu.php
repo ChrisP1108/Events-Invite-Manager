@@ -135,8 +135,9 @@ final class AdminMenu
         // row manager via the #eim-lodging-init-rows container.
         // The JS silently skips any inputId not present in the DOM.
         wp_localize_script('eim-location-autocomplete', 'eimLocationAC', [
-            'nonce'  => wp_create_nonce('eim_search_locations_nonce'),
-            'inputs' => [
+            'nonce'   => wp_create_nonce('eim_search_locations_nonce'),
+            'baseUrl' => rtrim(EIM_PLUGIN_URL, '/') . '/assets/js',
+            'inputs'  => [
                 [
                     'inputId'     => 'eim_venue_name',
                     'libraryIdId' => 'eim_venue_library_id',
@@ -152,6 +153,7 @@ final class AdminMenu
                 [
                     'inputId'     => 'eim_lodging_add_name',
                     'libraryIdId' => 'eim_lodging_add_library_id',
+                    'displayId'   => 'eim_lodging_add_display',
                     'fields'      => [
                         'street'  => 'eim_lodging_add_street',
                         'city'    => 'eim_lodging_add_city',
@@ -276,15 +278,5 @@ final class AdminMenu
     public function renderLocationsPage(): void
     {
         $this->locationsPage->renderPage();
-    }
-
-    /**
-     * Renders the About / documentation admin page.
-     *
-     * @return void
-     */
-    public function renderAboutPage(): void
-    {
-        $this->aboutPage->renderPage();
     }
 }
