@@ -21,26 +21,25 @@ export class LocationSearchService {
     /**
      * Searches the location library for entries whose name contains the query.
      *
+     * Pass lodgingOnly = true to restrict results to locations marked as having
+     * lodging — used by the lodging autocomplete fields on event forms.
+     *
      * Returns an empty array when the query is fewer than two characters, when
      * the server reports no matches, or when a network error occurs.
      *
-     * @param {string} query  Partial location name to search for.
+     * @param {string}  query        Partial location name to search for.
+     * @param {boolean} lodgingOnly  When true, only lodging-enabled locations are returned.
      * @returns {Promise<Array<object>>}  Matching location objects from the server.
      */
-    async search(query) {
+    async search(query, lodgingOnly = false) {
         if (query.length < 2) return [];
 
         try {
-            // Use window.location.href as the base so the constructor handles both
-            // absolute URLs (https://site.local/wp-admin/admin-ajax.php) and the
-            // root-relative path (/wp-admin/admin-ajax.php) that WordPress uses in
-            // some configurations. Passing only the first argument fails on relative
-            // strings because URL requires an absolute base when no second argument
-            // is supplied.
             const url = new URL(ajaxurl, window.location.href);
             url.searchParams.set('action', 'eim_search_locations');
             url.searchParams.set('nonce',  this.#nonce);
             url.searchParams.set('query',  query);
+            if (lodgingOnly) url.searchParams.set('lodging_only', '1');
 
             const response          = await fetch(url);
             const { success, data } = await response.json();

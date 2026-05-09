@@ -24,6 +24,8 @@ final class LocationLibrary
         public readonly string $state,
         public readonly string $zipCode,
         public readonly bool   $isOther,
+        public readonly bool   $hasLodging,
+        public readonly string $bookingUrl,
         public readonly string $createdAt,
     ) {}
 
@@ -93,26 +95,34 @@ final class LocationLibrary
     /**
      * Searches for library locations whose name matches the given query string.
      *
+     * Pass $lodgingOnly = true to restrict results to locations that have been
+     * marked as having lodging — used by the lodging autocomplete on event forms.
+     *
      * Returns an array of plain associative arrays suitable for JSON encoding.
      *
-     * @param string $query Minimum 2 characters.
-     * @param int    $limit Maximum number of results.
+     * @param string $query      Minimum 2 characters.
+     * @param int    $limit      Maximum number of results.
+     * @param bool   $lodgingOnly When true, only returns locations with has_lodging = 1.
      * @return array<int, array<string, mixed>>
      */
-    public static function search(string $query, int $limit = 10): array
+    public static function search(string $query, int $limit = 10, bool $lodgingOnly = false): array
     {
         global $wpdb;
 
         $table = DatabaseManager::locationLibraryTable();
         $like  = '%' . $wpdb->esc_like($query) . '%';
 
-        $rows = $wpdb->get_results(
-            $wpdb->prepare(
+        $sql = $lodgingOnly
+            ? $wpdb->prepare(
+                "SELECT * FROM {$table} WHERE name LIKE %s AND has_lodging = 1 ORDER BY name ASC, city ASC LIMIT %d",
+                $like, $limit
+              )
+            : $wpdb->prepare(
                 "SELECT * FROM {$table} WHERE name LIKE %s ORDER BY name ASC, city ASC LIMIT %d",
-                $like,
-                $limit
-            )
-        );
+                $like, $limit
+              );
+
+        $rows = $wpdb->get_results($sql);
 
         return array_map(static function (object $row): array {
             $isOther = (bool) $row->is_other;
@@ -124,13 +134,15 @@ final class LocationLibrary
             ]));
 
             return [
-                'id'             => (int) $row->id,
-                'name'           => $row->name,
-                'street_address' => $row->street_address ?? '',
-                'city'           => $row->city           ?? '',
-                'state'          => $row->state          ?? '',
-                'zip_code'       => $row->zip_code       ?? '',
+                'id'             => (int)  $row->id,
+                'name'           =>        $row->name,
+                'street_address' =>        $row->street_address ?? '',
+                'city'           =>        $row->city           ?? '',
+                'state'          =>        $row->state          ?? '',
+                'zip_code'       =>        $row->zip_code       ?? '',
                 'is_other'       => $isOther,
+                'has_lodging'    => (bool) ($row->has_lodging   ?? false),
+                'booking_url'    =>        $row->booking_url    ?? '',
                 'label'          => $isOther
                     ? $row->name . ' (Other)'
                     : ($address ? $row->name . ' — ' . $address : $row->name),
@@ -157,6 +169,8 @@ final class LocationLibrary
             'state'          => $isOther ? '' : ($data['state']          ?? ''),
             'zip_code'       => $isOther ? '' : ($data['zip_code']       ?? ''),
             'is_other'       => $isOther ? 1 : 0,
+            'has_lodging'    => !empty($data['has_lodging']) ? 1 : 0,
+            'booking_url'    => $data['booking_url'] ?? '',
         ]);
 
         return $result ? (int) $wpdb->insert_id : false;
@@ -186,6 +200,8 @@ final class LocationLibrary
                 'state'          => $isOther ? '' : ($data['state']          ?? ''),
                 'zip_code'       => $isOther ? '' : ($data['zip_code']       ?? ''),
                 'is_other'       => $isOther ? 1 : 0,
+                'has_lodging'    => !empty($data['has_lodging']) ? 1 : 0,
+                'booking_url'    => $data['booking_url'] ?? '',
             ],
             ['id' => $id]
         );
@@ -242,7 +258,9 @@ final class LocationLibrary
             city:                 $row->city           ?? '',
             state:                $row->state          ?? '',
             zipCode:              $row->zip_code       ?? '',
-            isOther:       (bool) $row->is_other,
+            isOther:       (bool) ($row->is_other      ?? false),
+            hasLodging:    (bool) ($row->has_lodging   ?? false),
+            bookingUrl:           $row->booking_url    ?? '',
             createdAt:            $row->created_at     ?? '',
         );
     }

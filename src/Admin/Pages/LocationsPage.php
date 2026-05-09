@@ -52,13 +52,14 @@ final class LocationsPage extends AbstractAdminPage
             wp_send_json_error('Insufficient permissions.', 403);
         }
 
-        $query = sanitize_text_field($_GET['query'] ?? '');
+        $query      = sanitize_text_field($_GET['query'] ?? '');
+        $lodgingOnly = !empty($_GET['lodging_only']);
 
         if (mb_strlen($query) < 2) {
             wp_send_json_success([]);
         }
 
-        wp_send_json_success(LocationLibrary::search($query));
+        wp_send_json_success(LocationLibrary::search($query, 10, $lodgingOnly));
     }
 
     /**
@@ -98,6 +99,8 @@ final class LocationsPage extends AbstractAdminPage
             'city'           => sanitize_text_field($_POST['city'] ?? ''),
             'state'          => sanitize_text_field($_POST['state'] ?? ''),
             'zip_code'       => sanitize_text_field($_POST['zip_code'] ?? ''),
+            'has_lodging'    => !empty($_POST['has_lodging']),
+            'booking_url'    => esc_url_raw($_POST['booking_url'] ?? ''),
         ];
 
         if (empty($data['name'])) {
@@ -177,9 +180,10 @@ final class LocationsPage extends AbstractAdminPage
                 <table class="wp-list-table widefat fixed striped">
                     <thead>
                         <tr>
-                            <th style="width:30%;">Name</th>
-                            <th style="width:15%;">Type</th>
-                            <th>Address</th>
+                            <th style="width:28%;">Name</th>
+                            <th style="width:14%;">Type</th>
+                            <th style="width:12%;">Lodging</th>
+                            <th>Address / Booking</th>
                             <th style="width:18%;">Actions</th>
                         </tr>
                     </thead>
@@ -198,10 +202,22 @@ final class LocationsPage extends AbstractAdminPage
                                     <?php if ($loc->isOther): ?>
                                         <span style="background:#f0f0f1;padding:2px 8px;border-radius:3px;font-size:12px;">Other</span>
                                     <?php else: ?>
-                                        <span style="background:#dff0d8;padding:2px 8px;border-radius:3px;font-size:12px;">Specific Location</span>
+                                        <span style="background:#dff0d8;padding:2px 8px;border-radius:3px;font-size:12px;">Specific</span>
                                     <?php endif; ?>
                                 </td>
-                                <td><?= esc_html($loc->formattedAddress() ?: '—'); ?></td>
+                                <td>
+                                    <?php if ($loc->hasLodging): ?>
+                                        <span style="background:#d7f2ff;padding:2px 8px;border-radius:3px;font-size:12px;">Yes</span>
+                                    <?php else: ?>
+                                        <span style="color:#999;font-size:12px;">—</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?= esc_html($loc->formattedAddress() ?: '—'); ?>
+                                    <?php if ($loc->hasLodging && $loc->bookingUrl): ?>
+                                        <br><a href="<?= esc_url($loc->bookingUrl); ?>" target="_blank" rel="noopener" style="font-size:12px;">Book →</a>
+                                    <?php endif; ?>
+                                </td>
                                 <td>
                                     <a href="<?= esc_url($editUrl); ?>">Edit</a> |
                                     <a href="<?= esc_url($deleteUrl); ?>"
@@ -262,6 +278,27 @@ final class LocationsPage extends AbstractAdminPage
                                        onchange="document.getElementById('eim-lib-address-fields').style.display = this.checked ? 'none' : '';">
                                 This is an "Other" option (no fixed address — e.g. Airbnb, personal arrangement)
                             </label>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Lodging</th>
+                        <td>
+                            <label>
+                                <input type="checkbox" id="eim_lib_has_lodging" name="has_lodging" value="1"
+                                       <?php checked(!$isNew && $location->hasLodging); ?>
+                                       onchange="document.getElementById('eim-lib-booking-url-row').style.display = this.checked ? '' : 'none';">
+                                This location offers lodging (hotel, B&amp;B, rental, etc.)
+                            </label>
+                            <p class="description">Only locations with this checked will appear when adding lodging to an event.</p>
+                        </td>
+                    </tr>
+                    <tr id="eim-lib-booking-url-row" <?= (!$isNew && $location->hasLodging) ? '' : 'style="display:none;"'; ?>>
+                        <th scope="row"><label for="eim_lib_booking_url">Booking Website</label></th>
+                        <td>
+                            <input type="url" id="eim_lib_booking_url" name="booking_url" class="regular-text"
+                                   value="<?= esc_attr($isNew ? '' : $location->bookingUrl); ?>"
+                                   placeholder="https://…">
+                            <p class="description">Optional URL where invitees can book their stay.</p>
                         </td>
                     </tr>
                 </table>

@@ -60,6 +60,7 @@ export class LocationAutocompleteApp {
                 libraryIdEl:   cfg.libraryIdId ? document.getElementById(cfg.libraryIdId) : null,
                 displayEl:     cfg.displayId   ? document.getElementById(cfg.displayId)   : null,
                 searchService: this.#searchService,
+                lodgingOnly:   cfg.lodgingOnly ?? false,
             });
         }
     }

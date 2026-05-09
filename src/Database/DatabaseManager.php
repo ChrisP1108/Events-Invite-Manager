@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) exit;
 final class DatabaseManager
 {
     /** @var string Current schema version stored in the WordPress options table. */
-    private const SCHEMA_VERSION = '4';
+    private const SCHEMA_VERSION = '5';
 
     /** @var string Events table name suffix (without WP prefix). */
     private const EVENTS_TABLE = 'eim_events';
@@ -67,7 +67,6 @@ final class DatabaseManager
                 id                          BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
                 name                        VARCHAR(255)        NOT NULL,
                 description                 TEXT,
-                rsvp_page_url               VARCHAR(500)        NOT NULL DEFAULT '',
                 invite_email_subject        VARCHAR(255)        NOT NULL DEFAULT '',
                 invite_email_template       LONGTEXT,
                 confirmation_email_subject  VARCHAR(255)        NOT NULL DEFAULT '',
@@ -148,6 +147,8 @@ final class DatabaseManager
                 state          VARCHAR(50)         NOT NULL DEFAULT '',
                 zip_code       VARCHAR(20)         NOT NULL DEFAULT '',
                 is_other       TINYINT(1)          NOT NULL DEFAULT 0,
+                has_lodging    TINYINT(1)          NOT NULL DEFAULT 0,
+                booking_url    VARCHAR(500)        NOT NULL DEFAULT '',
                 created_at     DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (id)
             ) ENGINE=InnoDB {$charset};";
@@ -156,6 +157,7 @@ final class DatabaseManager
 
         self::migrateLegacyInviteeInvitations();
         self::migrateEventDateTimeColumns();
+        self::dropObsoleteColumns();
         update_option('eim_db_version', self::SCHEMA_VERSION, false);
     }
 
@@ -259,6 +261,31 @@ final class DatabaseManager
              SET end_datetime = CONCAT(event_date, ' ', end_time)
              WHERE event_date IS NOT NULL AND end_time IS NOT NULL AND end_datetime IS NULL"
         );
+    }
+
+    /**
+     * Drops columns that have been removed from the schema but cannot be removed by dbDelta.
+     * Safe to call repeatedly — each DROP is guarded by a SHOW COLUMNS check.
+     *
+     * @return void
+     */
+    private static function dropObsoleteColumns(): void
+    {
+        global $wpdb;
+
+        $table = self::eventsTable();
+
+        $obsolete = ['rsvp_page_url'];
+
+        foreach ($obsolete as $column) {
+            $exists = $wpdb->get_results(
+                $wpdb->prepare("SHOW COLUMNS FROM `{$table}` LIKE %s", $column)
+            );
+
+            if (!empty($exists)) {
+                $wpdb->query("ALTER TABLE `{$table}` DROP COLUMN `{$column}`");
+            }
+        }
     }
 
     /**

@@ -82,7 +82,6 @@ final class EventsPage extends AbstractAdminPage
         $data = [
             'name'                        => sanitize_text_field($_POST['name'] ?? ''),
             'description'                 => sanitize_textarea_field($_POST['description'] ?? ''),
-            'rsvp_page_url'               => esc_url_raw($_POST['rsvp_page_url'] ?? ''),
             'from_name'                   => sanitize_text_field($_POST['from_name'] ?? ''),
             'from_email'                  => $this->sanitizeFromEmailTemplate((string) ($_POST['from_email'] ?? '')),
             'invite_email_subject'        => sanitize_text_field($_POST['invite_email_subject'] ?? ''),
@@ -588,7 +587,6 @@ final class EventsPage extends AbstractAdminPage
                             <th style="width:12%;">Name</th>
                             <th style="width:18%;">Date / Time</th>
                             <th>Description</th>
-                            <th style="width:18%;">RSVP Page</th>
                             <th style="width:12%;">Invitees</th>
                             <th style="width:14%;">Actions</th>
                         </tr>
@@ -627,15 +625,6 @@ final class EventsPage extends AbstractAdminPage
                                     <?php endif; ?>
                                 </td>
                                 <td><?= esc_html(wp_trim_words($event->description, 12, '…')); ?></td>
-                                <td>
-                                    <?php if ($event->rsvpPageUrl): ?>
-                                        <a href="<?= esc_url($event->rsvpPageUrl); ?>" target="_blank" rel="noopener">
-                                            <?= esc_html(wp_parse_url($event->rsvpPageUrl, PHP_URL_PATH) ?: $event->rsvpPageUrl); ?>
-                                        </a>
-                                    <?php else: ?>
-                                        <span style="color:#999;">—</span>
-                                    <?php endif; ?>
-                                </td>
                                 <td>
                                     <a href="<?= esc_url($inviteesUrl); ?>">
                                         <?= esc_html($total); ?><?= $event->maxInvitees !== null ? ' / ' . esc_html($event->maxInvitees) : ''; ?> invited, <?= esc_html($registered); ?> registered
@@ -902,32 +891,6 @@ final class EventsPage extends AbstractAdminPage
                     </tr>
                     <tr>
                         <th scope="row">
-                            <label for="eim_rsvp_page_url">RSVP Page</label>
-                        </th>
-                        <td>
-                            <?php
-                            $wpPages        = get_pages(['sort_column' => 'post_title', 'sort_order' => 'ASC', 'post_status' => 'publish']);
-                            $selectedPageId = (!$isNew && $event->rsvpPageUrl)
-                                ? url_to_postid($event->rsvpPageUrl)
-                                : 0;
-                            ?>
-                            <select id="eim_rsvp_page_url" name="rsvp_page_url">
-                                <option value="">— Select a page —</option>
-                                <?php foreach ($wpPages as $wpPage): ?>
-                                    <option value="<?= esc_attr(get_permalink($wpPage->ID)); ?>"
-                                            <?php selected($selectedPageId, $wpPage->ID); ?>>
-                                        <?= esc_html($wpPage->post_title); ?>
-                                        (<?= esc_html($wpPage->post_name); ?>)
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                            <p class="description">
-                                Invite links will append <code>?invite_code=…&amp;event_id=<?= esc_html($isNew ? '{id}' : $event->id); ?></code> to the selected page's URL.
-                            </p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row">
                             <label for="eim_max_invitees">Max Invitees</label>
                         </th>
                         <td>
@@ -1028,7 +991,6 @@ final class EventsPage extends AbstractAdminPage
                                 Available tags:
                                 <code>{{ event_name }}</code> <code>{{ first_name }}</code> <code>{{ last_name }}</code>
                                 <code>{{ full_name }}</code> <code>{{ email }}</code>
-                                <code>{{ invite_code }}</code> <code>{{ rsvp_url }}</code>
                             </p>
                         </td>
                     </tr>

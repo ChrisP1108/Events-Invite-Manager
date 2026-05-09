@@ -75,6 +75,7 @@ export class LodgingRowManager {
             libraryIdEl:   rowEl.querySelector('.eim-lodging-init-library-id'),
             displayEl:     rowEl.querySelector('.eim-lodging-init-display'),
             searchService: this.#searchService,
+            lodgingOnly:   true,
         });
     }
 

@@ -175,10 +175,11 @@ final class AboutPage extends AbstractAdminPage
                     <div>
                         <h3>Build your RSVP page</h3>
                         <p>
-                            Create a WordPress page, assign it to the event's <strong>RSVP Page</strong> field, and wire up
-                            the two-step registration flow using the REST API: first call
-                            <code>/wp-json/eim/v1/request-code</code> with the guest's email to send a 6-digit code,
-                            then call <code>/wp-json/eim/v1/register</code> to verify it and mark them as attending.
+                            Create a WordPress page and wire up the two-step registration flow using the REST API:
+                            first call <code>/wp-json/eim/v1/request-code</code> with the guest's email to send a
+                            6-digit code, then call <code>/wp-json/eim/v1/register</code> to verify it and mark
+                            them as attending. All invitees share the same RSVP URL — guests are identified by
+                            their email address.
                         </p>
                     </div>
                 </div>
@@ -289,8 +290,6 @@ final class AboutPage extends AbstractAdminPage
                     <tr><td><code>{{ last_name }}</code></td><td>Invitee's last name</td></tr>
                     <tr><td><code>{{ full_name }}</code></td><td>First and last name combined</td></tr>
                     <tr><td><code>{{ email }}</code></td><td>Invitee's email address</td></tr>
-                    <tr><td><code>{{ invite_code }}</code></td><td>The invitee's unique invite code</td></tr>
-                    <tr><td><code>{{ rsvp_url }}</code></td><td>Full RSVP page URL with <code>?invite_code=…&amp;event_id=…</code> appended</td></tr>
                 </tbody>
             </table>
 

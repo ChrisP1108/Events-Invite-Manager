@@ -101,7 +101,6 @@ final class Event
         $result = $wpdb->insert(DatabaseManager::eventsTable(), [
             'name'                          => $data['name']                          ?? '',
             'description'                   => $data['description']                   ?? '',
-            'rsvp_page_url'                 => $data['rsvp_page_url']                 ?? '',
             'from_name'                     => $data['from_name']                     ?? '',
             'from_email'                    => $data['from_email']                    ?? '',
             'invite_email_subject'          => $data['invite_email_subject']          ?? '',
@@ -134,7 +133,6 @@ final class Event
             [
                 'name'                          => $data['name']                          ?? '',
                 'description'                   => $data['description']                   ?? '',
-                'rsvp_page_url'                 => $data['rsvp_page_url']                 ?? '',
                 'from_name'                     => $data['from_name']                     ?? '',
                 'from_email'                    => $data['from_email']                    ?? '',
                 'invite_email_subject'          => $data['invite_email_subject']          ?? '',

@@ -27,6 +27,9 @@ export class LocationAutocomplete {
     /** @type {import('./LocationSearchService.js').LocationSearchService} */
     #searchService;
 
+    /** @type {boolean} */
+    #lodgingOnly;
+
     /** @type {DropdownList} */
     #dropdown;
 
@@ -55,13 +58,16 @@ export class LocationAutocomplete {
      * displayEl is an optional element whose textContent is updated with the
      * formatted address after a location is selected (e.g. the read-only address
      * line shown beneath the venue name field).
+     *
+     * lodgingOnly restricts the search to locations marked as having lodging.
      */
-    constructor(nameInput, { resolveField, searchService, libraryIdEl = null, displayEl = null }) {
+    constructor(nameInput, { resolveField, searchService, libraryIdEl = null, displayEl = null, lodgingOnly = false }) {
         this.#nameInput     = nameInput;
         this.#resolveField  = resolveField;
         this.#libraryIdEl   = libraryIdEl;
         this.#displayEl     = displayEl;
         this.#searchService = searchService;
+        this.#lodgingOnly   = lodgingOnly;
 
         this.#init();
     }
@@ -128,7 +134,7 @@ export class LocationAutocomplete {
      * @returns {Promise<void>}
      */
     async #doSearch(query) {
-        const results        = await this.#searchService.search(query);
+        const results        = await this.#searchService.search(query, this.#lodgingOnly);
         this.#currentResults = results;
 
         if (results.length > 0) {

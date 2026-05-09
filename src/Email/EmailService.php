@@ -33,12 +33,8 @@ final class EmailService
     /**
      * Sends the invite email to a single invitee.
      *
-     * The RSVP URL is built by appending invite_code and event_id as query
-     * parameters to the event's configured rsvp_page_url.
-     *
      * Available template tags:
-     *   {{ event_name }}, {{ first_name }}, {{ last_name }}, {{ full_name }},
-     *   {{ email }}, {{ invite_code }}, {{ rsvp_url }}
+     *   {{ event_name }}, {{ first_name }}, {{ last_name }}, {{ full_name }}, {{ email }}
      *
      * @param Event   $event
      * @param Invitee $invitee
@@ -50,19 +46,12 @@ final class EmailService
             return false;
         }
 
-        $rsvpUrl = add_query_arg(
-            ['invite_code' => $invitee->inviteCode, 'event_id' => $event->id],
-            $event->rsvpPageUrl
-        );
-
         $variables = [
-            'event_name'  => esc_html($event->name),
-            'first_name'  => esc_html($invitee->firstName),
-            'last_name'   => esc_html($invitee->lastName),
-            'full_name'   => esc_html($invitee->fullName()),
-            'email'       => esc_html($invitee->email),
-            'invite_code' => esc_html($invitee->inviteCode),
-            'rsvp_url'    => esc_url($rsvpUrl),
+            'event_name' => esc_html($event->name),
+            'first_name' => esc_html($invitee->firstName),
+            'last_name'  => esc_html($invitee->lastName),
+            'full_name'  => esc_html($invitee->fullName()),
+            'email'      => esc_html($invitee->email),
         ];
 
         $subject = $this->renderer->render($event->inviteEmailSubject, $variables)

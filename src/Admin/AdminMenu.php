@@ -180,6 +180,7 @@ final class AdminMenu
                     'inputId'     => 'eim_lodging_add_name',
                     'libraryIdId' => 'eim_lodging_add_library_id',
                     'displayId'   => 'eim_lodging_add_display',
+                    'lodgingOnly' => true,
                     'fields'      => [
                         'street'  => 'eim_lodging_add_street',
                         'city'    => 'eim_lodging_add_city',
