@@ -29,12 +29,13 @@ final class Event
      * @param string  $inviteEmailTemplate       HTML body template for the invite email.
      * @param string  $confirmationEmailSubject  Subject line for the confirmation code email.
      * @param string  $confirmationEmailTemplate HTML body template for the confirmation code email.
-     * @param ?string $eventDate                 MySQL DATE string (Y-m-d), or null if not set.
-     * @param ?string $startTime                 MySQL TIME string (H:i:s), or null if not set.
-     * @param ?string $endTime                   MySQL TIME string (H:i:s), or null if not set.
-     * @param bool    $lodgingEnabled            Whether lodging options are offered for this event.
-     * @param string  $createdAt                 MySQL datetime string.
-     * @param string  $updatedAt                 MySQL datetime string.
+     * @param ?string $startDatetime              MySQL DATETIME string (Y-m-d H:i:s) for the event start, or null.
+     * @param ?string $endDatetime                MySQL DATETIME string (Y-m-d H:i:s) for the event end, or null.
+     * @param string  $timezone                   IANA timezone identifier (e.g. "America/New_York"), or empty string.
+     * @param bool    $lodgingEnabled             Whether lodging options are offered for this event.
+     * @param ?int    $maxInvitees                Maximum number of invitees allowed, or null for unlimited.
+     * @param string  $createdAt                  MySQL datetime string.
+     * @param string  $updatedAt                  MySQL datetime string.
      */
     public function __construct(
         public readonly int     $id,
@@ -47,10 +48,11 @@ final class Event
         public readonly string  $inviteEmailTemplate,
         public readonly string  $confirmationEmailSubject,
         public readonly string  $confirmationEmailTemplate,
-        public readonly ?string $eventDate,
-        public readonly ?string $startTime,
-        public readonly ?string $endTime,
+        public readonly ?string $startDatetime,
+        public readonly ?string $endDatetime,
+        public readonly string  $timezone,
         public readonly bool    $lodgingEnabled,
+        public readonly ?int    $maxInvitees,
         public readonly string  $createdAt,
         public readonly string  $updatedAt,
     ) {}
@@ -106,10 +108,11 @@ final class Event
             'invite_email_template'         => $data['invite_email_template']         ?? '',
             'confirmation_email_subject'    => $data['confirmation_email_subject']    ?? '',
             'confirmation_email_template'   => $data['confirmation_email_template']   ?? '',
-            'event_date'                    => !empty($data['event_date'])  ? $data['event_date']  : null,
-            'start_time'                    => !empty($data['start_time'])  ? $data['start_time']  : null,
-            'end_time'                      => !empty($data['end_time'])    ? $data['end_time']    : null,
+            'start_datetime'                => !empty($data['start_datetime']) ? $data['start_datetime'] : null,
+            'end_datetime'                  => !empty($data['end_datetime'])   ? $data['end_datetime']   : null,
+            'timezone'                      => $data['timezone'] ?? '',
             'lodging_enabled'               => isset($data['lodging_enabled']) ? (int) $data['lodging_enabled'] : 0,
+            'max_invitees'                  => isset($data['max_invitees']) && $data['max_invitees'] > 0 ? (int) $data['max_invitees'] : null,
         ]);
 
         return $result ? (int) $wpdb->insert_id : false;
@@ -138,10 +141,11 @@ final class Event
                 'invite_email_template'         => $data['invite_email_template']         ?? '',
                 'confirmation_email_subject'    => $data['confirmation_email_subject']    ?? '',
                 'confirmation_email_template'   => $data['confirmation_email_template']   ?? '',
-                'event_date'                    => !empty($data['event_date']) ? $data['event_date'] : null,
-                'start_time'                    => !empty($data['start_time']) ? $data['start_time'] : null,
-                'end_time'                      => !empty($data['end_time'])   ? $data['end_time']   : null,
+                'start_datetime'                => !empty($data['start_datetime']) ? $data['start_datetime'] : null,
+                'end_datetime'                  => !empty($data['end_datetime'])   ? $data['end_datetime']   : null,
+                'timezone'                      => $data['timezone'] ?? '',
                 'lodging_enabled'               => isset($data['lodging_enabled']) ? (int) $data['lodging_enabled'] : 0,
+                'max_invitees'                  => isset($data['max_invitees']) && $data['max_invitees'] > 0 ? (int) $data['max_invitees'] : null,
             ],
             ['id' => $id]
         );
@@ -208,7 +212,7 @@ final class Event
 
         $table = DatabaseManager::eventsTable();
         $rows  = $wpdb->get_results(
-            "SELECT * FROM {$table} WHERE event_date IS NOT NULL ORDER BY event_date ASC, name ASC"
+            "SELECT * FROM {$table} WHERE start_datetime IS NOT NULL ORDER BY start_datetime ASC, name ASC"
         );
 
         return array_map(static fn(object $row) => self::fromRow($row), $rows ?? []);
@@ -233,7 +237,7 @@ final class Event
 
         $rows = $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT * FROM {$table} WHERE event_date BETWEEN %s AND %s ORDER BY start_time ASC, name ASC",
+                "SELECT * FROM {$table} WHERE DATE(start_datetime) BETWEEN %s AND %s ORDER BY start_datetime ASC, name ASC",
                 $start,
                 $end
             )
@@ -241,7 +245,7 @@ final class Event
 
         $grouped = [];
         foreach ($rows ?? [] as $row) {
-            $day           = (int) date('j', strtotime($row->event_date));
+            $day           = (int) date('j', strtotime($row->start_datetime));
             $grouped[$day][] = self::fromRow($row);
         }
 
@@ -249,40 +253,82 @@ final class Event
     }
 
     /**
-     * Returns the event date formatted using the site's WordPress date format setting.
+     * Returns the start date formatted using the site's WordPress date format setting.
      *
-     * Returns an empty string when no date is set.
+     * Used for calendar grouping labels. Returns an empty string when no start is set.
      *
      * @return string
      */
     public function formattedDate(): string
     {
-        if (!$this->eventDate) {
+        if (!$this->startDatetime) {
             return '';
         }
 
-        return date_i18n((string) get_option('date_format'), strtotime($this->eventDate));
+        return date_i18n((string) get_option('date_format'), strtotime($this->startDatetime));
     }
 
     /**
-     * Returns the event time range formatted as "g:i A – g:i A", or just the start
-     * time when no end time is set.
+     * Returns a short time range for compact displays such as calendar cells.
      *
-     * Returns an empty string when no start time is set.
+     * Same-day: "4:00 PM – 9:00 PM". Cross-day: "4:00 PM – Jan 16 9:00 PM".
+     * Returns an empty string when no start is set.
      *
      * @return string
      */
     public function formattedTimeRange(): string
     {
-        if (!$this->startTime) {
+        if (!$this->startDatetime) {
             return '';
         }
 
-        $start = date_i18n('g:i A', strtotime($this->startTime));
+        $startTs  = strtotime($this->startDatetime);
+        $startStr = date_i18n('g:i A', $startTs);
 
-        return $this->endTime
-            ? $start . ' – ' . date_i18n('g:i A', strtotime($this->endTime))
-            : $start;
+        if (!$this->endDatetime) {
+            return $startStr;
+        }
+
+        $endTs      = strtotime($this->endDatetime);
+        $sameDay    = date('Y-m-d', $startTs) === date('Y-m-d', $endTs);
+
+        return $sameDay
+            ? $startStr . ' – ' . date_i18n('g:i A', $endTs)
+            : $startStr . ' – ' . date_i18n('M j g:i A', $endTs);
+    }
+
+    /**
+     * Returns a full human-readable date/time range for list and detail displays.
+     *
+     * Same-day:   "Jan 15, 2025, 4:00 PM – 9:00 PM"
+     * Cross-day:  "Jan 15, 2025, 4:00 PM – Jan 16, 2025, 9:00 PM"
+     * No end:     "Jan 15, 2025, 4:00 PM"
+     * No time:    "Jan 15, 2025"
+     *
+     * @return string
+     */
+    public function formattedDateTimeRange(): string
+    {
+        if (!$this->startDatetime) {
+            return '';
+        }
+
+        $dateFormat = (string) get_option('date_format');
+        $startTs    = strtotime($this->startDatetime);
+        $startDate  = date_i18n($dateFormat, $startTs);
+        $startTime  = date_i18n('g:i A', $startTs);
+
+        if (!$this->endDatetime) {
+            return $startDate . ', ' . $startTime;
+        }
+
+        $endTs     = strtotime($this->endDatetime);
+        $endTime   = date_i18n('g:i A', $endTs);
+        $sameDay   = date('Y-m-d', $startTs) === date('Y-m-d', $endTs);
+
+        return $sameDay
+            ? $startDate . ', ' . $startTime . ' – ' . $endTime
+            : $startDate . ', ' . $startTime . ' – ' . date_i18n($dateFormat, $endTs) . ', ' . $endTime;
     }
 
     /**
@@ -304,10 +350,11 @@ final class Event
             inviteEmailTemplate:             $row->invite_email_template         ?? '',
             confirmationEmailSubject:        $row->confirmation_email_subject    ?? '',
             confirmationEmailTemplate:       $row->confirmation_email_template   ?? '',
-            eventDate:                       $row->event_date                    ?? null,
-            startTime:                       $row->start_time                    ?? null,
-            endTime:                         $row->end_time                      ?? null,
+            startDatetime:                   $row->start_datetime                ?? null,
+            endDatetime:                     $row->end_datetime                  ?? null,
+            timezone:                        $row->timezone                      ?? '',
             lodgingEnabled:           (bool) ($row->lodging_enabled              ?? false),
+            maxInvitees:              isset($row->max_invitees) && $row->max_invitees !== null ? (int) $row->max_invitees : null,
             createdAt:                       $row->created_at                    ?? '',
             updatedAt:                       $row->updated_at                    ?? '',
         );

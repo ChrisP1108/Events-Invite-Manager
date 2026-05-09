@@ -89,10 +89,11 @@ final class EventsPage extends AbstractAdminPage
             'invite_email_template'       => wp_kses_post($_POST['invite_email_template'] ?? ''),
             'confirmation_email_subject'  => sanitize_text_field($_POST['confirmation_email_subject'] ?? ''),
             'confirmation_email_template' => wp_kses_post($_POST['confirmation_email_template'] ?? ''),
-            'event_date'                  => sanitize_text_field($_POST['event_date'] ?? ''),
-            'start_time'                  => sanitize_text_field($_POST['start_time'] ?? ''),
-            'end_time'                    => sanitize_text_field($_POST['end_time'] ?? ''),
+            'start_datetime'              => $this->sanitizeDatetimeLocal($_POST['start_datetime'] ?? ''),
+            'end_datetime'                => $this->sanitizeDatetimeLocal($_POST['end_datetime'] ?? ''),
+            'timezone'                    => sanitize_text_field($_POST['timezone'] ?? ''),
             'lodging_enabled'             => !empty($_POST['lodging_enabled']) ? 1 : 0,
+            'max_invitees'                => (int) ($_POST['max_invitees'] ?? 0),
         ];
 
         if (empty($data['name'])) {
@@ -262,6 +263,32 @@ final class EventsPage extends AbstractAdminPage
     }
 
     /**
+     * Converts a datetime-local input value ("YYYY-MM-DDTHH:MM") to a MySQL
+     * DATETIME string ("YYYY-MM-DD HH:MM:00"), or returns an empty string if blank.
+     *
+     * @param string $value Raw POST value.
+     * @return string
+     */
+    private function sanitizeDatetimeLocal(string $value): string
+    {
+        $value = sanitize_text_field(wp_unslash($value));
+
+        if ($value === '') {
+            return '';
+        }
+
+        // datetime-local sends "YYYY-MM-DDTHH:MM" — replace T with a space.
+        $value = str_replace('T', ' ', $value);
+
+        // Append seconds if missing (browser may omit them).
+        if (strlen($value) === 16) {
+            $value .= ':00';
+        }
+
+        return strtotime($value) ? $value : '';
+    }
+
+    /**
      * Processes deleting an event and its invitation associations via a GET request with a nonce.
      *
      * @return void
@@ -379,12 +406,24 @@ final class EventsPage extends AbstractAdminPage
         $eventId   = (int) ($_POST['event_id'] ?? 0);
         $inviteeId = (int) ($_POST['invitee_id'] ?? 0);
 
-        if ($eventId <= 0 || $inviteeId <= 0 || Event::find($eventId) === null || Invitee::find($inviteeId) === null) {
+        $event = $eventId > 0 ? Event::find($eventId) : null;
+
+        if ($eventId <= 0 || $inviteeId <= 0 || $event === null || Invitee::find($inviteeId) === null) {
             wp_redirect(add_query_arg([
                 'page'      => AdminMenu::PAGE_EVENTS,
                 'action'    => 'edit',
                 'id'        => $eventId ?: null,
                 'eim_error' => 'invitee_required',
+            ], admin_url('admin.php')) . '#eim-event-invitees');
+            exit;
+        }
+
+        if ($event->maxInvitees !== null && $event->inviteeCount() >= $event->maxInvitees) {
+            wp_redirect(add_query_arg([
+                'page'      => AdminMenu::PAGE_EVENTS,
+                'action'    => 'edit',
+                'id'        => $eventId,
+                'eim_error' => 'invitee_limit_reached',
             ], admin_url('admin.php')) . '#eim-event-invitees');
             exit;
         }
@@ -572,10 +611,10 @@ final class EventsPage extends AbstractAdminPage
                                     <strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($event->name); ?></a></strong>
                                 </td>
                                 <td>
-                                    <?php if ($event->eventDate): ?>
-                                        <?= esc_html($event->formattedDate()); ?>
-                                        <?php if ($event->startTime): ?>
-                                            <br><span style="color:#666;font-size:12px;"><?= esc_html($event->formattedTimeRange()); ?></span>
+                                    <?php if ($event->startDatetime): ?>
+                                        <?= esc_html($event->formattedDateTimeRange()); ?>
+                                        <?php if ($event->timezone): ?>
+                                            <br><span style="color:#999;font-size:11px;"><?= esc_html($event->timezone); ?></span>
                                         <?php endif; ?>
                                     <?php else: ?>
                                         <span style="color:#999;">—</span>
@@ -599,7 +638,7 @@ final class EventsPage extends AbstractAdminPage
                                 </td>
                                 <td>
                                     <a href="<?= esc_url($inviteesUrl); ?>">
-                                        <?= esc_html($total); ?> / <?= esc_html($registered); ?>
+                                        <?= esc_html($total); ?><?= $event->maxInvitees !== null ? ' / ' . esc_html($event->maxInvitees) : ''; ?> invited, <?= esc_html($registered); ?> registered
                                     </a>
                                 </td>
                                 <td>
@@ -687,13 +726,10 @@ final class EventsPage extends AbstractAdminPage
                         <option value="">— Jump to event —</option>
                         <?php foreach ($allDated as $e): ?>
                             <?php
-                            $eYear   = (int) date('Y', strtotime($e->eventDate));
-                            $eMonth  = (int) date('n', strtotime($e->eventDate));
+                            $eYear   = (int) date('Y', strtotime($e->startDatetime));
+                            $eMonth  = (int) date('n', strtotime($e->startDatetime));
                             $jumpUrl = esc_url(add_query_arg(['cal_year' => $eYear, 'cal_month' => $eMonth], $baseUrl));
-                            $label   = $e->name . ' — ' . $e->formattedDate();
-                            if ($e->startTime) {
-                                $label .= ' ' . $e->formattedTimeRange();
-                            }
+                            $label   = $e->name . ' — ' . $e->formattedDateTimeRange();
                             ?>
                             <option value="<?= $jumpUrl; ?>"><?= esc_html($label); ?></option>
                         <?php endforeach; ?>
@@ -728,7 +764,7 @@ final class EventsPage extends AbstractAdminPage
                                             <?php $editUrl = esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=edit&id=' . $e->id)); ?>
                                             <a href="<?= $editUrl; ?>" class="eim-cal-event" title="<?= esc_attr($e->name); ?>">
                                                 <?= esc_html($e->name); ?>
-                                                <?php if ($e->startTime): ?>
+                                                <?php if ($e->startDatetime): ?>
                                                     <span class="eim-cal-event-time"><?= esc_html($e->formattedTimeRange()); ?></span>
                                                 <?php endif; ?>
                                             </a>
@@ -808,26 +844,60 @@ final class EventsPage extends AbstractAdminPage
                     </tr>
                     <tr>
                         <th scope="row">
-                            <label for="eim_event_date">Event Date</label>
+                            <label for="eim_start_datetime">Event Start</label>
                         </th>
                         <td>
-                            <input type="date" id="eim_event_date" name="event_date"
-                                   value="<?= esc_attr($isNew ? '' : ($event->eventDate ?? '')); ?>">
+                            <?php
+                            $startVal = '';
+                            if (!$isNew && $event->startDatetime) {
+                                $startVal = substr(str_replace(' ', 'T', $event->startDatetime), 0, 16);
+                            }
+                            ?>
+                            <input type="datetime-local" id="eim_start_datetime" name="start_datetime"
+                                   value="<?= esc_attr($startVal); ?>">
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row">Start Time</th>
-                        <td style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
-                            <span>
-                                <label for="eim_start_time" style="margin-right:6px;">Start</label>
-                                <input type="time" id="eim_start_time" name="start_time"
-                                       value="<?= esc_attr($isNew ? '' : ($event->startTime ?? '')); ?>">
-                            </span>
-                            <span>
-                                <label for="eim_end_time" style="margin-right:6px;">End</label>
-                                <input type="time" id="eim_end_time" name="end_time"
-                                       value="<?= esc_attr($isNew ? '' : ($event->endTime ?? '')); ?>">
-                            </span>
+                        <th scope="row">
+                            <label for="eim_end_datetime">Event End</label>
+                        </th>
+                        <td>
+                            <?php
+                            $endVal = '';
+                            if (!$isNew && $event->endDatetime) {
+                                $endVal = substr(str_replace(' ', 'T', $event->endDatetime), 0, 16);
+                            }
+                            ?>
+                            <input type="datetime-local" id="eim_end_datetime" name="end_datetime"
+                                   value="<?= esc_attr($endVal); ?>">
+                            <p class="description">Leave blank if the event has no fixed end time.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">
+                            <label for="eim_timezone">Timezone</label>
+                        </th>
+                        <td>
+                            <?php
+                            $usTimezones = [
+                                'America/New_York'    => 'Eastern (ET) — New York, Miami, Atlanta',
+                                'America/Chicago'     => 'Central (CT) — Chicago, Dallas, Houston',
+                                'America/Denver'      => 'Mountain (MT) — Denver, Salt Lake City',
+                                'America/Phoenix'     => 'Mountain no DST (MT) — Phoenix, Tucson',
+                                'America/Los_Angeles' => 'Pacific (PT) — Los Angeles, Seattle, Las Vegas',
+                                'America/Anchorage'   => 'Alaska (AKT) — Anchorage',
+                                'Pacific/Honolulu'    => 'Hawaii (HT) — Honolulu',
+                            ];
+                            $selectedTz = $isNew ? '' : $event->timezone;
+                            ?>
+                            <select id="eim_timezone" name="timezone">
+                                <option value="">— Select a timezone —</option>
+                                <?php foreach ($usTimezones as $tzId => $tzLabel): ?>
+                                    <option value="<?= esc_attr($tzId); ?>" <?php selected($selectedTz, $tzId); ?>>
+                                        <?= esc_html($tzLabel); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
                         </td>
                     </tr>
                     <tr>
@@ -853,6 +923,19 @@ final class EventsPage extends AbstractAdminPage
                             </select>
                             <p class="description">
                                 Invite links will append <code>?invite_code=…&amp;event_id=<?= esc_html($isNew ? '{id}' : $event->id); ?></code> to the selected page's URL.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">
+                            <label for="eim_max_invitees">Max Invitees</label>
+                        </th>
+                        <td>
+                            <input type="number" id="eim_max_invitees" name="max_invitees" min="1" step="1"
+                                   class="small-text"
+                                   value="<?= esc_attr($isNew ? '' : ($event->maxInvitees ?? '')); ?>">
+                            <p class="description">
+                                Leave blank for no limit. When set, new invitees cannot be added once this number is reached.
                             </p>
                         </td>
                     </tr>
@@ -1137,11 +1220,31 @@ final class EventsPage extends AbstractAdminPage
         );
         $addInviteeUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&action=add');
         ?>
+        <?php
+        $inviteeCount = count($invitees);
+        $maxInvitees  = $event->maxInvitees;
+        $atLimit      = $maxInvitees !== null && $inviteeCount >= $maxInvitees;
+        ?>
         <hr id="eim-event-invitees" style="margin:32px 0 20px;">
-        <h2>Invited Invitees</h2>
+        <h2>
+            Invited Invitees
+            <?php if ($maxInvitees !== null): ?>
+                <span style="font-size:14px;font-weight:normal;color:<?= $atLimit ? '#d63638' : '#3c434a'; ?>;">
+                    (<?= esc_html($inviteeCount); ?> / <?= esc_html($maxInvitees); ?>)
+                </span>
+            <?php else: ?>
+                <span style="font-size:14px;font-weight:normal;color:#3c434a;">(<?= esc_html($inviteeCount); ?>)</span>
+            <?php endif; ?>
+        </h2>
         <p class="description">
             Add existing invitees to this event here. Create or edit invitee profiles from the Invitees page.
+            <?php if ($maxInvitees !== null): ?>
+                Maximum of <?= esc_html($maxInvitees); ?> invitees for this event.
+            <?php endif; ?>
         </p>
+        <?php if ($atLimit): ?>
+            <div class="notice notice-warning inline" style="margin:8px 0;"><p>This event has reached its maximum of <?= esc_html($maxInvitees); ?> invitees. No more can be added.</p></div>
+        <?php endif; ?>
 
         <form method="post" action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS)); ?>" class="eim-event-invitee-add-form">
             <?php wp_nonce_field('eim_add_invitee_to_event'); ?>

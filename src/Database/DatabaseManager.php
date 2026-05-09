@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) exit;
 final class DatabaseManager
 {
     /** @var string Current schema version stored in the WordPress options table. */
-    private const SCHEMA_VERSION = '2';
+    private const SCHEMA_VERSION = '4';
 
     /** @var string Events table name suffix (without WP prefix). */
     private const EVENTS_TABLE = 'eim_events';
@@ -77,7 +77,11 @@ final class DatabaseManager
                 event_date                  DATE,
                 start_time                  TIME,
                 end_time                    TIME,
+                start_datetime              DATETIME,
+                end_datetime                DATETIME,
+                timezone                    VARCHAR(64)         NOT NULL DEFAULT '',
                 lodging_enabled             TINYINT(1)          NOT NULL DEFAULT 0,
+                max_invitees                SMALLINT UNSIGNED   NULL DEFAULT NULL,
                 created_at                  DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at                  DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (id)
@@ -151,6 +155,7 @@ final class DatabaseManager
         dbDelta($sql);
 
         self::migrateLegacyInviteeInvitations();
+        self::migrateEventDateTimeColumns();
         update_option('eim_db_version', self::SCHEMA_VERSION, false);
     }
 
@@ -222,6 +227,38 @@ final class DatabaseManager
                 'invite_sent_at' => $row->invite_sent_at ?: null,
             ]);
         }
+    }
+
+    /**
+     * Populates start_datetime and end_datetime from the legacy event_date / start_time / end_time
+     * columns for any event rows that pre-date the new schema.
+     *
+     * Safe to call repeatedly — only touches rows where start_datetime is still NULL.
+     *
+     * @return void
+     */
+    private static function migrateEventDateTimeColumns(): void
+    {
+        global $wpdb;
+
+        $table = self::eventsTable();
+
+        // Combine event_date + start_time (or midnight) → start_datetime.
+        $wpdb->query(
+            "UPDATE {$table}
+             SET start_datetime = CASE
+                 WHEN start_time IS NOT NULL THEN CONCAT(event_date, ' ', start_time)
+                 ELSE CONCAT(event_date, ' 00:00:00')
+             END
+             WHERE event_date IS NOT NULL AND start_datetime IS NULL"
+        );
+
+        // Combine event_date + end_time → end_datetime (only when end_time was set).
+        $wpdb->query(
+            "UPDATE {$table}
+             SET end_datetime = CONCAT(event_date, ' ', end_time)
+             WHERE event_date IS NOT NULL AND end_time IS NOT NULL AND end_datetime IS NULL"
+        );
     }
 
     /**

@@ -277,6 +277,16 @@ final class AdminMenu
     }
 
     /**
+     * Renders the about admin page.
+     *
+     * @return void
+     */
+    public function renderAboutPage(): void
+    {
+        $this->aboutPage->renderPage();
+    }
+
+    /**
      * Renders the events admin page.
      *
      * @return void
@@ -305,4 +315,5 @@ final class AdminMenu
     {
         $this->locationsPage->renderPage();
     }
+
 }
