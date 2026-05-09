@@ -8,7 +8,7 @@ if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Admin\AbstractAdminPage;
 use EventsInviteManager\Admin\AdminMenu;
-use EventsInviteManager\Models\LocationLibrary;
+use EventsInviteManager\Models\Location;
 
 /**
  * Manages the global location library and provides the AJAX search endpoint
@@ -29,6 +29,41 @@ final class LocationsPage extends AbstractAdminPage
             'delete_location' => $this->handleDeleteLocation(),
             default           => null,
         };
+    }
+
+    /**
+     * Handles the wp_ajax_eim_search_locations_list AJAX action.
+     *
+     * Filters the locations list table by name, city, or state and returns
+     * rendered HTML rows so the browser can replace the table body without a
+     * full page reload. Supports optional sort column and direction.
+     *
+     * Expected GET params: nonce, query, sort, order.
+     * Returns JSON: { success: true, data: { html, count } }
+     *
+     * @return void
+     */
+    public function handleAjaxSearchLocationsList(): void
+    {
+        check_ajax_referer('eim_search_locations_list_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions.', 403);
+        }
+
+        $query     = sanitize_text_field(wp_unslash($_GET['query'] ?? ''));
+        $sort      = $this->sanitizeLocationSortKey((string) ($_GET['sort'] ?? 'name'));
+        $order     = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
+        $locations = Location::listForAdmin($query, $sort, $order);
+
+        ob_start();
+        $this->renderLocationRows($locations);
+        $html = (string) ob_get_clean();
+
+        wp_send_json_success([
+            'html'  => $html,
+            'count' => count($locations),
+        ]);
     }
 
     /**
@@ -59,7 +94,7 @@ final class LocationsPage extends AbstractAdminPage
             wp_send_json_success([]);
         }
 
-        wp_send_json_success(LocationLibrary::search($query, 10, $lodgingOnly));
+        wp_send_json_success(Location::search($query, 10, $lodgingOnly));
     }
 
     /**
@@ -73,7 +108,7 @@ final class LocationsPage extends AbstractAdminPage
 
         match ($action) {
             'add'   => $this->renderLocationForm(null),
-            'edit'  => $this->renderLocationForm(LocationLibrary::find((int) ($_GET['id'] ?? 0))),
+            'edit'  => $this->renderLocationForm(Location::find((int) ($_GET['id'] ?? 0))),
             default => $this->renderLocationsList(),
         };
     }
@@ -114,10 +149,10 @@ final class LocationsPage extends AbstractAdminPage
         }
 
         if ($id > 0) {
-            LocationLibrary::update($id, $data);
+            Location::update($id, $data);
             $message = 'location_updated';
         } else {
-            LocationLibrary::create($data);
+            Location::create($data);
             $message = 'location_created';
         }
 
@@ -142,7 +177,7 @@ final class LocationsPage extends AbstractAdminPage
             wp_die('Security check failed.');
         }
 
-        LocationLibrary::delete($id);
+        Location::delete($id);
 
         wp_redirect(add_query_arg([
             'page'        => AdminMenu::PAGE_LOCATIONS,
@@ -152,15 +187,18 @@ final class LocationsPage extends AbstractAdminPage
     }
 
     /**
-     * Renders the library locations list.
+     * Renders the library locations list with search and sortable columns.
      *
      * @return void
      */
     private function renderLocationsList(): void
     {
-        $locations = LocationLibrary::all();
         $message   = (string) ($_GET['eim_message'] ?? '');
         $error     = (string) ($_GET['eim_error'] ?? '');
+        $search    = sanitize_text_field(wp_unslash($_GET['s'] ?? ''));
+        $sort      = $this->sanitizeLocationSortKey((string) ($_GET['sort'] ?? 'name'));
+        $order     = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
+        $locations = Location::listForAdmin($search, $sort, $order);
         $addUrl    = admin_url('admin.php?page=' . AdminMenu::PAGE_LOCATIONS . '&action=add');
         ?>
         <div class="wrap">
@@ -174,71 +212,109 @@ final class LocationsPage extends AbstractAdminPage
                 Manage your location library here. These locations are available when setting venue and lodging details on events.
             </p>
 
-            <?php if (empty($locations)): ?>
-                <p>No locations yet. <a href="<?= esc_url($addUrl); ?>">Add the first location.</a></p>
-            <?php else: ?>
-                <table class="wp-list-table widefat fixed striped">
-                    <thead>
-                        <tr>
-                            <th style="width:28%;">Name</th>
-                            <th style="width:14%;">Type</th>
-                            <th style="width:12%;">Lodging</th>
-                            <th>Address / Booking</th>
-                            <th style="width:18%;">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($locations as $loc): ?>
-                            <?php
-                            $editUrl   = admin_url('admin.php?page=' . AdminMenu::PAGE_LOCATIONS . '&action=edit&id=' . $loc->id);
-                            $deleteUrl = wp_nonce_url(
-                                admin_url('admin.php?page=' . AdminMenu::PAGE_LOCATIONS . '&action=delete_location&id=' . $loc->id),
-                                'eim_delete_location_' . $loc->id
-                            );
-                            ?>
-                            <tr>
-                                <td><strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($loc->name); ?></a></strong></td>
-                                <td>
-                                    <?php if ($loc->isOther): ?>
-                                        <span style="background:#f0f0f1;padding:2px 8px;border-radius:3px;font-size:12px;">Other</span>
-                                    <?php else: ?>
-                                        <span style="background:#dff0d8;padding:2px 8px;border-radius:3px;font-size:12px;">Specific</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <?php if ($loc->hasLodging): ?>
-                                        <span style="background:#d7f2ff;padding:2px 8px;border-radius:3px;font-size:12px;">Yes</span>
-                                    <?php else: ?>
-                                        <span style="color:#999;font-size:12px;">—</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <?= esc_html($loc->formattedAddress() ?: '—'); ?>
-                                    <?php if ($loc->hasLodging && $loc->bookingUrl): ?>
-                                        <br><a href="<?= esc_url($loc->bookingUrl); ?>" target="_blank" rel="noopener" style="font-size:12px;">Book →</a>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <a href="<?= esc_url($editUrl); ?>">Edit</a> |
-                                    <a href="<?= esc_url($deleteUrl); ?>"
-                                       onclick="return confirm('Delete <?= esc_js($loc->name); ?>?');">Delete</a>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
+            <?php $this->renderSearchBar('eim-location-search', 'eim-location-count', 'eim-location-loading', 'Search by name, city, or state…', count($locations), $search); ?>
+
+            <table id="eim-locations-table"
+                   class="wp-list-table widefat fixed striped"
+                   data-sort="<?= esc_attr($sort); ?>"
+                   data-order="<?= esc_attr($order); ?>">
+                <thead>
+                    <tr>
+                        <th style="width:28%;"><?= $this->sortLink('Name', 'name', AdminMenu::PAGE_LOCATIONS, $sort, $order, $search); ?></th>
+                        <th style="width:14%;"><?= $this->sortLink('Type', 'is_other', AdminMenu::PAGE_LOCATIONS, $sort, $order, $search); ?></th>
+                        <th style="width:12%;"><?= $this->sortLink('Lodging', 'has_lodging', AdminMenu::PAGE_LOCATIONS, $sort, $order, $search); ?></th>
+                        <th>Address / Booking</th>
+                        <th style="width:18%;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="eim-locations-table-body">
+                    <?php $this->renderLocationRows($locations); ?>
+                </tbody>
+            </table>
+
+            <?php if (empty($locations) && $search === ''): ?>
+                <p style="margin-top:12px;">No locations yet. <a href="<?= esc_url($addUrl); ?>">Add the first location.</a></p>
             <?php endif; ?>
         </div>
         <?php
     }
 
     /**
-     * Renders the add/edit form for a library location.
+     * Renders location table rows for both the initial page load and AJAX responses.
      *
-     * @param LocationLibrary|null $location Existing location to edit, or null when adding.
+     * @param Location[] $locations
      * @return void
      */
-    private function renderLocationForm(?LocationLibrary $location): void
+    private function renderLocationRows(array $locations): void
+    {
+        if (empty($locations)) {
+            ?>
+            <tr class="eim-no-results">
+                <td colspan="5">No locations found.</td>
+            </tr>
+            <?php
+            return;
+        }
+
+        foreach ($locations as $loc) {
+            $editUrl   = admin_url('admin.php?page=' . AdminMenu::PAGE_LOCATIONS . '&action=edit&id=' . $loc->id);
+            $deleteUrl = wp_nonce_url(
+                admin_url('admin.php?page=' . AdminMenu::PAGE_LOCATIONS . '&action=delete_location&id=' . $loc->id),
+                'eim_delete_location_' . $loc->id
+            );
+            ?>
+            <tr>
+                <td><strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($loc->name); ?></a></strong></td>
+                <td>
+                    <?php if ($loc->isOther): ?>
+                        <span style="background:#f0f0f1;padding:2px 8px;border-radius:3px;font-size:12px;">Other</span>
+                    <?php else: ?>
+                        <span style="background:#dff0d8;padding:2px 8px;border-radius:3px;font-size:12px;">Specific</span>
+                    <?php endif; ?>
+                </td>
+                <td>
+                    <?php if ($loc->hasLodging): ?>
+                        <span style="background:#d7f2ff;padding:2px 8px;border-radius:3px;font-size:12px;">Yes</span>
+                    <?php else: ?>
+                        <span style="color:#999;font-size:12px;">—</span>
+                    <?php endif; ?>
+                </td>
+                <td>
+                    <?= esc_html($loc->formattedAddress() ?: '—'); ?>
+                    <?php if ($loc->hasLodging && $loc->bookingUrl): ?>
+                        <br><a href="<?= esc_url($loc->bookingUrl); ?>" target="_blank" rel="noopener" style="font-size:12px;">Book →</a>
+                    <?php endif; ?>
+                </td>
+                <td>
+                    <a href="<?= esc_url($editUrl); ?>">Edit</a> |
+                    <a href="<?= esc_url($deleteUrl); ?>"
+                       onclick="return confirm('Delete <?= esc_js($loc->name); ?>?');">Delete</a>
+                </td>
+            </tr>
+            <?php
+        }
+    }
+
+    /**
+     * Sanitizes a location table sort key against the allowed column list.
+     *
+     * @param string $key
+     * @return string
+     */
+    private function sanitizeLocationSortKey(string $key): string
+    {
+        $key = sanitize_key($key);
+
+        return in_array($key, ['name', 'is_other', 'has_lodging'], true) ? $key : 'name';
+    }
+
+    /**
+     * Renders the add/edit form for a library location.
+     *
+     * @param Location|null $location Existing location to edit, or null when adding.
+     * @return void
+     */
+    private function renderLocationForm(?Location $location): void
     {
         $isNew   = $location === null;
         $message = (string) ($_GET['eim_message'] ?? '');

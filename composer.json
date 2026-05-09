@@ -3,7 +3,8 @@
     "description": "WordPress plugin for managing event invitations and registrations",
     "type": "wordpress-plugin",
     "require": {
-        "php": ">=8.1"
+        "php": ">=8.1",
+        "endroid/qr-code": "^5.1"
     },
     "autoload": {
         "psr-4": {

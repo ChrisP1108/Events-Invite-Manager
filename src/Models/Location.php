@@ -9,84 +9,83 @@ if (!defined('ABSPATH')) exit;
 use EventsInviteManager\Database\DatabaseManager;
 
 /**
- * Represents a single location record and provides static CRUD methods.
+ * Represents a single entry in the global location catalogue (eim_locations).
  *
- * The type column distinguishes between two uses:
- *   'lodging' — a lodging option presented to invitees (multiple per event, ordered by sort_order).
- *   'venue'   — the event's physical location (at most one per event).
+ * Locations are not tied to any specific event. Events reference a location
+ * for their venue via the venue_id column, and reference lodging options via
+ * the eim_event_lodging pivot table.
  *
- * The is_other flag is only meaningful for lodging rows and marks a generic
- * "Other" entry (e.g. "Airbnb / Personal Arrangement") that has no fixed address.
+ * has_lodging marks whether a location offers guest accommodation — only
+ * locations with this flag appear in the lodging autocomplete on event forms.
  */
 final class Location
 {
-    /**
-     * @param int    $id            Primary key.
-     * @param int    $eventId       Foreign key to the parent event.
-     * @param string $type          Row type: 'lodging' or 'venue'.
-     * @param string $name          Location name.
-     * @param string $streetAddress Street address — empty for is_other lodging rows.
-     * @param string $city          City — empty for is_other lodging rows.
-     * @param string $state         State — empty for is_other lodging rows.
-     * @param string $zipCode       ZIP code — empty for is_other lodging rows.
-     * @param bool   $isOther       True for a generic lodging "Other" option with no fixed address.
-     * @param int    $sortOrder     Display order for lodging rows (ascending); defaults to 0.
-     * @param string $createdAt     MySQL datetime of row creation.
-     */
     public function __construct(
         public readonly int    $id,
-        public readonly int    $eventId,
-        public readonly string $type,
         public readonly string $name,
         public readonly string $streetAddress,
         public readonly string $city,
         public readonly string $state,
         public readonly string $zipCode,
         public readonly bool   $isOther,
-        public readonly int    $sortOrder,
+        public readonly bool   $hasLodging,
+        public readonly string $bookingUrl,
         public readonly string $createdAt,
     ) {}
 
     /**
-     * Returns all lodging locations for a given event, ordered by sort_order then name.
+     * Returns locations for the admin list table, optionally filtered by a search string.
      *
-     * @param int $eventId
+     * Searches the name, city, and state columns. Sort column is validated against
+     * an allowlist before being interpolated into the query; order is clamped to
+     * 'ASC' or 'DESC'. Returns fully-hydrated Location objects ready for rendering.
+     *
+     * @param string $query  Optional search string; empty string returns all rows.
+     * @param string $sort   Column to sort by ('name', 'is_other', 'has_lodging').
+     * @param string $order  Sort direction ('asc' or 'desc').
      * @return self[]
      */
-    public static function forEvent(int $eventId): array
+    public static function listForAdmin(string $query, string $sort = 'name', string $order = 'asc'): array
     {
         global $wpdb;
 
-        $table = DatabaseManager::locationsTable();
-        $rows  = $wpdb->get_results(
-            $wpdb->prepare(
-                "SELECT * FROM {$table} WHERE event_id = %d AND type = 'lodging' ORDER BY sort_order ASC, name ASC",
-                $eventId
-            )
-        );
+        $table    = DatabaseManager::locationsTable();
+        $allowed  = ['name', 'is_other', 'has_lodging'];
+        $sortCol  = in_array($sort, $allowed, true) ? $sort : 'name';
+        $orderSql = strtolower($order) === 'desc' ? 'DESC' : 'ASC';
+
+        if ($query !== '') {
+            $like = '%' . $wpdb->esc_like($query) . '%';
+            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+            $sql = $wpdb->prepare(
+                "SELECT * FROM {$table} WHERE name LIKE %s OR city LIKE %s OR state LIKE %s ORDER BY {$sortCol} {$orderSql}, name ASC",
+                $like,
+                $like,
+                $like
+            );
+        } else {
+            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+            $sql = "SELECT * FROM {$table} ORDER BY {$sortCol} {$orderSql}, name ASC";
+        }
+
+        $rows = $wpdb->get_results($sql);
 
         return array_map(static fn(object $row) => self::fromRow($row), $rows ?? []);
     }
 
     /**
-     * Returns the venue location for a given event, or null if none has been set.
+     * Returns all locations ordered alphabetically by name.
      *
-     * @param int $eventId
-     * @return self|null
+     * @return self[]
      */
-    public static function venueForEvent(int $eventId): ?self
+    public static function all(): array
     {
         global $wpdb;
 
         $table = DatabaseManager::locationsTable();
-        $row   = $wpdb->get_row(
-            $wpdb->prepare(
-                "SELECT * FROM {$table} WHERE event_id = %d AND type = 'venue' LIMIT 1",
-                $eventId
-            )
-        );
+        $rows  = $wpdb->get_results("SELECT * FROM {$table} ORDER BY name ASC");
 
-        return $row ? self::fromRow($row) : null;
+        return array_map(static fn(object $row) => self::fromRow($row), $rows ?? []);
     }
 
     /**
@@ -106,58 +105,120 @@ final class Location
     }
 
     /**
-     * Returns the count of lodging locations (type='lodging') for a given event.
+     * Finds the first location whose name exactly matches the given string.
      *
-     * @param int $eventId
-     * @return int
+     * @param string $name
+     * @return self|null
      */
-    public static function countForEvent(int $eventId): int
+    public static function findByName(string $name): ?self
     {
         global $wpdb;
 
         $table = DatabaseManager::locationsTable();
-
-        return (int) $wpdb->get_var(
-            $wpdb->prepare("SELECT COUNT(*) FROM {$table} WHERE event_id = %d AND type = 'lodging'", $eventId)
+        $row   = $wpdb->get_row(
+            $wpdb->prepare("SELECT * FROM {$table} WHERE name = %s LIMIT 1", $name)
         );
+
+        return $row ? self::fromRow($row) : null;
     }
 
     /**
-     * Inserts a new location row and returns its auto-increment ID, or false on failure.
+     * Returns the total number of locations in the catalogue.
      *
-     * Defaults type to 'lodging' when not provided. The is_other flag is only
-     * honoured for lodging rows — venue rows always store full address fields.
+     * @return int
+     */
+    public static function count(): int
+    {
+        global $wpdb;
+        return (int) $wpdb->get_var("SELECT COUNT(*) FROM " . DatabaseManager::locationsTable());
+    }
+
+    /**
+     * Searches locations whose name matches the query string.
      *
-     * @param array<string, mixed> $data Must contain event_id and name.
+     * Pass $lodgingOnly = true to restrict results to locations with has_lodging = 1
+     * (used by the lodging autocomplete on event forms).
+     *
+     * Returns plain associative arrays suitable for JSON encoding.
+     *
+     * @param string $query       Minimum 2 characters.
+     * @param int    $limit       Maximum results to return.
+     * @param bool   $lodgingOnly When true, only returns lodging-capable locations.
+     * @return array<int, array<string, mixed>>
+     */
+    public static function search(string $query, int $limit = 10, bool $lodgingOnly = false): array
+    {
+        global $wpdb;
+
+        $table = DatabaseManager::locationsTable();
+        $like  = '%' . $wpdb->esc_like($query) . '%';
+
+        $sql = $lodgingOnly
+            ? $wpdb->prepare(
+                "SELECT * FROM {$table} WHERE name LIKE %s AND has_lodging = 1 ORDER BY name ASC, city ASC LIMIT %d",
+                $like, $limit
+              )
+            : $wpdb->prepare(
+                "SELECT * FROM {$table} WHERE name LIKE %s ORDER BY name ASC, city ASC LIMIT %d",
+                $like, $limit
+              );
+
+        $rows = $wpdb->get_results($sql);
+
+        return array_map(static function (object $row): array {
+            $isOther = (bool) $row->is_other;
+            $address = implode(', ', array_filter([
+                $row->street_address,
+                $row->city,
+                $row->state,
+                $row->zip_code,
+            ]));
+
+            return [
+                'id'             => (int)  $row->id,
+                'name'           =>        $row->name,
+                'street_address' =>        $row->street_address ?? '',
+                'city'           =>        $row->city           ?? '',
+                'state'          =>        $row->state          ?? '',
+                'zip_code'       =>        $row->zip_code       ?? '',
+                'is_other'       => $isOther,
+                'has_lodging'    => (bool) ($row->has_lodging   ?? false),
+                'booking_url'    =>        $row->booking_url    ?? '',
+                'label'          => $isOther
+                    ? $row->name . ' (Other)'
+                    : ($address ? $row->name . ' — ' . $address : $row->name),
+            ];
+        }, $rows ?? []);
+    }
+
+    /**
+     * Inserts a new location and returns its auto-increment ID, or false on failure.
+     *
+     * @param array<string, mixed> $data Must contain 'name'.
      * @return int|false
      */
     public static function create(array $data): int|false
     {
         global $wpdb;
 
-        $type    = $data['type'] ?? 'lodging';
-        $isOther = $type === 'lodging' && !empty($data['is_other']);
+        $isOther = !empty($data['is_other']);
 
         $result = $wpdb->insert(DatabaseManager::locationsTable(), [
-            'event_id'       => (int) ($data['event_id'] ?? 0),
-            'type'           => $type,
             'name'           => $data['name']           ?? '',
             'street_address' => $isOther ? '' : ($data['street_address'] ?? ''),
             'city'           => $isOther ? '' : ($data['city']           ?? ''),
             'state'          => $isOther ? '' : ($data['state']          ?? ''),
             'zip_code'       => $isOther ? '' : ($data['zip_code']       ?? ''),
             'is_other'       => $isOther ? 1 : 0,
-            'sort_order'     => (int) ($data['sort_order'] ?? 0),
+            'has_lodging'    => !empty($data['has_lodging']) ? 1 : 0,
+            'booking_url'    => $data['booking_url'] ?? '',
         ]);
 
         return $result ? (int) $wpdb->insert_id : false;
     }
 
     /**
-     * Updates an existing location row.
-     *
-     * When is_other is true the address fields are cleared so stale address data
-     * does not persist on a lodging row that has been switched to the Other type.
+     * Updates an existing location. When is_other is true, address fields are cleared.
      *
      * @param int                  $id
      * @param array<string, mixed> $data
@@ -178,7 +239,8 @@ final class Location
                 'state'          => $isOther ? '' : ($data['state']          ?? ''),
                 'zip_code'       => $isOther ? '' : ($data['zip_code']       ?? ''),
                 'is_other'       => $isOther ? 1 : 0,
-                'sort_order'     => (int) ($data['sort_order'] ?? 0),
+                'has_lodging'    => !empty($data['has_lodging']) ? 1 : 0,
+                'booking_url'    => $data['booking_url'] ?? '',
             ],
             ['id' => $id]
         );
@@ -187,7 +249,12 @@ final class Location
     }
 
     /**
-     * Deletes a location by primary key.
+     * Deletes a location by primary key and cleans up all references to it.
+     *
+     * Events that used this location as their venue have venue_id set to null.
+     * Lodging assignments (eim_event_lodging) pointing to this location are removed.
+     * Without this cleanup, deleted locations would leave dangling FK references since
+     * the database tables use no enforced foreign key constraints.
      *
      * @param int $id
      * @return bool
@@ -196,23 +263,12 @@ final class Location
     {
         global $wpdb;
 
+        $wpdb->update(DatabaseManager::eventsTable(), ['venue_id' => null], ['venue_id' => $id]);
+        $wpdb->delete(DatabaseManager::eventLodgingTable(), ['location_id' => $id]);
+
         $result = $wpdb->delete(DatabaseManager::locationsTable(), ['id' => $id]);
 
         return $result !== false;
-    }
-
-    /**
-     * Deletes all locations (both lodging and venue) for a given event.
-     *
-     * Called automatically by Event::delete() to maintain referential integrity.
-     *
-     * @param int $eventId
-     * @return void
-     */
-    public static function deleteForEvent(int $eventId): void
-    {
-        global $wpdb;
-        $wpdb->delete(DatabaseManager::locationsTable(), ['event_id' => $eventId]);
     }
 
     /**
@@ -235,16 +291,6 @@ final class Location
     }
 
     /**
-     * Returns the human-readable location type label (for lodging rows).
-     *
-     * @return string
-     */
-    public function typeLabel(): string
-    {
-        return $this->isOther ? 'Other' : 'Specific Location';
-    }
-
-    /**
      * Hydrates a Location instance from a raw database row object.
      *
      * @param object $row
@@ -254,15 +300,14 @@ final class Location
     {
         return new self(
             id:            (int)  $row->id,
-            eventId:       (int)  $row->event_id,
-            type:                 $row->type           ?? 'lodging',
             name:                 $row->name,
             streetAddress:        $row->street_address ?? '',
             city:                 $row->city           ?? '',
             state:                $row->state          ?? '',
             zipCode:              $row->zip_code       ?? '',
-            isOther:       (bool) $row->is_other,
-            sortOrder:     (int)  $row->sort_order,
+            isOther:       (bool) ($row->is_other      ?? false),
+            hasLodging:    (bool) ($row->has_lodging   ?? false),
+            bookingUrl:           $row->booking_url    ?? '',
             createdAt:            $row->created_at     ?? '',
         );
     }

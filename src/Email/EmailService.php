@@ -10,12 +10,15 @@ use EventsInviteManager\Models\Event;
 use EventsInviteManager\Models\Invitee;
 
 /**
- * Handles sending invite and confirmation-code emails via wp_mail().
+ * Handles sending invite emails via wp_mail().
  *
- * Both methods render an admin-configured HTML template through TemplateRenderer
- * before dispatching. The Content-Type and optional From headers are passed
- * directly to wp_mail() rather than via filters, which is cleaner and avoids
- * any risk of leaking the HTML content-type to other mailers on the same request.
+ * Renders the admin-configured HTML template through TemplateRenderer before
+ * dispatching. The Content-Type and optional From headers are passed directly
+ * to wp_mail() rather than via filters.
+ *
+ * Available template tags for invite emails:
+ *   {{ event_name }}, {{ first_name }}, {{ last_name }}, {{ full_name }},
+ *   {{ email }}, {{ qr_code }}
  */
 final class EmailService
 {
@@ -33,14 +36,12 @@ final class EmailService
     /**
      * Sends the invite email to a single invitee.
      *
-     * Available template tags:
-     *   {{ event_name }}, {{ first_name }}, {{ last_name }}, {{ full_name }}, {{ email }}
-     *
      * @param Event   $event
      * @param Invitee $invitee
+     * @param string  $qrCodeImgTag Optional HTML <img> tag for the invitee's QR code (replaces {{ qr_code }}).
      * @return bool True if wp_mail() accepted the message for delivery.
      */
-    public function sendInvite(Event $event, Invitee $invitee): bool
+    public function sendInvite(Event $event, Invitee $invitee, string $qrCodeImgTag = ''): bool
     {
         if (empty($event->inviteEmailTemplate)) {
             return false;
@@ -52,6 +53,7 @@ final class EmailService
             'last_name'  => esc_html($invitee->lastName),
             'full_name'  => esc_html($invitee->fullName()),
             'email'      => esc_html($invitee->email),
+            'qr_code'    => $qrCodeImgTag,
         ];
 
         $subject = $this->renderer->render($event->inviteEmailSubject, $variables)
@@ -59,31 +61,6 @@ final class EmailService
         $body    = $this->renderer->render($event->inviteEmailTemplate, $variables);
 
         return $this->dispatchHtml($invitee->email, $subject, $body, $this->buildFromHeader($event));
-    }
-
-    /**
-     * Sends a six-digit confirmation code email to the provided address.
-     *
-     * Available template tag: {{ confirmation_code }}
-     *
-     * @param Event  $event
-     * @param string $email            Recipient email address.
-     * @param string $confirmationCode Six-digit numeric string.
-     * @return bool True if wp_mail() accepted the message for delivery.
-     */
-    public function sendConfirmationCode(Event $event, string $email, string $confirmationCode): bool
-    {
-        if (empty($event->confirmationEmailTemplate)) {
-            return false;
-        }
-
-        $variables = ['confirmation_code' => $confirmationCode];
-
-        $subject = $this->renderer->render($event->confirmationEmailSubject, $variables)
-            ?: 'Your Confirmation Code';
-        $body    = $this->renderer->render($event->confirmationEmailTemplate, $variables);
-
-        return $this->dispatchHtml($email, $subject, $body, $this->buildFromHeader($event));
     }
 
     /**
@@ -112,10 +89,6 @@ final class EmailService
      *
      * Returns an empty string when no from_email is configured, which causes
      * dispatchHtml() to omit the header and let WordPress use its site default.
-     *
-     * Examples of returned values:
-     *   "From: Chris & Jamie <wedding@example.com>"
-     *   "From: wedding@example.com"
      *
      * @param Event $event
      * @return string

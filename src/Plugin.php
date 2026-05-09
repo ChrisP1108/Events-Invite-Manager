@@ -9,6 +9,8 @@ if (!defined('ABSPATH')) exit;
 use EventsInviteManager\Admin\AdminMenu;
 use EventsInviteManager\Api\RestController;
 use EventsInviteManager\Database\DatabaseManager;
+use EventsInviteManager\Models\Event;
+use EventsInviteManager\Models\QrCode;
 use EventsInviteManager\Updates\GitHubUpdater;
 
 /**
@@ -63,6 +65,69 @@ final class Plugin
         $this->adminMenu->register();
         $this->restController->register();
         GitHubUpdater::init();
+
+        add_action('template_redirect',    [$this, 'handleQrConfirmationRedirect']);
+        add_action('eim_daily_qr_cleanup', [$this, 'runDailyQrCleanup']);
+    }
+
+    /**
+     * Intercepts any page request that carries ?eim_confirmation={code} and redirects
+     * to the event's configured RSVP page, preserving the confirmation code in the URL.
+     *
+     * Flow:
+     *   1. Invitee scans QR code → lands on {site_url}/?eim_confirmation={code}
+     *   2. This hook fires, looks up the code in eim_qr_codes
+     *   3. Fetches the event and its rsvp_page_id
+     *   4. Redirects to {rsvp_page_url}?eim_confirmation={code}
+     *
+     * If the code is unknown, the event has no RSVP page configured, or the page no
+     * longer exists, the request is allowed to continue loading normally.
+     *
+     * @return void
+     */
+    public function handleQrConfirmationRedirect(): void
+    {
+        $code = isset($_GET['eim_confirmation']) ? sanitize_text_field(wp_unslash($_GET['eim_confirmation'])) : '';
+
+        if ($code === '') {
+            return;
+        }
+
+        $qrCode = QrCode::findByCode($code);
+
+        if ($qrCode === null) {
+            return;
+        }
+
+        $event = Event::find($qrCode->eventId);
+
+        if ($event === null || $event->rsvpPageId === null) {
+            return;
+        }
+
+        $pageUrl = get_permalink($event->rsvpPageId);
+
+        if (!$pageUrl) {
+            return;
+        }
+
+        $redirectUrl = add_query_arg('eim_confirmation', rawurlencode($code), $pageUrl);
+
+        wp_safe_redirect($redirectUrl, 302);
+        exit;
+    }
+
+    /**
+     * Removes QR code records and PNG files for events that have already concluded.
+     *
+     * Called daily by WP-Cron via the eim_daily_qr_cleanup hook, scheduled on plugin
+     * activation and cleared on deactivation.
+     *
+     * @return void
+     */
+    public function runDailyQrCleanup(): void
+    {
+        QrCode::cleanupForPastEvents();
     }
 
     /**

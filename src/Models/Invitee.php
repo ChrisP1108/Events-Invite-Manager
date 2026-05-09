@@ -7,6 +7,7 @@ namespace EventsInviteManager\Models;
 if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Database\DatabaseManager;
+use EventsInviteManager\Models\QrCode;
 
 /**
  * Represents a single invitee and provides static CRUD methods against the database.
@@ -471,6 +472,9 @@ final class Invitee
     /**
      * Removes an invitee from an event without deleting the global invitee profile.
      *
+     * Also deletes the QR code record and PNG file for this event-invitee pair so
+     * stale codes cannot be scanned after the invitation is revoked.
+     *
      * @param int $inviteeId
      * @param int $eventId
      * @return bool
@@ -478,6 +482,8 @@ final class Invitee
     public static function removeFromEvent(int $inviteeId, int $eventId): bool
     {
         global $wpdb;
+
+        QrCode::deleteForEventInvitee($eventId, $inviteeId);
 
         $result = $wpdb->delete(DatabaseManager::eventInviteesTable(), [
             'event_id'   => $eventId,
@@ -566,7 +572,9 @@ final class Invitee
     }
 
     /**
-     * Deletes an invitee profile and all event invitation associations.
+     * Deletes an invitee profile, all event invitation associations, and their QR codes.
+     *
+     * QR PNG files are removed from disk before the database rows are deleted.
      *
      * @param int $id
      * @return bool
@@ -575,6 +583,7 @@ final class Invitee
     {
         global $wpdb;
 
+        QrCode::deleteForInvitee($id);
         $wpdb->delete(DatabaseManager::eventInviteesTable(), ['invitee_id' => $id]);
         $result = $wpdb->delete(DatabaseManager::inviteesTable(), ['id' => $id]);
 

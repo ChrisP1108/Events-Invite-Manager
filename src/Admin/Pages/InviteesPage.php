@@ -220,19 +220,7 @@ final class InviteesPage extends AbstractAdminPage
                 Add and edit invitee profiles here. Invite people to specific events from the event edit screen.
             </p>
 
-            <div class="eim-invitee-table-controls">
-                <label class="screen-reader-text" for="eim-invitee-search">Search invitees</label>
-                <input type="search"
-                       id="eim-invitee-search"
-                       class="regular-text"
-                       value="<?= esc_attr($search); ?>"
-                       placeholder="Search invitees or invited events..."
-                       autocomplete="off">
-                <span id="eim-invitee-count" class="description">
-                    <?= esc_html(count($rows)); ?> result<?= count($rows) === 1 ? '' : 's'; ?>
-                </span>
-                <span id="eim-invitee-loading" class="spinner" aria-hidden="true"></span>
-            </div>
+            <?php $this->renderSearchBar('eim-invitee-search', 'eim-invitee-count', 'eim-invitee-loading', 'Search invitees or invited events...', count($rows), $search); ?>
 
             <table id="eim-invitees-table"
                    class="wp-list-table widefat fixed striped"
@@ -240,11 +228,11 @@ final class InviteesPage extends AbstractAdminPage
                    data-order="<?= esc_attr($order); ?>">
                 <thead>
                     <tr>
-                        <th style="width:14%;"><?= $this->sortLink('First Name', 'first_name', $sort, $order, $search); ?></th>
-                        <th style="width:14%;"><?= $this->sortLink('Last Name', 'last_name', $sort, $order, $search); ?></th>
-                        <th style="width:22%;"><?= $this->sortLink('Email', 'email', $sort, $order, $search); ?></th>
-                        <th style="width:14%;"><?= $this->sortLink('Phone', 'phone', $sort, $order, $search); ?></th>
-                        <th><?= $this->sortLink('Invited Events', 'events', $sort, $order, $search); ?></th>
+                        <th style="width:14%;"><?= $this->sortLink('First Name', 'first_name', AdminMenu::PAGE_INVITEES, $sort, $order, $search); ?></th>
+                        <th style="width:14%;"><?= $this->sortLink('Last Name', 'last_name', AdminMenu::PAGE_INVITEES, $sort, $order, $search); ?></th>
+                        <th style="width:22%;"><?= $this->sortLink('Email', 'email', AdminMenu::PAGE_INVITEES, $sort, $order, $search); ?></th>
+                        <th style="width:14%;"><?= $this->sortLink('Phone', 'phone', AdminMenu::PAGE_INVITEES, $sort, $order, $search); ?></th>
+                        <th><?= $this->sortLink('Invited Events', 'events', AdminMenu::PAGE_INVITEES, $sort, $order, $search); ?></th>
                         <th style="width:12%;">Actions</th>
                     </tr>
                 </thead>
@@ -445,38 +433,6 @@ final class InviteesPage extends AbstractAdminPage
     }
 
     /**
-     * Builds a sortable table header link with AJAX data attributes and GET fallback.
-     *
-     * @param string $label
-     * @param string $key
-     * @param string $currentSort
-     * @param string $currentOrder
-     * @param string $search
-     * @return string
-     */
-    private function sortLink(string $label, string $key, string $currentSort, string $currentOrder, string $search): string
-    {
-        $isCurrent = $currentSort === $key;
-        $nextOrder = $isCurrent && $currentOrder === 'asc' ? 'desc' : 'asc';
-        $url = add_query_arg([
-            'page'  => AdminMenu::PAGE_INVITEES,
-            'sort'  => $key,
-            'order' => $nextOrder,
-            's'     => $search !== '' ? $search : null,
-        ], admin_url('admin.php'));
-        $indicator = $isCurrent ? ($currentOrder === 'asc' ? '^' : 'v') : '';
-
-        return sprintf(
-            '<a href="%s" class="eim-sort-link" data-sort="%s" data-order="%s">%s <span aria-hidden="true">%s</span></a>',
-            esc_url($url),
-            esc_attr($key),
-            esc_attr($nextOrder),
-            esc_html($label),
-            esc_html($indicator)
-        );
-    }
-
-    /**
      * Sanitizes an invitee table sort key against the allowed column list.
      *
      * @param string $key
@@ -489,16 +445,5 @@ final class InviteesPage extends AbstractAdminPage
         return in_array($key, ['first_name', 'last_name', 'email', 'phone', 'events'], true)
             ? $key
             : 'last_name';
-    }
-
-    /**
-     * Sanitizes an invitee table sort direction.
-     *
-     * @param string $order
-     * @return string
-     */
-    private function sanitizeSortOrder(string $order): string
-    {
-        return strtolower($order) === 'desc' ? 'desc' : 'asc';
     }
 }

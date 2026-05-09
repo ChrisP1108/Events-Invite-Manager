@@ -10,6 +10,15 @@ class ComposerStaticInitdb5d785e09ab704154910eb654f0ab3e
         'E' =>
         array (
             'EventsInviteManager\\' => 20,
+            'Endroid\\QrCode\\' => 15,
+        ),
+        'D' =>
+        array (
+            'DASPRiD\\Enum\\' => 13,
+        ),
+        'B' =>
+        array (
+            'BaconQrCode\\' => 12,
         ),
     );
 
@@ -17,6 +26,18 @@ class ComposerStaticInitdb5d785e09ab704154910eb654f0ab3e
         'EventsInviteManager\\' =>
         array (
             0 => __DIR__ . '/../..' . '/src',
+        ),
+        'Endroid\\QrCode\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/endroid/qr-code/src',
+        ),
+        'DASPRiD\\Enum\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/dasprid/enum/src',
+        ),
+        'BaconQrCode\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/bacon/bacon-qr-code/src',
         ),
     );
 

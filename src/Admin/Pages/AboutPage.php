@@ -139,8 +139,9 @@ final class AboutPage extends AbstractAdminPage
                     <div>
                         <h3>Create an event</h3>
                         <p>
-                            Go to <strong>Events → Add New Event</strong>. Set the date, time, RSVP page, venue (search the library), and optionally add lodging options.
-                            Configure the invite and confirmation email templates with your messaging before saving.
+                            Go to <strong>Events → Add New Event</strong>. Set the date, time zone, venue (search the library), and optionally add lodging options.
+                            Select a <strong>QR Code RSVP Page</strong> — the WordPress page invitees land on after scanning their QR code.
+                            Customise the invite email template with your messaging before saving.
                             <a href="<?= esc_url($eventsUrl); ?>">Create your first event →</a>
                         </p>
                     </div>
@@ -165,7 +166,8 @@ final class AboutPage extends AbstractAdminPage
                         <p>
                             Open an event, add existing invitees to its <strong>Invited Invitees</strong> list, then click
                             <strong>Send Invite</strong> for an individual guest or <strong>Send All Unsent</strong>.
-                            Each event invitation receives its own unique RSVP invite code automatically.
+                            A unique QR code is generated automatically for each invitee — add <code>{{ qr_code }}</code>
+                            anywhere in your invite email template to embed the scannable image.
                         </p>
                     </div>
                 </div>
@@ -175,11 +177,12 @@ final class AboutPage extends AbstractAdminPage
                     <div>
                         <h3>Build your RSVP page</h3>
                         <p>
-                            Create a WordPress page and wire up the two-step registration flow using the REST API:
-                            first call <code>/wp-json/eim/v1/request-code</code> with the guest's email to send a
-                            6-digit code, then call <code>/wp-json/eim/v1/register</code> to verify it and mark
-                            them as attending. All invitees share the same RSVP URL — guests are identified by
-                            their email address.
+                            Create a WordPress page and set it as the event's <strong>QR Code RSVP Page</strong>.
+                            When an invitee scans their QR code the plugin redirects them to that page with
+                            <code>?eim_confirmation={code}</code> in the URL. Your page reads the code and
+                            calls <code>GET /wp-json/eim/v1/rsvp?confirmation_code={code}</code> to load the
+                            invitee's name, event details, and lodging options. Once they confirm, a
+                            <code>POST /wp-json/eim/v1/register</code> with the same code marks them as attending.
                         </p>
                     </div>
                 </div>
@@ -225,17 +228,17 @@ final class AboutPage extends AbstractAdminPage
             [
                 'icon'  => 'dashicons-email-alt',
                 'title' => 'Customizable Email Templates',
-                'body'  => 'Write invite and confirmation code emails with full HTML support via the WordPress editor. Insert guest details, RSVP links, and event information using template tags.',
+                'body'  => 'Write invite emails with full HTML support via the WordPress editor. Insert guest details, a personalized QR code image, and event information using template tags.',
             ],
             [
-                'icon'  => 'dashicons-lock',
-                'title' => 'Two-Step RSVP Flow',
-                'body'  => 'Guests enter their email to receive a 6-digit confirmation code (valid 15 minutes). Entering the code marks them as registered — preventing unauthorized sign-ups without friction for genuine guests.',
+                'icon'  => 'dashicons-qrcode',
+                'title' => 'QR Code RSVP',
+                'body'  => 'Each invitee receives a unique QR code in their invite email. Scanning it redirects them to the configured RSVP page with their confirmation code in the URL — no email lookup or code entry required.',
             ],
             [
                 'icon'  => 'dashicons-rest-api',
                 'title' => 'REST API',
-                'body'  => 'Two JSON endpoints power the front-end RSVP experience: request-code validates the guest and sends the code; register verifies it and confirms attendance.',
+                'body'  => 'Two JSON endpoints power the RSVP page: GET /rsvp loads event details, lodging options, and invitee status by confirmation code; POST /register confirms attendance.',
             ],
             [
                 'icon'  => 'dashicons-shield',
@@ -276,7 +279,7 @@ final class AboutPage extends AbstractAdminPage
                 inside the braces — <code>{{ event_name }}</code> and <code>{{event_name}}</code> are equivalent.
             </p>
 
-            <h3 style="font-size:13px;margin-bottom:8px;">Invite email</h3>
+            <h3 style="font-size:13px;margin-bottom:8px;">Invite email body</h3>
             <table class="eim-about-table" style="margin-bottom:16px;">
                 <thead>
                     <tr>
@@ -290,23 +293,11 @@ final class AboutPage extends AbstractAdminPage
                     <tr><td><code>{{ last_name }}</code></td><td>Invitee's last name</td></tr>
                     <tr><td><code>{{ full_name }}</code></td><td>First and last name combined</td></tr>
                     <tr><td><code>{{ email }}</code></td><td>Invitee's email address</td></tr>
+                    <tr><td><code>{{ qr_code }}</code></td><td>An <code>&lt;img&gt;</code> tag containing the invitee's unique QR code image (300 × 300 px). Place this anywhere in the email body to embed the scannable code.</td></tr>
                 </tbody>
             </table>
 
-            <h3 style="font-size:13px;margin-bottom:8px;">Confirmation code email</h3>
-            <table class="eim-about-table" style="margin-bottom:16px;">
-                <thead>
-                    <tr>
-                        <th>Tag</th>
-                        <th>Replaced with</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr><td><code>{{ confirmation_code }}</code></td><td>The 6-digit code sent to the invitee</td></tr>
-                </tbody>
-            </table>
-
-            <h3 style="font-size:13px;margin-bottom:8px;">From Email field (both emails)</h3>
+            <h3 style="font-size:13px;margin-bottom:8px;">From Email field</h3>
             <table class="eim-about-table">
                 <thead>
                     <tr>
@@ -342,18 +333,18 @@ final class AboutPage extends AbstractAdminPage
 
             <div class="eim-about-endpoint">
                 <div class="eim-about-endpoint-header">
-                    <span class="eim-about-method">POST</span>
-                    <code>/wp-json/eim/v1/request-code</code>
+                    <span class="eim-about-method" style="background:#2e7d32;">GET</span>
+                    <code>/wp-json/eim/v1/rsvp?confirmation_code={code}</code>
                 </div>
                 <div class="eim-about-endpoint-body">
-                    <p>Validates that the supplied email belongs to an invitee for the given event, generates a 6-digit confirmation code, stores it as a transient for 15 minutes, and sends it to the invitee's email address.</p>
-                    <table class="eim-about-table">
-                        <thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+                    <p>Looks up the QR code confirmation code and returns the event details, lodging options, and the invitee's current registration status. Call this on RSVP page load to personalise the page before the invitee confirms.</p>
+                    <table class="eim-about-table" style="margin-bottom:10px;">
+                        <thead><tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
                         <tbody>
-                            <tr><td><code>email</code></td><td>string</td><td>Yes</td><td>Invitee's email address</td></tr>
-                            <tr><td><code>event_id</code></td><td>integer</td><td>Yes</td><td>Event ID</td></tr>
+                            <tr><td><code>confirmation_code</code></td><td>string</td><td>Yes</td><td>16-character code from the QR code URL</td></tr>
                         </tbody>
                     </table>
+                    <p>A successful response contains <code>event</code> (name, description, date, venue), <code>invitee</code> (first_name, last_name, email, is_registered), and <code>lodging</code> (array of name, address, booking_url, is_other).</p>
                 </div>
             </div>
 
@@ -363,20 +354,14 @@ final class AboutPage extends AbstractAdminPage
                     <code>/wp-json/eim/v1/register</code>
                 </div>
                 <div class="eim-about-endpoint-body">
-                    <p>Verifies the confirmation code against the stored transient and marks the invitee as registered. The transient is deleted immediately after a successful match to prevent replay attacks.</p>
-                    <table class="eim-about-table">
+                    <p>Validates the 16-character QR code confirmation code and marks the invitee as registered for the event. Safe to call multiple times — subsequent calls return <code>already_registered: true</code> without overwriting the original timestamp.</p>
+                    <table class="eim-about-table" style="margin-bottom:10px;">
                         <thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
                         <tbody>
-                            <tr><td><code>email</code></td><td>string</td><td>Yes</td><td>Invitee's email address</td></tr>
-                            <tr><td><code>code</code></td><td>string</td><td>Yes</td><td>6-digit confirmation code</td></tr>
-                            <tr><td><code>event_id</code></td><td>integer</td><td>Yes</td><td>Event ID</td></tr>
+                            <tr><td><code>confirmation_code</code></td><td>string</td><td>Yes</td><td>16-character code from the QR code URL</td></tr>
                         </tbody>
                     </table>
-                    <p style="margin-top:10px;">
-                        A successful response includes <code>success</code>, <code>already_registered</code>, and an
-                        <code>invitee</code> object with <code>first_name</code>, <code>last_name</code>, and <code>email</code>
-                        so the RSVP page can display a personalised confirmation.
-                    </p>
+                    <p>A successful response includes <code>success</code>, <code>already_registered</code>, and an <code>invitee</code> object with <code>first_name</code>, <code>last_name</code>, and <code>email</code>.</p>
                 </div>
             </div>
         </div>

@@ -10,9 +10,10 @@ use EventsInviteManager\Admin\AbstractAdminPage;
 use EventsInviteManager\Admin\AdminMenu;
 use EventsInviteManager\Email\EmailService;
 use EventsInviteManager\Models\Event;
+use EventsInviteManager\Models\EventLodging;
 use EventsInviteManager\Models\Invitee;
 use EventsInviteManager\Models\Location;
-use EventsInviteManager\Models\LocationLibrary;
+use EventsInviteManager\Services\QrCodeService;
 
 /**
  * Handles event-related admin actions and rendering.
@@ -22,12 +23,17 @@ final class EventsPage extends AbstractAdminPage
     /** @var EmailService Used when sending event invite emails from the admin. */
     private EmailService $emailService;
 
+    /** @var QrCodeService Used to generate QR codes when sending invite emails. */
+    private QrCodeService $qrCodeService;
+
     /**
-     * @param EmailService $emailService
+     * @param EmailService   $emailService
+     * @param QrCodeService  $qrCodeService
      */
-    public function __construct(EmailService $emailService)
+    public function __construct(EmailService $emailService, QrCodeService $qrCodeService)
     {
-        $this->emailService = $emailService;
+        $this->emailService   = $emailService;
+        $this->qrCodeService  = $qrCodeService;
     }
 
     /**
@@ -78,21 +84,22 @@ final class EventsPage extends AbstractAdminPage
             wp_die('Security check failed.');
         }
 
-        $id   = (int) ($_POST['event_id'] ?? 0);
-        $data = [
-            'name'                        => sanitize_text_field($_POST['name'] ?? ''),
-            'description'                 => sanitize_textarea_field($_POST['description'] ?? ''),
-            'from_name'                   => sanitize_text_field($_POST['from_name'] ?? ''),
-            'from_email'                  => $this->sanitizeFromEmailTemplate((string) ($_POST['from_email'] ?? '')),
-            'invite_email_subject'        => sanitize_text_field($_POST['invite_email_subject'] ?? ''),
-            'invite_email_template'       => wp_kses_post($_POST['invite_email_template'] ?? ''),
-            'confirmation_email_subject'  => sanitize_text_field($_POST['confirmation_email_subject'] ?? ''),
-            'confirmation_email_template' => wp_kses_post($_POST['confirmation_email_template'] ?? ''),
-            'start_datetime'              => $this->sanitizeDatetimeLocal($_POST['start_datetime'] ?? ''),
-            'end_datetime'                => $this->sanitizeDatetimeLocal($_POST['end_datetime'] ?? ''),
-            'timezone'                    => sanitize_text_field($_POST['timezone'] ?? ''),
-            'lodging_enabled'             => !empty($_POST['lodging_enabled']) ? 1 : 0,
-            'max_invitees'                => (int) ($_POST['max_invitees'] ?? 0),
+        $id       = (int) ($_POST['event_id'] ?? 0);
+        $timezone = sanitize_text_field(wp_unslash($_POST['timezone'] ?? ''));
+        $data     = [
+            'name'                  => sanitize_text_field($_POST['name'] ?? ''),
+            'description'           => sanitize_textarea_field($_POST['description'] ?? ''),
+            'from_name'             => sanitize_text_field($_POST['from_name'] ?? ''),
+            'from_email'            => $this->sanitizeFromEmailTemplate((string) ($_POST['from_email'] ?? '')),
+            'invite_email_subject'  => sanitize_text_field($_POST['invite_email_subject'] ?? ''),
+            'invite_email_template' => wp_kses_post($_POST['invite_email_template'] ?? ''),
+            'rsvp_page_id'          => (int) ($_POST['rsvp_page_id'] ?? 0),
+            'venue_id'              => (int) ($_POST['venue_library_id'] ?? 0),
+            'start_datetime'        => $this->sanitizeDatetimeLocal($_POST['start_datetime'] ?? '', $timezone),
+            'end_datetime'          => $this->sanitizeDatetimeLocal($_POST['end_datetime']   ?? '', $timezone),
+            'timezone'              => $timezone,
+            'lodging_enabled'       => !empty($_POST['lodging_enabled']) ? 1 : 0,
+            'max_invitees'          => (int) ($_POST['max_invitees'] ?? 0),
         ];
 
         if (empty($data['name'])) {
@@ -105,10 +112,9 @@ final class EventsPage extends AbstractAdminPage
             exit;
         }
 
-        // Validate venue library selection.
-        $venueName      = sanitize_text_field($_POST['venue_name'] ?? '');
-        $venueLibraryId = (int) ($_POST['venue_library_id'] ?? 0);
-        if ($venueName !== '' && ($venueLibraryId <= 0 || LocationLibrary::find($venueLibraryId) === null)) {
+        // Validate venue selection — must reference an existing location when provided.
+        $venueLocationId = (int) ($_POST['venue_library_id'] ?? 0);
+        if ($venueLocationId > 0 && Location::find($venueLocationId) === null) {
             wp_redirect(add_query_arg([
                 'page'      => AdminMenu::PAGE_EVENTS,
                 'action'    => $id ? 'edit' : 'add',
@@ -118,15 +124,15 @@ final class EventsPage extends AbstractAdminPage
             exit;
         }
 
-        // Validate initial lodging selections (new events only; arrays from multi-row form).
+        // Validate initial lodging selections (new events only).
         if ($id === 0) {
-            $lodgingNames      = $_POST['lodging_init_name']       ?? [];
             $lodgingLibraryIds = $_POST['lodging_init_library_id'] ?? [];
-            if (is_array($lodgingNames)) {
-                foreach ($lodgingNames as $i => $rawName) {
-                    if (sanitize_text_field($rawName) === '') continue;
-                    $libId = (int) ($lodgingLibraryIds[$i] ?? 0);
-                    if ($libId <= 0 || LocationLibrary::find($libId) === null) {
+            if (is_array($lodgingLibraryIds)) {
+                foreach ($lodgingLibraryIds as $rawId) {
+                    $locId = (int) $rawId;
+                    if ($locId <= 0) continue;
+                    $loc = Location::find($locId);
+                    if ($loc === null || !$loc->hasLodging) {
                         wp_redirect(add_query_arg([
                             'page'      => AdminMenu::PAGE_EVENTS,
                             'action'    => 'add',
@@ -140,7 +146,6 @@ final class EventsPage extends AbstractAdminPage
 
         if ($id > 0) {
             Event::update($id, $data);
-            $this->saveVenueLocation($id);
             wp_redirect(add_query_arg([
                 'page'        => AdminMenu::PAGE_EVENTS,
                 'eim_message' => 'event_updated',
@@ -148,7 +153,6 @@ final class EventsPage extends AbstractAdminPage
         } else {
             $newId = Event::create($data);
             if ($newId) {
-                $this->saveVenueLocation($newId);
                 $this->saveInitialLodgingLocation($newId);
             }
             // Redirect to edit so the admin can continue managing lodging locations.
@@ -163,72 +167,32 @@ final class EventsPage extends AbstractAdminPage
     }
 
     /**
-     * Creates, updates, or deletes the venue location for an event based on POST data.
+     * Creates EventLodging pivot rows for any initial lodging locations submitted with a new event form.
      *
-     * @param int $eventId
-     * @return void
-     */
-    private function saveVenueLocation(int $eventId): void
-    {
-        $venueName = sanitize_text_field($_POST['venue_name'] ?? '');
-        $existing  = Location::venueForEvent($eventId);
-
-        if ($venueName !== '') {
-            $venueData = [
-                'event_id'       => $eventId,
-                'type'           => 'venue',
-                'name'           => $venueName,
-                'street_address' => sanitize_text_field($_POST['venue_street_address'] ?? ''),
-                'city'           => sanitize_text_field($_POST['venue_city']           ?? ''),
-                'state'          => sanitize_text_field($_POST['venue_state']          ?? ''),
-                'zip_code'       => sanitize_text_field($_POST['venue_zip_code']       ?? ''),
-            ];
-
-            if ($existing) {
-                Location::update($existing->id, $venueData);
-            } else {
-                Location::create($venueData);
-            }
-        } elseif ($existing) {
-            Location::delete($existing->id);
-        }
-    }
-
-    /**
-     * Saves all initial lodging locations submitted with a new event form.
-     *
-     * Reads lodging_init_name[], lodging_init_library_id[], etc. as parallel arrays
-     * (one entry per row the admin added). Skips any row with an empty name.
+     * Reads lodging_init_library_id[] (location IDs) and lodging_init_sort[] as parallel arrays.
+     * Skips any row with a zero or invalid location ID.
      *
      * @param int $eventId Newly created event ID.
      * @return void
      */
     private function saveInitialLodgingLocation(int $eventId): void
     {
-        $names = $_POST['lodging_init_name'] ?? [];
-        if (!is_array($names)) {
+        $locationIds = $_POST['lodging_init_library_id'] ?? [];
+        if (!is_array($locationIds)) {
             return;
         }
 
-        foreach ($names as $i => $rawName) {
-            $name = sanitize_text_field($rawName);
-            if ($name === '') {
+        foreach ($locationIds as $i => $rawId) {
+            $locationId = (int) $rawId;
+            if ($locationId <= 0) {
                 continue;
             }
 
-            $isOther = !empty(($_POST['lodging_init_is_other'][$i] ?? ''));
-
-            Location::create([
-                'event_id'       => $eventId,
-                'type'           => 'lodging',
-                'name'           => $name,
-                'street_address' => sanitize_text_field($_POST['lodging_init_street'][$i] ?? ''),
-                'city'           => sanitize_text_field($_POST['lodging_init_city'][$i]   ?? ''),
-                'state'          => sanitize_text_field($_POST['lodging_init_state'][$i]  ?? ''),
-                'zip_code'       => sanitize_text_field($_POST['lodging_init_zip'][$i]    ?? ''),
-                'is_other'       => $isOther,
-                'sort_order'     => (int) ($_POST['lodging_init_sort'][$i] ?? 0),
-            ]);
+            EventLodging::create(
+                $eventId,
+                $locationId,
+                (int) ($_POST['lodging_init_sort'][$i] ?? 0)
+            );
         }
     }
 
@@ -262,13 +226,17 @@ final class EventsPage extends AbstractAdminPage
     }
 
     /**
-     * Converts a datetime-local input value ("YYYY-MM-DDTHH:MM") to a MySQL
+     * Converts a datetime-local input value ("YYYY-MM-DDTHH:MM") to a UTC MySQL
      * DATETIME string ("YYYY-MM-DD HH:MM:00"), or returns an empty string if blank.
      *
-     * @param string $value Raw POST value.
+     * When a valid IANA timezone is provided the local time is converted to UTC before
+     * storing. Without a timezone the local value is stored as-is (legacy fallback).
+     *
+     * @param string $value    Raw POST value from a datetime-local input.
+     * @param string $timezone IANA timezone identifier (e.g. "America/New_York").
      * @return string
      */
-    private function sanitizeDatetimeLocal(string $value): string
+    private function sanitizeDatetimeLocal(string $value, string $timezone = ''): string
     {
         $value = sanitize_text_field(wp_unslash($value));
 
@@ -276,15 +244,55 @@ final class EventsPage extends AbstractAdminPage
             return '';
         }
 
-        // datetime-local sends "YYYY-MM-DDTHH:MM" — replace T with a space.
-        $value = str_replace('T', ' ', $value);
-
-        // Append seconds if missing (browser may omit them).
-        if (strlen($value) === 16) {
-            $value .= ':00';
+        // datetime-local sends "YYYY-MM-DDTHH:MM" — normalise to a MySQL datetime.
+        $local = str_replace('T', ' ', $value);
+        if (strlen($local) === 16) {
+            $local .= ':00';
         }
 
-        return strtotime($value) ? $value : '';
+        if (!strtotime($local)) {
+            return '';
+        }
+
+        if ($timezone === '') {
+            return $local;
+        }
+
+        try {
+            $dt = new \DateTime($local, new \DateTimeZone($timezone));
+            $dt->setTimezone(new \DateTimeZone('UTC'));
+            return $dt->format('Y-m-d H:i:s');
+        } catch (\Throwable) {
+            return $local;
+        }
+    }
+
+    /**
+     * Converts a UTC MySQL DATETIME string to the "YYYY-MM-DDTHH:MM" format required
+     * by an HTML datetime-local input, expressed in the given event timezone.
+     *
+     * Used when populating form fields for an existing event so the admin sees local
+     * times rather than the raw UTC values stored in the database.
+     *
+     * @param string $utcDatetime MySQL DATETIME string in UTC.
+     * @param string $timezone    IANA timezone identifier for the event.
+     * @return string
+     */
+    private function utcToDatetimeLocal(string $utcDatetime, string $timezone): string
+    {
+        if ($utcDatetime === '') {
+            return '';
+        }
+
+        try {
+            $dt = new \DateTime($utcDatetime, new \DateTimeZone('UTC'));
+            if ($timezone !== '') {
+                $dt->setTimezone(new \DateTimeZone($timezone));
+            }
+            return $dt->format('Y-m-d\TH:i');
+        } catch (\Throwable) {
+            return substr(str_replace(' ', 'T', $utcDatetime), 0, 16);
+        }
     }
 
     /**
@@ -318,43 +326,21 @@ final class EventsPage extends AbstractAdminPage
             wp_die('Security check failed.');
         }
 
-        $eventId   = (int) ($_POST['event_id'] ?? 0);
-        $name      = sanitize_text_field($_POST['name'] ?? '');
-        $libraryId = (int) ($_POST['lodging_add_library_id'] ?? 0);
+        $eventId    = (int) ($_POST['event_id'] ?? 0);
+        $locationId = (int) ($_POST['lodging_add_library_id'] ?? 0);
+        $loc        = $locationId > 0 ? Location::find($locationId) : null;
 
-        if ($name === '' || $eventId === 0) {
+        if ($eventId === 0 || $loc === null || !$loc->hasLodging) {
             wp_redirect(add_query_arg([
                 'page'      => AdminMenu::PAGE_EVENTS,
                 'action'    => 'edit',
                 'id'        => $eventId ?: null,
-                'eim_error' => 'lodging_name_required',
-            ], admin_url('admin.php')));
-            exit;
-        }
-
-        if ($libraryId <= 0 || LocationLibrary::find($libraryId) === null) {
-            wp_redirect(add_query_arg([
-                'page'      => AdminMenu::PAGE_EVENTS,
-                'action'    => 'edit',
-                'id'        => $eventId,
                 'eim_error' => 'lodging_invalid_location',
             ], admin_url('admin.php')));
             exit;
         }
 
-        $isOther = !empty($_POST['is_other']);
-
-        Location::create([
-            'event_id'       => $eventId,
-            'type'           => 'lodging',
-            'name'           => $name,
-            'street_address' => sanitize_text_field($_POST['street_address'] ?? ''),
-            'city'           => sanitize_text_field($_POST['city']           ?? ''),
-            'state'          => sanitize_text_field($_POST['state']          ?? ''),
-            'zip_code'       => sanitize_text_field($_POST['zip_code']       ?? ''),
-            'is_other'       => $isOther,
-            'sort_order'     => (int) ($_POST['sort_order'] ?? 0),
-        ]);
+        EventLodging::create($eventId, $locationId, (int) ($_POST['sort_order'] ?? 0));
 
         wp_redirect(add_query_arg([
             'page'        => AdminMenu::PAGE_EVENTS,
@@ -380,7 +366,7 @@ final class EventsPage extends AbstractAdminPage
             wp_die('Security check failed.');
         }
 
-        Location::delete($id);
+        EventLodging::delete($id);
 
         wp_redirect(add_query_arg([
             'page'        => AdminMenu::PAGE_EVENTS,
@@ -483,7 +469,9 @@ final class EventsPage extends AbstractAdminPage
         $invitee = Invitee::findForEvent($inviteeId, $eventId);
 
         if ($event && $invitee) {
-            $sent = $this->emailService->sendInvite($event, $invitee);
+            $qrCode      = $this->qrCodeService->getOrCreate($event, $invitee);
+            $qrImgTag    = $qrCode ? $this->qrCodeService->imgTag($qrCode) : '';
+            $sent        = $this->emailService->sendInvite($event, $invitee, $qrImgTag);
             if ($sent) {
                 Invitee::markInviteSentForEvent($inviteeId, $eventId);
             }
@@ -524,7 +512,10 @@ final class EventsPage extends AbstractAdminPage
                     continue;
                 }
 
-                if ($this->emailService->sendInvite($event, $invitee)) {
+                $qrCode   = $this->qrCodeService->getOrCreate($event, $invitee);
+                $qrImgTag = $qrCode ? $this->qrCodeService->imgTag($qrCode) : '';
+
+                if ($this->emailService->sendInvite($event, $invitee, $qrImgTag)) {
                     Invitee::markInviteSentForEvent($invitee->id, $eventId);
                     $sentCount++;
                 }
@@ -551,7 +542,7 @@ final class EventsPage extends AbstractAdminPage
         $events       = Event::all();
         $message      = (string) ($_GET['eim_message'] ?? '');
         $error        = (string) ($_GET['eim_error'] ?? '');
-        $hasLocations = LocationLibrary::count() > 0;
+        $hasLocations = Location::count() > 0;
 
         $calYear  = max(1970, min(2099, (int) ($_GET['cal_year']  ?? date('Y'))));
         $calMonth = max(1,    min(12,   (int) ($_GET['cal_month'] ?? date('n'))));
@@ -596,7 +587,7 @@ final class EventsPage extends AbstractAdminPage
                             <?php
                             $total       = $event->inviteeCount();
                             $registered  = $event->registeredCount();
-                            $venue       = Location::venueForEvent($event->id);
+                            $venue       = $event->venueId !== null ? Location::find($event->venueId) : null;
                             $editUrl     = admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=edit&id=' . $event->id);
                             $deleteUrl   = wp_nonce_url(
                                 admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=delete_event&id=' . $event->id),
@@ -779,8 +770,8 @@ final class EventsPage extends AbstractAdminPage
     {
         $isNew = $event === null;
 
-        // Require at least one library location before creating a new event.
-        if ($isNew && LocationLibrary::count() === 0) {
+        // Require at least one location in the catalogue before creating a new event.
+        if ($isNew && Location::count() === 0) {
             ?>
             <div class="wrap">
                 <h1>Add New Event</h1>
@@ -837,10 +828,9 @@ final class EventsPage extends AbstractAdminPage
                         </th>
                         <td>
                             <?php
-                            $startVal = '';
-                            if (!$isNew && $event->startDatetime) {
-                                $startVal = substr(str_replace(' ', 'T', $event->startDatetime), 0, 16);
-                            }
+                            $startVal = (!$isNew && $event->startDatetime)
+                                ? $this->utcToDatetimeLocal($event->startDatetime, $event->timezone)
+                                : '';
                             ?>
                             <input type="datetime-local" id="eim_start_datetime" name="start_datetime"
                                    value="<?= esc_attr($startVal); ?>">
@@ -852,10 +842,9 @@ final class EventsPage extends AbstractAdminPage
                         </th>
                         <td>
                             <?php
-                            $endVal = '';
-                            if (!$isNew && $event->endDatetime) {
-                                $endVal = substr(str_replace(' ', 'T', $event->endDatetime), 0, 16);
-                            }
+                            $endVal = (!$isNew && $event->endDatetime)
+                                ? $this->utcToDatetimeLocal($event->endDatetime, $event->timezone)
+                                : '';
                             ?>
                             <input type="datetime-local" id="eim_end_datetime" name="end_datetime"
                                    value="<?= esc_attr($endVal); ?>">
@@ -905,15 +894,11 @@ final class EventsPage extends AbstractAdminPage
                     <tr><td colspan="2" class="sub-heading"><h2 class="title" style="margin-top:0;">Venue / Location</h2></td></tr>
 
                     <?php
-                    $venue          = $isNew ? null : Location::venueForEvent($event->id);
-                    $venueLibraryId = 0;
-                    if ($venue) {
-                        $libMatch = LocationLibrary::findByName($venue->name);
-                        $venueLibraryId = $libMatch ? $libMatch->id : 0;
-                    }
+                    $venue          = (!$isNew && $event->venueId !== null) ? Location::find($event->venueId) : null;
+                    $venueLocationId = $venue ? $venue->id : 0;
+                    $venueAddress    = $venue ? $venue->formattedAddress() : '';
                     ?>
-                    <?php $venueAddress = $venue ? $venue->formattedAddress() : ''; ?>
-                    <input type="hidden" id="eim_venue_library_id"    name="venue_library_id"    value="<?= esc_attr($venueLibraryId); ?>">
+                    <input type="hidden" id="eim_venue_library_id"    name="venue_library_id"     value="<?= esc_attr($venueLocationId); ?>">
                     <input type="hidden" id="eim_venue_street"        name="venue_street_address" value="<?= esc_attr($venue ? $venue->streetAddress : ''); ?>">
                     <input type="hidden" id="eim_venue_city"          name="venue_city"           value="<?= esc_attr($venue ? $venue->city : ''); ?>">
                     <input type="hidden" id="eim_venue_state"         name="venue_state"          value="<?= esc_attr($venue ? $venue->state : ''); ?>">
@@ -928,7 +913,7 @@ final class EventsPage extends AbstractAdminPage
                                 <?= esc_html($venueAddress); ?>
                             </p>
                             <p class="description" style="margin-top:4px;">
-                                Start typing to search the locations library.
+                                Start typing to search the locations catalogue.
                                 <?php if (!$isNew): ?>Clear this field and save to remove the venue.<?php endif; ?>
                             </p>
                         </td>
@@ -990,39 +975,46 @@ final class EventsPage extends AbstractAdminPage
                             <p class="description">
                                 Available tags:
                                 <code>{{ event_name }}</code> <code>{{ first_name }}</code> <code>{{ last_name }}</code>
-                                <code>{{ full_name }}</code> <code>{{ email }}</code>
+                                <code>{{ full_name }}</code> <code>{{ email }}</code> <code>{{ qr_code }}</code>
+                            </p>
+                            <p class="description">
+                                <code>{{ qr_code }}</code> — inserts the invitee's personalised QR code image, linking to the RSVP page configured below.
                             </p>
                         </td>
                     </tr>
 
-                    <tr><td colspan="2" class="sub-heading"><h2 class="title" style="margin-top:0;">Confirmation Code Email</h2></td></tr>
+                    <tr><td colspan="2" class="sub-heading"><h2 class="title" style="margin-top:0;">QR Code &amp; RSVP</h2></td></tr>
 
                     <tr>
                         <th scope="row">
-                            <label for="eim_confirmation_email_subject">Subject Line</label>
-                        </th>
-                        <td>
-                            <input type="text" id="eim_confirmation_email_subject" name="confirmation_email_subject" class="regular-text"
-                                   value="<?= esc_attr($isNew ? '' : $event->confirmationEmailSubject); ?>">
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row">
-                            <label for="confirmation_email_template">Email Body</label>
+                            <label for="eim_rsvp_page_id">QR Code RSVP Page Redirect</label>
                         </th>
                         <td>
                             <?php
-                            wp_editor(
-                                $isNew ? '' : $event->confirmationEmailTemplate,
-                                'confirmation_email_template',
-                                ['textarea_name' => 'confirmation_email_template', 'media_buttons' => false, 'textarea_rows' => 10]
-                            );
+                            $pages          = get_pages(['sort_column' => 'post_title', 'sort_order' => 'ASC']);
+                            $selectedPageId = $isNew ? 0 : ($event->rsvpPageId ?? 0);
                             ?>
+                            <select id="eim_rsvp_page_id" name="rsvp_page_id">
+                                <option value="0">— No redirect page selected —</option>
+                                <?php foreach ($pages as $page): ?>
+                                    <option value="<?= esc_attr($page->ID); ?>" <?php selected($selectedPageId, $page->ID); ?>>
+                                        <?= esc_html($page->post_title); ?>
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
                             <p class="description">
-                                Available tag: <code>{{ confirmation_code }}</code> — replaced with the six-digit code sent to the registrant.
+                                When an invitee scans their QR code, WordPress will redirect them to this page with
+                                <code>?eim_confirmation={code}</code> appended to the URL.
+                                Leave blank if no redirect is needed.
                             </p>
+                            <?php if ($selectedPageId > 0): ?>
+                                <p class="description">
+                                    Current RSVP page: <a href="<?= esc_url(get_permalink($selectedPageId)); ?>" target="_blank"><?= esc_html(get_the_title($selectedPageId)); ?> ↗</a>
+                                </p>
+                            <?php endif; ?>
                         </td>
                     </tr>
+
                     <tr><td colspan="2" class="sub-heading"><h2 class="title" style="margin-top:0;">Lodging</h2></td></tr>
 
                     <tr>
@@ -1087,7 +1079,7 @@ final class EventsPage extends AbstractAdminPage
                         <tr>
                             <th scope="row">Lodging Locations</th>
                             <td>
-                                <?php $lodgingLocations = Location::forEvent($event->id); ?>
+                                <?php $lodgingLocations = EventLodging::forEvent($event->id); ?>
                                 <?php if (!empty($lodgingLocations)): ?>
                                     <table class="wp-list-table widefat fixed striped" style="margin-bottom:12px;">
                                         <thead>

@@ -12,6 +12,102 @@ if (!defined('ABSPATH')) exit;
 abstract class AbstractAdminPage
 {
     /**
+     * Renders the search/filter bar used above list tables.
+     *
+     * Outputs a shared .eim-list-table-controls wrapper containing a search
+     * input, a live result-count label, and a WordPress spinner element.
+     * JavaScript on each page drives the AJAX refresh; this method is
+     * purely responsible for the initial server-rendered markup.
+     *
+     * @param string $inputId       HTML id for the <input type="search">.
+     * @param string $countId       HTML id for the result-count <span>.
+     * @param string $spinnerId     HTML id for the spinner <span>.
+     * @param string $placeholder   Visible placeholder and accessible label text.
+     * @param int    $count         Initial row count shown before any search.
+     * @param string $currentSearch Current search value pre-filled into the input.
+     * @return void
+     */
+    protected function renderSearchBar(
+        string $inputId,
+        string $countId,
+        string $spinnerId,
+        string $placeholder,
+        int    $count,
+        string $currentSearch = ''
+    ): void {
+        ?>
+        <div class="eim-list-table-controls">
+            <label class="screen-reader-text" for="<?= esc_attr($inputId); ?>"><?= esc_html($placeholder); ?></label>
+            <input type="search"
+                   id="<?= esc_attr($inputId); ?>"
+                   class="regular-text"
+                   value="<?= esc_attr($currentSearch); ?>"
+                   placeholder="<?= esc_attr($placeholder); ?>"
+                   autocomplete="off">
+            <span id="<?= esc_attr($countId); ?>" class="description">
+                <?= esc_html($count); ?> result<?= $count === 1 ? '' : 's'; ?>
+            </span>
+            <span id="<?= esc_attr($spinnerId); ?>" class="spinner" aria-hidden="true"></span>
+        </div>
+        <?php
+    }
+
+    /**
+     * Builds a sortable column header link with AJAX data attributes and GET fallback.
+     *
+     * The rendered <a> tag carries data-sort and data-order attributes consumed
+     * by the page-specific JavaScript to trigger an AJAX re-fetch. The href
+     * provides a no-JS fallback that reloads the page with updated sort params.
+     *
+     * @param string $label        Visible column label.
+     * @param string $key          Sort key (must be validated by the calling page).
+     * @param string $pageSlug     Admin menu page slug for the GET fallback URL.
+     * @param string $currentSort  Currently active sort key.
+     * @param string $currentOrder Currently active sort direction ('asc' or 'desc').
+     * @param string $search       Current search string to preserve in the fallback URL.
+     * @return string              HTML anchor element (not escaped — caller must echo directly).
+     */
+    protected function sortLink(
+        string $label,
+        string $key,
+        string $pageSlug,
+        string $currentSort,
+        string $currentOrder,
+        string $search = ''
+    ): string {
+        $isCurrent = $currentSort === $key;
+        $nextOrder = $isCurrent && $currentOrder === 'asc' ? 'desc' : 'asc';
+        $args      = ['page' => $pageSlug, 'sort' => $key, 'order' => $nextOrder];
+
+        if ($search !== '') {
+            $args['s'] = $search;
+        }
+
+        $url       = add_query_arg($args, admin_url('admin.php'));
+        $indicator = $isCurrent ? ($currentOrder === 'asc' ? '^' : 'v') : '';
+
+        return sprintf(
+            '<a href="%s" class="eim-sort-link" data-sort="%s" data-order="%s">%s <span aria-hidden="true">%s</span></a>',
+            esc_url($url),
+            esc_attr($key),
+            esc_attr($nextOrder),
+            esc_html($label),
+            esc_html($indicator)
+        );
+    }
+
+    /**
+     * Sanitizes a sort direction string to 'asc' or 'desc'.
+     *
+     * @param string $order Raw order value from user input.
+     * @return string
+     */
+    protected function sanitizeSortOrder(string $order): string
+    {
+        return strtolower($order) === 'desc' ? 'desc' : 'asc';
+    }
+
+    /**
      * Renders a generic error message with a back link.
      *
      * @param string $message Human-readable error text.

@@ -12,6 +12,7 @@ use EventsInviteManager\Admin\Pages\InviteesPage;
 use EventsInviteManager\Admin\Pages\LocationsPage;
 use EventsInviteManager\Email\EmailService;
 use EventsInviteManager\Email\TemplateRenderer;
+use EventsInviteManager\Services\QrCodeService;
 
 /**
  * Coordinates the plugin's admin menu pages, shared assets, and action dispatch.
@@ -50,10 +51,11 @@ final class AdminMenu
      */
     public function __construct()
     {
-        $emailService = new EmailService(new TemplateRenderer());
+        $emailService  = new EmailService(new TemplateRenderer());
+        $qrCodeService = new QrCodeService();
 
         $this->aboutPage     = new AboutPage();
-        $this->eventsPage    = new EventsPage($emailService);
+        $this->eventsPage    = new EventsPage($emailService, $qrCodeService);
         $this->inviteesPage  = new InviteesPage();
         $this->locationsPage = new LocationsPage();
     }
@@ -68,9 +70,10 @@ final class AdminMenu
         add_action('admin_menu',            [$this, 'addMenuPages']);
         add_action('admin_init',            [$this, 'processFormSubmissions']);
         add_action('admin_enqueue_scripts', [$this, 'enqueueScripts']);
-        add_action('wp_ajax_eim_search_locations', [$this->locationsPage, 'handleAjaxSearchLocations']);
-        add_action('wp_ajax_eim_search_invitees',  [$this->inviteesPage, 'handleAjaxSearchInvitees']);
-        add_action('wp_ajax_eim_suggest_invitees', [$this->inviteesPage, 'handleAjaxSuggestInvitees']);
+        add_action('wp_ajax_eim_search_locations',      [$this->locationsPage, 'handleAjaxSearchLocations']);
+        add_action('wp_ajax_eim_search_locations_list', [$this->locationsPage, 'handleAjaxSearchLocationsList']);
+        add_action('wp_ajax_eim_search_invitees',       [$this->inviteesPage, 'handleAjaxSearchInvitees']);
+        add_action('wp_ajax_eim_suggest_invitees',      [$this->inviteesPage, 'handleAjaxSuggestInvitees']);
         add_filter('script_loader_tag',     [$this, 'addModuleTypeToScript'], 10, 2);
     }
 
@@ -119,6 +122,25 @@ final class AdminMenu
             [],
             EIM_VERSION
         );
+
+        if ($page === self::PAGE_LOCATIONS && !in_array($action, ['add', 'edit'], true)) {
+            wp_enqueue_script(
+                'eim-admin-locations',
+                EIM_PLUGIN_URL . 'assets/js/admin-locations.js',
+                [],
+                EIM_VERSION,
+                true
+            );
+
+            wp_localize_script('eim-admin-locations', 'eimLocationsAdmin', [
+                'searchNonce' => wp_create_nonce('eim_search_locations_list_nonce'),
+                'table'       => [
+                    'enabled' => true,
+                    'sort'    => sanitize_key($_GET['sort'] ?? 'name'),
+                    'order'   => strtolower((string) ($_GET['order'] ?? 'asc')) === 'desc' ? 'desc' : 'asc',
+                ],
+            ]);
+        }
 
         if ($page === self::PAGE_INVITEES || ($page === self::PAGE_EVENTS && $action === 'edit')) {
             wp_enqueue_script(

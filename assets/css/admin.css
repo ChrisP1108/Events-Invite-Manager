@@ -16,7 +16,7 @@ h1 {
     padding: 0 !important;
 }
 
-.eim-invitee-table-controls {
+.eim-list-table-controls {
     align-items: center;
     display: flex;
     flex-wrap: wrap;
@@ -24,7 +24,7 @@ h1 {
     margin: 0 0 14px;
 }
 
-.eim-invitee-table-controls .spinner {
+.eim-list-table-controls .spinner {
     float: none;
     margin: 0;
 }

@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: Events Invite Manager
- * Description: Manages the inviting and registration of attendees for events, with custom email templates and a front-end registration API.
- * Version:     1.2.1
+ * Description: Manages the inviting and registration of attendees for events, with custom email templates, QR code generating functionality, and a front-end registration API.
+ * Version:     1.3.0
  * Requires PHP: 8.1
  * Author:      Chris Paschall
  * License:     GPL-2.0-or-later
@@ -30,7 +30,7 @@ if (version_compare(PHP_VERSION, '8.1', '<')) {
     });
 } else {
 
-    define('EIM_VERSION', '1.2.1');
+    define('EIM_VERSION', '1.3.0');
     define('EIM_PLUGIN_FILE', __FILE__);
     define('EIM_PLUGIN_DIR', plugin_dir_path(__FILE__));
     define('EIM_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -38,20 +38,30 @@ if (version_compare(PHP_VERSION, '8.1', '<')) {
     require_once EIM_PLUGIN_DIR . 'vendor/autoload.php';
 
     /**
-     * Plugin activation: create the required database tables.
+     * Plugin activation: create the required database tables and schedule the daily
+     * QR code cleanup job.
      *
      * register_activation_hook must be called in the main plugin file to fire reliably.
      * DatabaseManager uses dbDelta for idempotent table creation, so re-activating is safe.
+     * wp_schedule_event is guarded by wp_next_scheduled() so re-activating never
+     * creates duplicate cron entries.
      */
     register_activation_hook(__FILE__, static function (): void {
         EventsInviteManager\Database\DatabaseManager::createTables();
+
+        if (!wp_next_scheduled('eim_daily_qr_cleanup')) {
+            wp_schedule_event(time(), 'daily', 'eim_daily_qr_cleanup');
+        }
     });
 
     /**
-     * Plugin deactivation: tables and data are intentionally preserved on deactivation
-     * so they survive a deactivate/reactivate cycle.
+     * Plugin deactivation: tables and data are intentionally preserved so they survive
+     * a deactivate/reactivate cycle. The daily cron job is unscheduled here and will be
+     * re-registered the next time the plugin is activated.
      */
-    register_deactivation_hook(__FILE__, static function (): void {});
+    register_deactivation_hook(__FILE__, static function (): void {
+        wp_clear_scheduled_hook('eim_daily_qr_cleanup');
+    });
 
     add_action('plugins_loaded', static function (): void {
         EventsInviteManager\Plugin::getInstance()->init();

@@ -7,7 +7,8 @@ namespace EventsInviteManager\Models;
 if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Database\DatabaseManager;
-use EventsInviteManager\Models\Location;
+use EventsInviteManager\Models\EventLodging;
+use EventsInviteManager\Models\QrCode;
 
 /**
  * Represents a single event and provides static CRUD methods against the database.
@@ -19,35 +20,33 @@ use EventsInviteManager\Models\Location;
 final class Event
 {
     /**
-     * @param int     $id                        Primary key.
-     * @param string  $name                      Event name.
-     * @param string  $description               Optional free-text description.
-     * @param string  $rsvpPageUrl               URL of the front-end RSVP/registration page.
-     * @param string  $fromName                  Display name used in the From header of outgoing emails.
-     * @param string  $fromEmail                 Email address used in the From header of outgoing emails.
-     * @param string  $inviteEmailSubject        Subject line for the invite email.
-     * @param string  $inviteEmailTemplate       HTML body template for the invite email.
-     * @param string  $confirmationEmailSubject  Subject line for the confirmation code email.
-     * @param string  $confirmationEmailTemplate HTML body template for the confirmation code email.
-     * @param ?string $startDatetime              MySQL DATETIME string (Y-m-d H:i:s) for the event start, or null.
-     * @param ?string $endDatetime                MySQL DATETIME string (Y-m-d H:i:s) for the event end, or null.
-     * @param string  $timezone                   IANA timezone identifier (e.g. "America/New_York"), or empty string.
-     * @param bool    $lodgingEnabled             Whether lodging options are offered for this event.
-     * @param ?int    $maxInvitees                Maximum number of invitees allowed, or null for unlimited.
-     * @param string  $createdAt                  MySQL datetime string.
-     * @param string  $updatedAt                  MySQL datetime string.
+     * @param int     $id                  Primary key.
+     * @param string  $name                Event name.
+     * @param string  $description         Optional free-text description.
+     * @param ?int    $rsvpPageId          WordPress page ID for the front-end RSVP page, or null if not set.
+     * @param ?int    $venueId             FK to eim_locations for the event venue, or null if not set.
+     * @param string  $fromName            Display name used in the From header of outgoing emails.
+     * @param string  $fromEmail           Email address used in the From header of outgoing emails.
+     * @param string  $inviteEmailSubject  Subject line for the invite email.
+     * @param string  $inviteEmailTemplate HTML body template for the invite email.
+     * @param ?string $startDatetime       MySQL DATETIME string (Y-m-d H:i:s) for the event start, or null.
+     * @param ?string $endDatetime         MySQL DATETIME string (Y-m-d H:i:s) for the event end, or null.
+     * @param string  $timezone            IANA timezone identifier (e.g. "America/New_York"), or empty string.
+     * @param bool    $lodgingEnabled      Whether lodging options are offered for this event.
+     * @param ?int    $maxInvitees         Maximum number of invitees allowed, or null for unlimited.
+     * @param string  $createdAt           MySQL datetime string.
+     * @param string  $updatedAt           MySQL datetime string.
      */
     public function __construct(
         public readonly int     $id,
         public readonly string  $name,
         public readonly string  $description,
-        public readonly string  $rsvpPageUrl,
+        public readonly ?int    $rsvpPageId,
+        public readonly ?int    $venueId,
         public readonly string  $fromName,
         public readonly string  $fromEmail,
         public readonly string  $inviteEmailSubject,
         public readonly string  $inviteEmailTemplate,
-        public readonly string  $confirmationEmailSubject,
-        public readonly string  $confirmationEmailTemplate,
         public readonly ?string $startDatetime,
         public readonly ?string $endDatetime,
         public readonly string  $timezone,
@@ -99,19 +98,19 @@ final class Event
         global $wpdb;
 
         $result = $wpdb->insert(DatabaseManager::eventsTable(), [
-            'name'                          => $data['name']                          ?? '',
-            'description'                   => $data['description']                   ?? '',
-            'from_name'                     => $data['from_name']                     ?? '',
-            'from_email'                    => $data['from_email']                    ?? '',
-            'invite_email_subject'          => $data['invite_email_subject']          ?? '',
-            'invite_email_template'         => $data['invite_email_template']         ?? '',
-            'confirmation_email_subject'    => $data['confirmation_email_subject']    ?? '',
-            'confirmation_email_template'   => $data['confirmation_email_template']   ?? '',
-            'start_datetime'                => !empty($data['start_datetime']) ? $data['start_datetime'] : null,
-            'end_datetime'                  => !empty($data['end_datetime'])   ? $data['end_datetime']   : null,
-            'timezone'                      => $data['timezone'] ?? '',
-            'lodging_enabled'               => isset($data['lodging_enabled']) ? (int) $data['lodging_enabled'] : 0,
-            'max_invitees'                  => isset($data['max_invitees']) && $data['max_invitees'] > 0 ? (int) $data['max_invitees'] : null,
+            'name'                  => $data['name']                 ?? '',
+            'description'           => $data['description']          ?? '',
+            'from_name'             => $data['from_name']            ?? '',
+            'from_email'            => $data['from_email']           ?? '',
+            'invite_email_subject'  => $data['invite_email_subject'] ?? '',
+            'invite_email_template' => $data['invite_email_template'] ?? '',
+            'rsvp_page_id'          => isset($data['rsvp_page_id']) && (int) $data['rsvp_page_id'] > 0 ? (int) $data['rsvp_page_id'] : null,
+            'venue_id'              => isset($data['venue_id']) && (int) $data['venue_id'] > 0 ? (int) $data['venue_id'] : null,
+            'start_datetime'        => !empty($data['start_datetime']) ? $data['start_datetime'] : null,
+            'end_datetime'          => !empty($data['end_datetime'])   ? $data['end_datetime']   : null,
+            'timezone'              => $data['timezone'] ?? '',
+            'lodging_enabled'       => isset($data['lodging_enabled']) ? (int) $data['lodging_enabled'] : 0,
+            'max_invitees'          => isset($data['max_invitees']) && $data['max_invitees'] > 0 ? (int) $data['max_invitees'] : null,
         ]);
 
         return $result ? (int) $wpdb->insert_id : false;
@@ -131,19 +130,19 @@ final class Event
         $result = $wpdb->update(
             DatabaseManager::eventsTable(),
             [
-                'name'                          => $data['name']                          ?? '',
-                'description'                   => $data['description']                   ?? '',
-                'from_name'                     => $data['from_name']                     ?? '',
-                'from_email'                    => $data['from_email']                    ?? '',
-                'invite_email_subject'          => $data['invite_email_subject']          ?? '',
-                'invite_email_template'         => $data['invite_email_template']         ?? '',
-                'confirmation_email_subject'    => $data['confirmation_email_subject']    ?? '',
-                'confirmation_email_template'   => $data['confirmation_email_template']   ?? '',
-                'start_datetime'                => !empty($data['start_datetime']) ? $data['start_datetime'] : null,
-                'end_datetime'                  => !empty($data['end_datetime'])   ? $data['end_datetime']   : null,
-                'timezone'                      => $data['timezone'] ?? '',
-                'lodging_enabled'               => isset($data['lodging_enabled']) ? (int) $data['lodging_enabled'] : 0,
-                'max_invitees'                  => isset($data['max_invitees']) && $data['max_invitees'] > 0 ? (int) $data['max_invitees'] : null,
+                'name'                  => $data['name']                 ?? '',
+                'description'           => $data['description']          ?? '',
+                'from_name'             => $data['from_name']            ?? '',
+                'from_email'            => $data['from_email']           ?? '',
+                'invite_email_subject'  => $data['invite_email_subject'] ?? '',
+                'invite_email_template' => $data['invite_email_template'] ?? '',
+                'rsvp_page_id'          => isset($data['rsvp_page_id']) && (int) $data['rsvp_page_id'] > 0 ? (int) $data['rsvp_page_id'] : null,
+                'venue_id'              => isset($data['venue_id']) && (int) $data['venue_id'] > 0 ? (int) $data['venue_id'] : null,
+                'start_datetime'        => !empty($data['start_datetime']) ? $data['start_datetime'] : null,
+                'end_datetime'          => !empty($data['end_datetime'])   ? $data['end_datetime']   : null,
+                'timezone'              => $data['timezone'] ?? '',
+                'lodging_enabled'       => isset($data['lodging_enabled']) ? (int) $data['lodging_enabled'] : 0,
+                'max_invitees'          => isset($data['max_invitees']) && $data['max_invitees'] > 0 ? (int) $data['max_invitees'] : null,
             ],
             ['id' => $id]
         );
@@ -162,7 +161,8 @@ final class Event
         global $wpdb;
 
         $wpdb->delete(DatabaseManager::eventInviteesTable(), ['event_id' => $id]);
-        Location::deleteForEvent($id);
+        EventLodging::deleteForEvent($id);
+        QrCode::deleteForEvent($id);
         $result = $wpdb->delete(DatabaseManager::eventsTable(), ['id' => $id]);
 
         return $result !== false;
@@ -219,7 +219,12 @@ final class Event
     /**
      * Returns events for a given month grouped by day-of-month, ordered by start time.
      *
-     * Used to populate calendar cells. Events without a date are excluded.
+     * start_datetime is stored in UTC. The query window is expanded by one day on each
+     * side so that events near month boundaries are never missed due to timezone offsets.
+     * After fetching, each event is converted to its own timezone and only those whose
+     * local date falls within the requested month are included.
+     *
+     * Events without a date are excluded.
      *
      * @param int $year  Four-digit year.
      * @param int $month Month number (1–12).
@@ -229,22 +234,38 @@ final class Event
     {
         global $wpdb;
 
-        $table = DatabaseManager::eventsTable();
-        $start = sprintf('%04d-%02d-01', $year, $month);
-        $end   = date('Y-m-t', mktime(0, 0, 0, $month, 1, $year));
+        $table      = DatabaseManager::eventsTable();
+        $monthStart = sprintf('%04d-%02d-01', $year, $month);
+        $monthEnd   = date('Y-m-t', mktime(0, 0, 0, $month, 1, $year));
+
+        // Widen the UTC query by ±1 day to cover any timezone offset crossings.
+        $queryStart = date('Y-m-d', strtotime($monthStart . ' -1 day'));
+        $queryEnd   = date('Y-m-d', strtotime($monthEnd   . ' +1 day'));
 
         $rows = $wpdb->get_results(
             $wpdb->prepare(
                 "SELECT * FROM {$table} WHERE DATE(start_datetime) BETWEEN %s AND %s ORDER BY start_datetime ASC, name ASC",
-                $start,
-                $end
+                $queryStart,
+                $queryEnd
             )
         );
 
         $grouped = [];
         foreach ($rows ?? [] as $row) {
-            $day           = (int) date('j', strtotime($row->start_datetime));
-            $grouped[$day][] = self::fromRow($row);
+            $event = self::fromRow($row);
+
+            if ($event->startDatetime === null) {
+                continue;
+            }
+
+            $local = $event->utcToLocal($event->startDatetime);
+
+            // Exclude events whose local date falls outside the requested month.
+            if ((int) $local->format('Y') !== $year || (int) $local->format('n') !== $month) {
+                continue;
+            }
+
+            $grouped[(int) $local->format('j')][] = $event;
         }
 
         return $grouped;
@@ -253,7 +274,8 @@ final class Event
     /**
      * Returns the start date formatted using the site's WordPress date format setting.
      *
-     * Used for calendar grouping labels. Returns an empty string when no start is set.
+     * The stored UTC datetime is converted to the event's timezone before formatting.
+     * Returns an empty string when no start is set.
      *
      * @return string
      */
@@ -263,14 +285,14 @@ final class Event
             return '';
         }
 
-        return date_i18n((string) get_option('date_format'), strtotime($this->startDatetime));
+        return $this->utcToLocal($this->startDatetime)->format((string) get_option('date_format', 'M j, Y'));
     }
 
     /**
      * Returns a short time range for compact displays such as calendar cells.
      *
      * Same-day: "4:00 PM – 9:00 PM". Cross-day: "4:00 PM – Jan 16 9:00 PM".
-     * Returns an empty string when no start is set.
+     * Times are expressed in the event's own timezone. Returns an empty string when no start is set.
      *
      * @return string
      */
@@ -280,19 +302,19 @@ final class Event
             return '';
         }
 
-        $startTs  = strtotime($this->startDatetime);
-        $startStr = date_i18n('g:i A', $startTs);
+        $start    = $this->utcToLocal($this->startDatetime);
+        $startStr = $start->format('g:i A');
 
         if (!$this->endDatetime) {
             return $startStr;
         }
 
-        $endTs      = strtotime($this->endDatetime);
-        $sameDay    = date('Y-m-d', $startTs) === date('Y-m-d', $endTs);
+        $end     = $this->utcToLocal($this->endDatetime);
+        $sameDay = $start->format('Y-m-d') === $end->format('Y-m-d');
 
         return $sameDay
-            ? $startStr . ' – ' . date_i18n('g:i A', $endTs)
-            : $startStr . ' – ' . date_i18n('M j g:i A', $endTs);
+            ? $startStr . ' – ' . $end->format('g:i A')
+            : $startStr . ' – ' . $end->format('M j g:i A');
     }
 
     /**
@@ -301,7 +323,8 @@ final class Event
      * Same-day:   "Jan 15, 2025, 4:00 PM – 9:00 PM"
      * Cross-day:  "Jan 15, 2025, 4:00 PM – Jan 16, 2025, 9:00 PM"
      * No end:     "Jan 15, 2025, 4:00 PM"
-     * No time:    "Jan 15, 2025"
+     *
+     * Times are expressed in the event's own timezone.
      *
      * @return string
      */
@@ -311,22 +334,46 @@ final class Event
             return '';
         }
 
-        $dateFormat = (string) get_option('date_format');
-        $startTs    = strtotime($this->startDatetime);
-        $startDate  = date_i18n($dateFormat, $startTs);
-        $startTime  = date_i18n('g:i A', $startTs);
+        $dateFormat = (string) get_option('date_format', 'M j, Y');
+        $start      = $this->utcToLocal($this->startDatetime);
+        $startDate  = $start->format($dateFormat);
+        $startTime  = $start->format('g:i A');
 
         if (!$this->endDatetime) {
             return $startDate . ', ' . $startTime;
         }
 
-        $endTs     = strtotime($this->endDatetime);
-        $endTime   = date_i18n('g:i A', $endTs);
-        $sameDay   = date('Y-m-d', $startTs) === date('Y-m-d', $endTs);
+        $end     = $this->utcToLocal($this->endDatetime);
+        $endTime = $end->format('g:i A');
+        $sameDay = $start->format('Y-m-d') === $end->format('Y-m-d');
 
         return $sameDay
             ? $startDate . ', ' . $startTime . ' – ' . $endTime
-            : $startDate . ', ' . $startTime . ' – ' . date_i18n($dateFormat, $endTs) . ', ' . $endTime;
+            : $startDate . ', ' . $startTime . ' – ' . $end->format($dateFormat) . ', ' . $endTime;
+    }
+
+    /**
+     * Converts a UTC MySQL datetime string to a \DateTime in the event's own timezone.
+     *
+     * Falls back to UTC when the event has no timezone set (e.g. legacy rows that were
+     * saved before the timezone field existed).
+     *
+     * @param string $utcDatetime MySQL DATETIME string assumed to be UTC.
+     * @return \DateTime
+     */
+    private function utcToLocal(string $utcDatetime): \DateTime
+    {
+        $dt = new \DateTime($utcDatetime, new \DateTimeZone('UTC'));
+
+        if ($this->timezone !== '') {
+            try {
+                $dt->setTimezone(new \DateTimeZone($this->timezone));
+            } catch (\Throwable) {
+                // Invalid timezone identifier — leave in UTC.
+            }
+        }
+
+        return $dt;
     }
 
     /**
@@ -338,23 +385,22 @@ final class Event
     private static function fromRow(object $row): self
     {
         return new self(
-            id:                        (int) $row->id,
-            name:                            $row->name,
-            description:                     $row->description                   ?? '',
-            rsvpPageUrl:                     $row->rsvp_page_url                 ?? '',
-            fromName:                        $row->from_name                     ?? '',
-            fromEmail:                       $row->from_email                    ?? '',
-            inviteEmailSubject:              $row->invite_email_subject          ?? '',
-            inviteEmailTemplate:             $row->invite_email_template         ?? '',
-            confirmationEmailSubject:        $row->confirmation_email_subject    ?? '',
-            confirmationEmailTemplate:       $row->confirmation_email_template   ?? '',
-            startDatetime:                   $row->start_datetime                ?? null,
-            endDatetime:                     $row->end_datetime                  ?? null,
-            timezone:                        $row->timezone                      ?? '',
-            lodgingEnabled:           (bool) ($row->lodging_enabled              ?? false),
-            maxInvitees:              isset($row->max_invitees) && $row->max_invitees !== null ? (int) $row->max_invitees : null,
-            createdAt:                       $row->created_at                    ?? '',
-            updatedAt:                       $row->updated_at                    ?? '',
+            id:                  (int) $row->id,
+            name:                      $row->name,
+            description:               $row->description           ?? '',
+            rsvpPageId:          isset($row->rsvp_page_id) && $row->rsvp_page_id !== null ? (int) $row->rsvp_page_id : null,
+            venueId:             isset($row->venue_id)     && $row->venue_id     !== null ? (int) $row->venue_id     : null,
+            fromName:                  $row->from_name             ?? '',
+            fromEmail:                 $row->from_email            ?? '',
+            inviteEmailSubject:        $row->invite_email_subject  ?? '',
+            inviteEmailTemplate:       $row->invite_email_template ?? '',
+            startDatetime:             $row->start_datetime        ?? null,
+            endDatetime:               $row->end_datetime          ?? null,
+            timezone:                  $row->timezone              ?? '',
+            lodgingEnabled:     (bool) ($row->lodging_enabled      ?? false),
+            maxInvitees:         isset($row->max_invitees) && $row->max_invitees !== null ? (int) $row->max_invitees : null,
+            createdAt:                 $row->created_at            ?? '',
+            updatedAt:                 $row->updated_at            ?? '',
         );
     }
 }
