@@ -134,6 +134,75 @@ final class Location
     }
 
     /**
+     * Returns event usage grouped by location ID for the Locations admin table.
+     *
+     * A location can be used as an event venue, a lodging option, or both. When the
+     * same event uses a location in both ways, the event is returned once with both
+     * roles attached.
+     *
+     * @param int[] $locationIds
+     * @return array<int, array<int, array{id: int, name: string, roles: array<int, string>}>>
+     */
+    public static function eventUsageForLocations(array $locationIds): array
+    {
+        global $wpdb;
+
+        $locationIds = array_values(array_unique(array_filter(array_map('intval', $locationIds))));
+        if (empty($locationIds)) {
+            return [];
+        }
+
+        $eventsTable       = DatabaseManager::eventsTable();
+        $eventLodgingTable = DatabaseManager::eventLodgingTable();
+        $placeholders      = implode(', ', array_fill(0, count($locationIds), '%d'));
+        $params            = array_merge($locationIds, $locationIds);
+
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT event_usage.location_id, event_usage.event_id, event_usage.event_name, event_usage.role
+                 FROM (
+                    SELECT e.venue_id AS location_id, e.id AS event_id, e.name AS event_name, 'venue' AS role
+                    FROM {$eventsTable} e
+                    WHERE e.venue_id IN ({$placeholders})
+                    UNION ALL
+                    SELECT el.location_id, e.id AS event_id, e.name AS event_name, 'lodging' AS role
+                    FROM {$eventLodgingTable} el
+                    INNER JOIN {$eventsTable} e ON e.id = el.event_id
+                    WHERE el.location_id IN ({$placeholders})
+                 ) event_usage
+                 ORDER BY event_usage.event_name ASC,
+                          CASE event_usage.role WHEN 'venue' THEN 0 ELSE 1 END",
+                ...$params
+            )
+        );
+
+        $grouped = [];
+        foreach ($rows ?? [] as $row) {
+            $locationId = (int) $row->location_id;
+            $eventId    = (int) $row->event_id;
+
+            if (!isset($grouped[$locationId][$eventId])) {
+                $grouped[$locationId][$eventId] = [
+                    'id'    => $eventId,
+                    'name'  => (string) $row->event_name,
+                    'roles' => [],
+                ];
+            }
+
+            $role = (string) $row->role;
+            if (!in_array($role, $grouped[$locationId][$eventId]['roles'], true)) {
+                $grouped[$locationId][$eventId]['roles'][] = $role;
+            }
+        }
+
+        foreach ($grouped as $locationId => $events) {
+            $grouped[$locationId] = array_values($events);
+        }
+
+        return $grouped;
+    }
+
+    /**
      * Searches locations whose name matches the query string.
      *
      * Pass $lodgingOnly = true to restrict results to locations with has_lodging = 1

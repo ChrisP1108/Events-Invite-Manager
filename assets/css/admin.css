@@ -13,7 +13,7 @@
 }
 
 h1 {
-    padding: 0 !important;
+    padding: 0 !important
 }
 
 .eim-list-table-controls {
@@ -53,6 +53,14 @@ h1 {
     line-height: 1.4;
     padding: 2px 8px;
     text-decoration: none;
+}
+
+.eim-event-tag-role {
+    border-left: 1px solid #b8d9f0;
+    color: #3c434a;
+    font-size: 11px;
+    margin-left: 6px;
+    padding-left: 6px;
 }
 
 .eim-event-tag:hover,

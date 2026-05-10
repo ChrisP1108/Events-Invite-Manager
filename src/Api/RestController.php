@@ -176,9 +176,10 @@ class RestController
         Invitee::markRegisteredForEvent($invitee->id, $qrCode->eventId);
 
         return new WP_REST_Response([
-            'success' => true,
-            'message' => 'You have successfully registered for the event!',
-            'invitee' => $this->inviteePayload($invitee),
+            'success'            => true,
+            'already_registered' => false,
+            'message'            => 'You have successfully registered for the event!',
+            'invitee'            => $this->inviteePayload($invitee),
         ], 200);
     }
 

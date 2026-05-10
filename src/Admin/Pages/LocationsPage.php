@@ -87,7 +87,7 @@ final class LocationsPage extends AbstractAdminPage
             wp_send_json_error('Insufficient permissions.', 403);
         }
 
-        $query      = sanitize_text_field($_GET['query'] ?? '');
+        $query      = sanitize_text_field(wp_unslash($_GET['query'] ?? ''));
         $lodgingOnly = !empty($_GET['lodging_only']);
 
         if (mb_strlen($query) < 2) {
@@ -128,14 +128,14 @@ final class LocationsPage extends AbstractAdminPage
         $isOther = !empty($_POST['is_other']);
 
         $data = [
-            'name'           => sanitize_text_field($_POST['name'] ?? ''),
+            'name'           => sanitize_text_field(wp_unslash($_POST['name'] ?? '')),
             'is_other'       => $isOther,
-            'street_address' => sanitize_text_field($_POST['street_address'] ?? ''),
-            'city'           => sanitize_text_field($_POST['city'] ?? ''),
-            'state'          => sanitize_text_field($_POST['state'] ?? ''),
-            'zip_code'       => sanitize_text_field($_POST['zip_code'] ?? ''),
+            'street_address' => sanitize_text_field(wp_unslash($_POST['street_address'] ?? '')),
+            'city'           => sanitize_text_field(wp_unslash($_POST['city'] ?? '')),
+            'state'          => sanitize_text_field(wp_unslash($_POST['state'] ?? '')),
+            'zip_code'       => sanitize_text_field(wp_unslash($_POST['zip_code'] ?? '')),
             'has_lodging'    => !empty($_POST['has_lodging']),
-            'booking_url'    => esc_url_raw($_POST['booking_url'] ?? ''),
+            'booking_url'    => esc_url_raw(wp_unslash($_POST['booking_url'] ?? '')),
         ];
 
         if (empty($data['name'])) {
@@ -223,7 +223,8 @@ final class LocationsPage extends AbstractAdminPage
                         <th style="width:28%;"><?= $this->sortLink('Name', 'name', AdminMenu::PAGE_LOCATIONS, $sort, $order, $search); ?></th>
                         <th style="width:14%;"><?= $this->sortLink('Type', 'is_other', AdminMenu::PAGE_LOCATIONS, $sort, $order, $search); ?></th>
                         <th style="width:12%;"><?= $this->sortLink('Lodging', 'has_lodging', AdminMenu::PAGE_LOCATIONS, $sort, $order, $search); ?></th>
-                        <th>Address / Booking</th>
+                        <th style="width:25%;">Address / Booking</th>
+                        <th style="width:24%;">Used In</th>
                         <th style="width:18%;">Actions</th>
                     </tr>
                 </thead>
@@ -250,11 +251,13 @@ final class LocationsPage extends AbstractAdminPage
         if (empty($locations)) {
             ?>
             <tr class="eim-no-results">
-                <td colspan="5">No locations found.</td>
+                <td colspan="6">No locations found.</td>
             </tr>
             <?php
             return;
         }
+
+        $usageByLocation = Location::eventUsageForLocations(array_map(static fn(Location $loc): int => $loc->id, $locations));
 
         foreach ($locations as $loc) {
             $editUrl   = admin_url('admin.php?page=' . AdminMenu::PAGE_LOCATIONS . '&action=edit&id=' . $loc->id);
@@ -283,6 +286,28 @@ final class LocationsPage extends AbstractAdminPage
                     <?= esc_html($loc->formattedAddress() ?: '—'); ?>
                     <?php if ($loc->hasLodging && $loc->bookingUrl): ?>
                         <br><a href="<?= esc_url($loc->bookingUrl); ?>" target="_blank" rel="noopener" style="font-size:12px;">Book →</a>
+                    <?php endif; ?>
+                </td>
+                <td>
+                    <?php $usage = $usageByLocation[$loc->id] ?? []; ?>
+                    <?php if (empty($usage)): ?>
+                        <span style="color:#999;">Not used yet</span>
+                    <?php else: ?>
+                        <span class="eim-tag-list">
+                            <?php foreach ($usage as $eventUsage): ?>
+                                <?php
+                                $eventUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=edit&id=' . $eventUsage['id']);
+                                $roles    = array_map(
+                                    static fn(string $role): string => $role === 'venue' ? 'Venue' : 'Lodging',
+                                    $eventUsage['roles']
+                                );
+                                ?>
+                                <a class="eim-event-tag" href="<?= esc_url($eventUrl); ?>">
+                                    <?= esc_html($eventUsage['name']); ?>
+                                    <span class="eim-event-tag-role"><?= esc_html(implode(' + ', $roles)); ?></span>
+                                </a>
+                            <?php endforeach; ?>
+                        </span>
                     <?php endif; ?>
                 </td>
                 <td>

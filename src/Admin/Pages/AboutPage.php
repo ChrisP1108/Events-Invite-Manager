@@ -167,7 +167,8 @@ final class AboutPage extends AbstractAdminPage
                             Open an event, add existing invitees to its <strong>Invited Invitees</strong> list, then click
                             <strong>Send Invite</strong> for an individual guest or <strong>Send All Unsent</strong>.
                             A unique QR code is generated automatically for each invitee — add <code>{{ qr_code }}</code>
-                            anywhere in your invite email template to embed the scannable image.
+                            anywhere in your invite email template to embed the scannable image, or
+                            <code>{{ invite_url }}</code> to include the same RSVP link as text.
                         </p>
                     </div>
                 </div>
@@ -228,7 +229,7 @@ final class AboutPage extends AbstractAdminPage
             [
                 'icon'  => 'dashicons-email-alt',
                 'title' => 'Customizable Email Templates',
-                'body'  => 'Write invite emails with full HTML support via the WordPress editor. Insert guest details, a personalized QR code image, and event information using template tags.',
+                'body'  => 'Write invite emails with full HTML support via the WordPress editor. Insert guest details, a personalized QR code image, the matching RSVP URL, and event information using template tags.',
             ],
             [
                 'icon'  => 'dashicons-qrcode',
@@ -294,6 +295,7 @@ final class AboutPage extends AbstractAdminPage
                     <tr><td><code>{{ full_name }}</code></td><td>First and last name combined</td></tr>
                     <tr><td><code>{{ email }}</code></td><td>Invitee's email address</td></tr>
                     <tr><td><code>{{ qr_code }}</code></td><td>An <code>&lt;img&gt;</code> tag containing the invitee's unique QR code image (300 × 300 px). Place this anywhere in the email body to embed the scannable code.</td></tr>
+                    <tr><td><code>{{ invite_url }}</code></td><td>The same personalized RSVP URL encoded in the invitee's QR code. Useful as a fallback link when email clients block images.</td></tr>
                 </tbody>
             </table>
 

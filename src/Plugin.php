@@ -105,6 +105,12 @@ final class Plugin
             return;
         }
 
+        // If the visitor is already on the configured RSVP page, let the page load
+        // normally — redirecting again would cause an immediate redirect loop.
+        if ((int) get_queried_object_id() === $event->rsvpPageId) {
+            return;
+        }
+
         $pageUrl = get_permalink($event->rsvpPageId);
 
         if (!$pageUrl) {

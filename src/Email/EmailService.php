@@ -18,7 +18,7 @@ use EventsInviteManager\Models\Invitee;
  *
  * Available template tags for invite emails:
  *   {{ event_name }}, {{ first_name }}, {{ last_name }}, {{ full_name }},
- *   {{ email }}, {{ qr_code }}
+ *   {{ email }}, {{ qr_code }}, {{ invite_url }}
  */
 final class EmailService
 {
@@ -39,9 +39,10 @@ final class EmailService
      * @param Event   $event
      * @param Invitee $invitee
      * @param string  $qrCodeImgTag Optional HTML <img> tag for the invitee's QR code (replaces {{ qr_code }}).
+     * @param string  $inviteUrl    Optional RSVP URL encoded in the QR code (replaces {{ invite_url }}).
      * @return bool True if wp_mail() accepted the message for delivery.
      */
-    public function sendInvite(Event $event, Invitee $invitee, string $qrCodeImgTag = ''): bool
+    public function sendInvite(Event $event, Invitee $invitee, string $qrCodeImgTag = '', string $inviteUrl = ''): bool
     {
         if (empty($event->inviteEmailTemplate)) {
             return false;
@@ -54,6 +55,7 @@ final class EmailService
             'full_name'  => esc_html($invitee->fullName()),
             'email'      => esc_html($invitee->email),
             'qr_code'    => $qrCodeImgTag,
+            'invite_url' => esc_url($inviteUrl),
         ];
 
         $subject = $this->renderer->render($event->inviteEmailSubject, $variables)

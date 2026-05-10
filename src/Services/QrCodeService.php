@@ -77,6 +77,17 @@ final class QrCodeService
     }
 
     /**
+     * Returns the same confirmation URL encoded into the QR code PNG.
+     *
+     * @param QrCode $qrCode
+     * @return string
+     */
+    public function inviteUrl(QrCode $qrCode): string
+    {
+        return $this->buildInviteUrl($qrCode->confirmationCode);
+    }
+
+    /**
      * Generates a QR code PNG, saves it to the uploads directory, and creates the DB record.
      *
      * @param int $eventId
@@ -86,7 +97,7 @@ final class QrCodeService
     private function generate(int $eventId, int $inviteeId): ?QrCode
     {
         $code    = $this->generateCode();
-        $url     = home_url('/') . '?eim_confirmation=' . $code;
+        $url     = $this->buildInviteUrl($code);
         $upload  = wp_upload_dir();
         $dir     = $upload['basedir'] . '/' . self::QR_SUBDIR;
         $file    = $eventId . '_' . $inviteeId . '.png';
@@ -131,5 +142,16 @@ final class QrCodeService
         }
 
         return $code;
+    }
+
+    /**
+     * Builds the public URL that starts the RSVP redirect flow.
+     *
+     * @param string $code
+     * @return string
+     */
+    private function buildInviteUrl(string $code): string
+    {
+        return home_url('/') . '?eim_confirmation=' . $code;
     }
 }

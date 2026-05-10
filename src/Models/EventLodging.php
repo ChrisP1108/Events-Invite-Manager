@@ -96,6 +96,19 @@ final class EventLodging
             return false;
         }
 
+        $table  = DatabaseManager::eventLodgingTable();
+        $exists = (int) $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT COUNT(*) FROM {$table} WHERE event_id = %d AND location_id = %d",
+                $eventId,
+                $locationId
+            )
+        );
+
+        if ($exists > 0) {
+            return false;
+        }
+
         $result = $wpdb->insert(DatabaseManager::eventLodgingTable(), [
             'event_id'    => $eventId,
             'location_id' => $locationId,

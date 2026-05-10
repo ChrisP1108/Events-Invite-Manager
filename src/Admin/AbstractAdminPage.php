@@ -160,10 +160,13 @@ abstract class AbstractAdminPage
             'location_name_required'  => 'Location name is required.',
             'venue_invalid_location'  => 'Please select the venue from the locations library — free-text entries are not allowed.',
             'lodging_invalid_location' => 'Please select each lodging location from the locations library — free-text entries are not allowed.',
+            'lodging_duplicate_location' => 'Each lodging location can only be added once per event.',
             'required_fields'         => 'First name, last name, and email address are all required.',
             'invitee_required'        => 'Please select an existing invitee before adding them to this event.',
+            'invitee_already_invited' => 'That invitee is already assigned to this event.',
             'invitee_limit_reached'   => 'This event has reached its maximum invitee limit. Increase or remove the limit to add more invitees.',
             'invite_failed'           => 'Failed to send the invite email. Please check your email configuration.',
+            'lodging_create_failed'   => 'Could not add that lodging location. It may already be assigned to this event.',
             'not_found'               => 'Invitee or event not found.',
         ];
 

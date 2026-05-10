@@ -87,12 +87,12 @@ final class EventsPage extends AbstractAdminPage
         $id       = (int) ($_POST['event_id'] ?? 0);
         $timezone = sanitize_text_field(wp_unslash($_POST['timezone'] ?? ''));
         $data     = [
-            'name'                  => sanitize_text_field($_POST['name'] ?? ''),
-            'description'           => sanitize_textarea_field($_POST['description'] ?? ''),
-            'from_name'             => sanitize_text_field($_POST['from_name'] ?? ''),
+            'name'                  => sanitize_text_field(wp_unslash($_POST['name'] ?? '')),
+            'description'           => sanitize_textarea_field(wp_unslash($_POST['description'] ?? '')),
+            'from_name'             => sanitize_text_field(wp_unslash($_POST['from_name'] ?? '')),
             'from_email'            => $this->sanitizeFromEmailTemplate((string) ($_POST['from_email'] ?? '')),
-            'invite_email_subject'  => sanitize_text_field($_POST['invite_email_subject'] ?? ''),
-            'invite_email_template' => wp_kses_post($_POST['invite_email_template'] ?? ''),
+            'invite_email_subject'  => sanitize_text_field(wp_unslash($_POST['invite_email_subject'] ?? '')),
+            'invite_email_template' => wp_kses_post(wp_unslash($_POST['invite_email_template'] ?? '')),
             'rsvp_page_id'          => (int) ($_POST['rsvp_page_id'] ?? 0),
             'venue_id'              => (int) ($_POST['venue_library_id'] ?? 0),
             'start_datetime'        => $this->sanitizeDatetimeLocal($_POST['start_datetime'] ?? '', $timezone),
@@ -125,12 +125,22 @@ final class EventsPage extends AbstractAdminPage
         }
 
         // Validate initial lodging selections (new events only).
-        if ($id === 0) {
-            $lodgingLibraryIds = $_POST['lodging_init_library_id'] ?? [];
+        if ($id === 0 && !empty($data['lodging_enabled'])) {
+            $lodgingLibraryIds = wp_unslash($_POST['lodging_init_library_id'] ?? []);
+            $seenLodgingIds    = [];
             if (is_array($lodgingLibraryIds)) {
                 foreach ($lodgingLibraryIds as $rawId) {
                     $locId = (int) $rawId;
                     if ($locId <= 0) continue;
+                    if (isset($seenLodgingIds[$locId])) {
+                        wp_redirect(add_query_arg([
+                            'page'      => AdminMenu::PAGE_EVENTS,
+                            'action'    => 'add',
+                            'eim_error' => 'lodging_duplicate_location',
+                        ], admin_url('admin.php')));
+                        exit;
+                    }
+                    $seenLodgingIds[$locId] = true;
                     $loc = Location::find($locId);
                     if ($loc === null || !$loc->hasLodging) {
                         wp_redirect(add_query_arg([
@@ -152,7 +162,7 @@ final class EventsPage extends AbstractAdminPage
             ], admin_url('admin.php')));
         } else {
             $newId = Event::create($data);
-            if ($newId) {
+            if ($newId && !empty($data['lodging_enabled'])) {
                 $this->saveInitialLodgingLocation($newId);
             }
             // Redirect to edit so the admin can continue managing lodging locations.
@@ -177,16 +187,18 @@ final class EventsPage extends AbstractAdminPage
      */
     private function saveInitialLodgingLocation(int $eventId): void
     {
-        $locationIds = $_POST['lodging_init_library_id'] ?? [];
+        $locationIds = wp_unslash($_POST['lodging_init_library_id'] ?? []);
         if (!is_array($locationIds)) {
             return;
         }
 
+        $seenLocationIds = [];
         foreach ($locationIds as $i => $rawId) {
             $locationId = (int) $rawId;
-            if ($locationId <= 0) {
+            if ($locationId <= 0 || isset($seenLocationIds[$locationId])) {
                 continue;
             }
+            $seenLocationIds[$locationId] = true;
 
             EventLodging::create(
                 $eventId,
@@ -340,14 +352,20 @@ final class EventsPage extends AbstractAdminPage
             exit;
         }
 
-        EventLodging::create($eventId, $locationId, (int) ($_POST['sort_order'] ?? 0));
-
-        wp_redirect(add_query_arg([
+        $created = EventLodging::create($eventId, $locationId, (int) ($_POST['sort_order'] ?? 0));
+        $args    = [
             'page'        => AdminMenu::PAGE_EVENTS,
             'action'      => 'edit',
             'id'          => $eventId,
-            'eim_message' => 'lodging_created',
-        ], admin_url('admin.php')));
+        ];
+
+        if ($created) {
+            $args['eim_message'] = 'lodging_created';
+        } else {
+            $args['eim_error'] = 'lodging_create_failed';
+        }
+
+        wp_redirect(add_query_arg($args, admin_url('admin.php')));
         exit;
     }
 
@@ -399,6 +417,16 @@ final class EventsPage extends AbstractAdminPage
                 'action'    => 'edit',
                 'id'        => $eventId ?: null,
                 'eim_error' => 'invitee_required',
+            ], admin_url('admin.php')) . '#eim-event-invitees');
+            exit;
+        }
+
+        if (Invitee::findForEvent($inviteeId, $eventId) !== null) {
+            wp_redirect(add_query_arg([
+                'page'      => AdminMenu::PAGE_EVENTS,
+                'action'    => 'edit',
+                'id'        => $eventId,
+                'eim_error' => 'invitee_already_invited',
             ], admin_url('admin.php')) . '#eim-event-invitees');
             exit;
         }
@@ -469,13 +497,22 @@ final class EventsPage extends AbstractAdminPage
         $invitee = Invitee::findForEvent($inviteeId, $eventId);
 
         if ($event && $invitee) {
-            $qrCode      = $this->qrCodeService->getOrCreate($event, $invitee);
-            $qrImgTag    = $qrCode ? $this->qrCodeService->imgTag($qrCode) : '';
-            $sent        = $this->emailService->sendInvite($event, $invitee, $qrImgTag);
-            if ($sent) {
-                Invitee::markInviteSentForEvent($inviteeId, $eventId);
+            $qrCode = $this->qrCodeService->getOrCreate($event, $invitee);
+
+            if ($qrCode === null) {
+                $message = 'invite_failed';
+            } else {
+                $sent    = $this->emailService->sendInvite(
+                    $event,
+                    $invitee,
+                    $this->qrCodeService->imgTag($qrCode),
+                    $this->qrCodeService->inviteUrl($qrCode)
+                );
+                $message = $sent ? 'invite_sent' : 'invite_failed';
+                if ($sent) {
+                    Invitee::markInviteSentForEvent($inviteeId, $eventId);
+                }
             }
-            $message = $sent ? 'invite_sent' : 'invite_failed';
         } else {
             $message = 'not_found';
         }
@@ -512,10 +549,18 @@ final class EventsPage extends AbstractAdminPage
                     continue;
                 }
 
-                $qrCode   = $this->qrCodeService->getOrCreate($event, $invitee);
-                $qrImgTag = $qrCode ? $this->qrCodeService->imgTag($qrCode) : '';
+                $qrCode = $this->qrCodeService->getOrCreate($event, $invitee);
 
-                if ($this->emailService->sendInvite($event, $invitee, $qrImgTag)) {
+                if ($qrCode === null) {
+                    continue; // QR generation failed — skip this invitee, don't mark sent.
+                }
+
+                if ($this->emailService->sendInvite(
+                    $event,
+                    $invitee,
+                    $this->qrCodeService->imgTag($qrCode),
+                    $this->qrCodeService->inviteUrl($qrCode)
+                )) {
                     Invitee::markInviteSentForEvent($invitee->id, $eventId);
                     $sentCount++;
                 }
@@ -639,7 +684,7 @@ final class EventsPage extends AbstractAdminPage
     /**
      * Renders the monthly calendar view including the jump-to-event dropdown and month navigation.
      *
-     * Only events that have an event_date set appear on the calendar grid. Events without
+     * Only events that have a start datetime set appear on the calendar grid. Events without
      * a date still appear in the list table below.
      *
      * @param int $year  Four-digit year to display.
@@ -668,6 +713,7 @@ final class EventsPage extends AbstractAdminPage
         $prevUrl = esc_url(admin_url("admin.php?page=" . AdminMenu::PAGE_EVENTS . "&cal_year={$prevYear}&cal_month={$prevMonth}"));
         $nextUrl = esc_url(admin_url("admin.php?page=" . AdminMenu::PAGE_EVENTS . "&cal_year={$nextYear}&cal_month={$nextMonth}"));
         $baseUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS);
+        $pickerId = 'eim-cal-picker-' . $year . '-' . $month;
 
         $cells = array_merge(array_fill(0, $startDow, null), range(1, $daysInMonth));
         while (count($cells) % 7 !== 0) {
@@ -680,6 +726,16 @@ final class EventsPage extends AbstractAdminPage
         .eim-cal-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;}
         .eim-cal-toolbar h2{margin:0;font-size:1.25em;min-width:160px;text-align:center;}
         .eim-cal-toolbar .button{text-decoration:none;}
+        .eim-cal-picker-wrap{position:relative;display:inline-block;}
+        .eim-cal-month-button{background:transparent;border:0;color:#1d2327;cursor:pointer;font:inherit;font-weight:600;margin:0;padding:2px 8px;}
+        .eim-cal-month-button:hover,.eim-cal-month-button:focus{color:#135e96;}
+        .eim-cal-picker{background:#fff;border:1px solid #c3c4c7;box-shadow:0 4px 14px rgba(0,0,0,.14);left:50%;margin-top:6px;padding:12px;position:absolute;top:100%;transform:translateX(-50%);width:245px;z-index:20;}
+        .eim-cal-picker[hidden]{display:none;}
+        .eim-cal-picker-year{align-items:center;display:flex;gap:6px;margin-bottom:10px;}
+        .eim-cal-picker-year input{flex:1;min-width:0;text-align:center;}
+        .eim-cal-picker-months{display:grid;gap:6px;grid-template-columns:repeat(3,1fr);}
+        .eim-cal-picker-months .button{min-height:30px;text-align:center;}
+        .eim-cal-picker-months .button-primary{box-shadow:none;}
         .eim-jump-wrap{margin-left:auto;}
         .eim-jump-wrap select{min-width:260px;}
         .eim-calendar{width:100%;border-collapse:collapse;table-layout:fixed;}
@@ -697,7 +753,42 @@ final class EventsPage extends AbstractAdminPage
         <div class="eim-cal-wrap">
             <div class="eim-cal-toolbar">
                 <a href="<?= $prevUrl; ?>" class="button">&lsaquo; <?= esc_html(date_i18n('M', mktime(0, 0, 0, $prevMonth, 1, $prevYear))); ?></a>
-                <h2><?= esc_html($monthLabel); ?></h2>
+                <div class="eim-cal-picker-wrap">
+                    <h2>
+                        <button type="button"
+                                class="eim-cal-month-button"
+                                aria-haspopup="dialog"
+                                aria-expanded="false"
+                                aria-controls="<?= esc_attr($pickerId); ?>">
+                            <?= esc_html($monthLabel); ?>
+                        </button>
+                    </h2>
+                    <div id="<?= esc_attr($pickerId); ?>"
+                         class="eim-cal-picker"
+                         data-base-url="<?= esc_url($baseUrl); ?>"
+                         hidden>
+                        <div class="eim-cal-picker-year">
+                            <button type="button" class="button eim-cal-year-step" data-step="-1" aria-label="Previous year">&lsaquo;</button>
+                            <input type="number"
+                                   class="small-text eim-cal-year-input"
+                                   min="1970"
+                                   max="2099"
+                                   value="<?= esc_attr($year); ?>"
+                                   aria-label="Calendar year">
+                            <button type="button" class="button eim-cal-year-step" data-step="1" aria-label="Next year">&rsaquo;</button>
+                        </div>
+                        <div class="eim-cal-picker-months">
+                            <?php for ($pickerMonth = 1; $pickerMonth <= 12; $pickerMonth++): ?>
+                                <?php $isCurrentPickerMonth = $pickerMonth === $month; ?>
+                                <button type="button"
+                                        class="button <?= $isCurrentPickerMonth ? 'button-primary' : ''; ?>"
+                                        data-month="<?= esc_attr($pickerMonth); ?>">
+                                    <?= esc_html(date_i18n('M', mktime(0, 0, 0, $pickerMonth, 1, $year))); ?>
+                                </button>
+                            <?php endfor; ?>
+                        </div>
+                    </div>
+                </div>
                 <a href="<?= $nextUrl; ?>" class="button"><?= esc_html(date_i18n('M', mktime(0, 0, 0, $nextMonth, 1, $nextYear))); ?> &rsaquo;</a>
 
                 <?php if (!empty($allDated)): ?>
@@ -706,9 +797,7 @@ final class EventsPage extends AbstractAdminPage
                         <option value="">— Jump to event —</option>
                         <?php foreach ($allDated as $e): ?>
                             <?php
-                            $eYear   = (int) date('Y', strtotime($e->startDatetime));
-                            $eMonth  = (int) date('n', strtotime($e->startDatetime));
-                            $jumpUrl = esc_url(add_query_arg(['cal_year' => $eYear, 'cal_month' => $eMonth], $baseUrl));
+                            $jumpUrl = esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=edit&id=' . $e->id));
                             $label   = $e->name . ' — ' . $e->formattedDateTimeRange();
                             ?>
                             <option value="<?= $jumpUrl; ?>"><?= esc_html($label); ?></option>
@@ -757,6 +846,58 @@ final class EventsPage extends AbstractAdminPage
                 </tbody>
             </table>
         </div>
+        <script>
+        (() => {
+            const picker = document.getElementById(<?= wp_json_encode($pickerId); ?>);
+            if (!picker) return;
+
+            const wrap = picker.closest('.eim-cal-picker-wrap');
+            const toggle = wrap?.querySelector('.eim-cal-month-button');
+            const yearInput = picker.querySelector('.eim-cal-year-input');
+            const baseUrl = picker.dataset.baseUrl;
+
+            const setOpen = (open) => {
+                picker.hidden = !open;
+                toggle?.setAttribute('aria-expanded', open ? 'true' : 'false');
+                if (open) {
+                    yearInput?.focus();
+                    yearInput?.select();
+                }
+            };
+
+            toggle?.addEventListener('click', () => setOpen(picker.hidden));
+
+            picker.addEventListener('click', (event) => {
+                const yearStep = event.target.closest('.eim-cal-year-step');
+                if (yearStep && yearInput) {
+                    const nextYear = Number(yearInput.value || <?= (int) $year; ?>) + Number(yearStep.dataset.step || 0);
+                    yearInput.value = String(Math.min(2099, Math.max(1970, nextYear)));
+                    return;
+                }
+
+                const monthButton = event.target.closest('[data-month]');
+                if (!monthButton || !baseUrl || !yearInput) return;
+
+                const url = new URL(baseUrl, window.location.href);
+                url.searchParams.set('cal_year', yearInput.value || <?= (int) $year; ?>);
+                url.searchParams.set('cal_month', monthButton.dataset.month);
+                window.location.href = url.toString();
+            });
+
+            document.addEventListener('click', (event) => {
+                if (!picker.hidden && wrap && !wrap.contains(event.target)) {
+                    setOpen(false);
+                }
+            });
+
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape' && !picker.hidden) {
+                    setOpen(false);
+                    toggle?.focus();
+                }
+            });
+        })();
+        </script>
         <?php
     }
 
@@ -790,6 +931,7 @@ final class EventsPage extends AbstractAdminPage
         $message = (string) ($_GET['eim_message'] ?? '');
         $error   = (string) ($_GET['eim_error'] ?? '');
         $title   = $isNew ? 'Add New Event' : 'Edit Event: ' . esc_html($event->name);
+        $addLodgingFormId = 'eim-add-lodging-form';
         ?>
         <div class="wrap">
             <h1><?= esc_html($title); ?></h1>
@@ -797,6 +939,10 @@ final class EventsPage extends AbstractAdminPage
             <hr class="wp-header-end">
 
             <?php $this->renderNotice($message, $error); ?>
+
+            <?php if (!$isNew): ?>
+                <form id="<?= esc_attr($addLodgingFormId); ?>" method="post" action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS)); ?>"></form>
+            <?php endif; ?>
 
             <form method="post" action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS)); ?>">
                 <?php wp_nonce_field('eim_save_event'); ?>
@@ -975,10 +1121,11 @@ final class EventsPage extends AbstractAdminPage
                             <p class="description">
                                 Available tags:
                                 <code>{{ event_name }}</code> <code>{{ first_name }}</code> <code>{{ last_name }}</code>
-                                <code>{{ full_name }}</code> <code>{{ email }}</code> <code>{{ qr_code }}</code>
+                                <code>{{ full_name }}</code> <code>{{ email }}</code> <code>{{ qr_code }}</code> <code>{{ invite_url }}</code>
                             </p>
                             <p class="description">
                                 <code>{{ qr_code }}</code> — inserts the invitee's personalised QR code image, linking to the RSVP page configured below.
+                                <code>{{ invite_url }}</code> — inserts the same personalized RSVP URL encoded in that QR code.
                             </p>
                         </td>
                     </tr>
@@ -1119,27 +1266,27 @@ final class EventsPage extends AbstractAdminPage
                                     <p style="margin:0 0 8px;">No lodging locations added yet.</p>
                                 <?php endif; ?>
 
-                                <form method="post" action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS)); ?>">
-                                    <?php wp_nonce_field('eim_add_lodging_to_event'); ?>
-                                    <input type="hidden" name="eim_action" value="add_lodging_to_event">
-                                    <input type="hidden" name="event_id" value="<?= esc_attr($event->id); ?>">
-                                    <input type="hidden" id="eim_lodging_add_library_id" name="lodging_add_library_id" value="">
-                                    <input type="hidden" id="eim_lodging_add_street"     name="street_address">
-                                    <input type="hidden" id="eim_lodging_add_city"       name="city">
-                                    <input type="hidden" id="eim_lodging_add_state"      name="state">
-                                    <input type="hidden" id="eim_lodging_add_zip"        name="zip_code">
-                                    <input type="hidden" id="eim_lodging_add_is_other"   name="is_other" value="">
+                                <div>
+                                    <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" name="_wpnonce" value="<?= esc_attr(wp_create_nonce('eim_add_lodging_to_event')); ?>">
+                                    <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" name="eim_action" value="add_lodging_to_event">
+                                    <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" name="event_id" value="<?= esc_attr($event->id); ?>">
+                                    <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" id="eim_lodging_add_library_id" name="lodging_add_library_id" value="">
+                                    <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" id="eim_lodging_add_street"     name="street_address">
+                                    <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" id="eim_lodging_add_city"       name="city">
+                                    <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" id="eim_lodging_add_state"      name="state">
+                                    <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" id="eim_lodging_add_zip"        name="zip_code">
+                                    <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" id="eim_lodging_add_is_other"   name="is_other" value="">
                                     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">
-                                        <input type="text" id="eim_lodging_add_name" name="name" class="regular-text"
+                                        <input form="<?= esc_attr($addLodgingFormId); ?>" type="text" id="eim_lodging_add_name" name="name" class="regular-text"
                                                placeholder="Search locations library…" autocomplete="off">
                                         <label style="white-space:nowrap;">Order:
-                                            <input type="number" name="sort_order" value="0" min="0" style="width:58px;">
+                                            <input form="<?= esc_attr($addLodgingFormId); ?>" type="number" name="sort_order" value="0" min="0" style="width:58px;">
                                         </label>
-                                        <button type="submit" class="button">Add Location</button>
+                                        <button form="<?= esc_attr($addLodgingFormId); ?>" type="submit" class="button">Add Location</button>
                                     </div>
                                     <p id="eim_lodging_add_display" style="margin:4px 0 0;color:#3c434a;font-size:13px;display:none;"></p>
                                     <p class="description">Start typing to search the locations library.</p>
-                                </form>
+                                </div>
                             </td>
                         </tr>
                     <?php endif; ?>

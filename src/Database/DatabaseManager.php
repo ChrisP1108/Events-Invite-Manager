@@ -54,6 +54,7 @@ final class DatabaseManager
     {
         global $wpdb;
 
+        $storedSchemaVersion = (string) get_option('eim_db_version', '0');
         $charset             = $wpdb->get_charset_collate();
         $eventsTable         = $wpdb->prefix . self::EVENTS_TABLE;
         $inviteesTable       = $wpdb->prefix . self::INVITEES_TABLE;
@@ -176,10 +177,8 @@ final class DatabaseManager
         dbDelta($sql);
 
         self::migrateLegacyInviteeInvitations();
-        self::migrateEventDateTimeColumns();
         self::migrateLocationsToUnifiedSchema();
-        self::migrateEventDatetimesToUtc();
-        self::dropObsoleteColumns();
+        self::migrateEventDatetimesToUtc($storedSchemaVersion);
         update_option('eim_db_version', self::SCHEMA_VERSION, false);
     }
 
@@ -247,34 +246,6 @@ final class DatabaseManager
                 'invite_sent_at' => $row->invite_sent_at ?: null,
             ]);
         }
-    }
-
-    /**
-     * Populates start_datetime and end_datetime from the legacy event_date / start_time / end_time
-     * columns for any event rows that pre-date the new schema.
-     *
-     * @return void
-     */
-    private static function migrateEventDateTimeColumns(): void
-    {
-        global $wpdb;
-
-        $table = self::eventsTable();
-
-        $wpdb->query(
-            "UPDATE {$table}
-             SET start_datetime = CASE
-                 WHEN start_time IS NOT NULL THEN CONCAT(event_date, ' ', start_time)
-                 ELSE CONCAT(event_date, ' 00:00:00')
-             END
-             WHERE event_date IS NOT NULL AND start_datetime IS NULL"
-        );
-
-        $wpdb->query(
-            "UPDATE {$table}
-             SET end_datetime = CONCAT(event_date, ' ', end_time)
-             WHERE event_date IS NOT NULL AND end_time IS NOT NULL AND end_datetime IS NULL"
-        );
     }
 
     /**
@@ -397,13 +368,20 @@ final class DatabaseManager
      * Converts start_datetime and end_datetime from local time to UTC for events that have
      * a timezone set but were saved before the UTC-storage requirement was introduced.
      *
-     * Runs exactly once when upgrading from schema version 7 → 8. Events with no timezone
-     * set cannot be converted and are left unchanged.
+     * Gated on the stored schema version being below 8 so that re-activation, manual
+     * createTables() calls, or future schema bumps never double-convert event times.
+     * Events with no timezone set cannot be converted and are left unchanged.
      *
+     * @param string $storedSchemaVersion Schema version recorded before createTables() began.
      * @return void
      */
-    private static function migrateEventDatetimesToUtc(): void
+    private static function migrateEventDatetimesToUtc(string $storedSchemaVersion): void
     {
+        // Only run when upgrading from a schema that pre-dates UTC storage (< v8).
+        if (version_compare($storedSchemaVersion, '8', '>=')) {
+            return;
+        }
+
         global $wpdb;
 
         $table = self::eventsTable();
@@ -419,9 +397,7 @@ final class DatabaseManager
                     continue;
                 }
 
-                // Skip values that are already UTC (they would have been saved after the migration ran).
-                // We detect this conservatively: any value that was set while the migration has not yet
-                // been applied is still in local time, so we convert unconditionally on first upgrade.
+                // Values from schemas before v8 were stored in the event's local timezone.
                 try {
                     $dt = new \DateTime($value, new \DateTimeZone($row->timezone));
                     $dt->setTimezone(new \DateTimeZone('UTC'));
@@ -433,38 +409,6 @@ final class DatabaseManager
 
             if (!empty($updates)) {
                 $wpdb->update($table, $updates, ['id' => (int) $row->id]);
-            }
-        }
-    }
-
-    /**
-     * Drops columns that have been removed from the schema but cannot be removed by dbDelta.
-     * Safe to call repeatedly — each DROP is guarded by a SHOW COLUMNS check.
-     *
-     * @return void
-     */
-    private static function dropObsoleteColumns(): void
-    {
-        global $wpdb;
-
-        $table = self::eventsTable();
-
-        $obsolete = [
-            'event_date',
-            'start_time',
-            'end_time',
-            'rsvp_page_url',
-            'confirmation_email_subject',
-            'confirmation_email_template',
-        ];
-
-        foreach ($obsolete as $column) {
-            $exists = $wpdb->get_results(
-                $wpdb->prepare("SHOW COLUMNS FROM `{$table}` LIKE %s", $column)
-            );
-
-            if (!empty($exists)) {
-                $wpdb->query("ALTER TABLE `{$table}` DROP COLUMN `{$column}`");
             }
         }
     }

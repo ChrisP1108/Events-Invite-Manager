@@ -24,7 +24,7 @@ Events can offer multiple lodging options to invitees. Lodging locations are sel
 Add and manage invitees globally, each with a first name, last name, email address, phone number, and optional postal address. The Invitees admin table supports AJAX search, sortable columns, and event tags linking to every event the person has been invited to.
 
 ### Email Invites
-From an event edit screen, add existing invitees to that event and send invite emails to individual invitees or to all invitees who have not yet been sent one. Email subject lines and body content are fully customizable using template tags, including a `{{ qr_code }}` tag that embeds a personalized scannable QR code image. A separate **From Name** and **From Email** can be set per event.
+From an event edit screen, add existing invitees to that event and send invite emails to individual invitees or to all invitees who have not yet been sent one. Email subject lines and body content are fully customizable using template tags, including a `{{ qr_code }}` tag that embeds a personalized scannable QR code image and a `{{ invite_url }}` tag for the matching RSVP link. A separate **From Name** and **From Email** can be set per event.
 
 ### QR Code RSVP
 When an invite is sent, a unique 16-character confirmation code is generated for each invitee and a QR code PNG is produced and stored in the WordPress uploads directory (`wp-uploads/eim-qr-codes/`). The QR code encodes a URL of the form `{site}/?eim_confirmation={code}`. When scanned, the plugin intercepts the request via `template_redirect` and forwards the visitor to the configured RSVP page with the code preserved in the query string. QR codes are automatically removed from disk and the database when an invitee is deleted or removed from an event.
@@ -84,7 +84,7 @@ Navigate to **Events Invite Manager → Events → Add New Event** and fill in:
 - **QR Code RSVP Page** — the WordPress page invitees land on after scanning their QR code
 - **Maximum Invitees** — optional cap on the total number of invitees for this event
 - **Venue** — start typing to search the location library
-- **Invite Email** — From name, From email, subject line, and body template (use `{{ qr_code }}` to embed the scannable image)
+- **Invite Email** — From name, From email, subject line, and body template (use `{{ qr_code }}` to embed the scannable image and `{{ invite_url }}` for the matching RSVP link)
 - **Lodging** — enable the lodging toggle and optionally add initial lodging locations from the library
 
 After saving, you are taken to the event edit screen where additional lodging locations can be added or removed.
@@ -97,7 +97,7 @@ Navigate to **Events Invite Manager → Invitees** and add each guest with their
 
 Open the event edit screen, add existing invitees to the event's **Invited Invitees** list, then use **Send Invite** on an individual row or **Send All Unsent** to dispatch invites to every invitee who has not yet received one.
 
-A unique QR code is generated automatically for each invitee at send time. The QR code PNG is stored in the WordPress uploads directory and a 16-character confirmation code is saved to the database. Add `{{ qr_code }}` anywhere in your invite email body to embed the scannable image.
+A unique QR code is generated automatically for each invitee at send time. The QR code PNG is stored in the WordPress uploads directory and a 16-character confirmation code is saved to the database. Add `{{ qr_code }}` anywhere in your invite email body to embed the scannable image, and add `{{ invite_url }}` to include the same personalized RSVP URL as a text link fallback.
 
 ### 5 — Build your RSVP page
 
@@ -124,6 +124,7 @@ Template tags are replaced with live values at send time. Tags are case-insensit
 | `{{ full_name }}`  | First and last name combined |
 | `{{ email }}`      | Invitee's email address |
 | `{{ qr_code }}`    | An `<img>` tag containing the invitee's unique QR code (300 × 300 px) |
+| `{{ invite_url }}` | The same personalized RSVP URL encoded in the invitee's QR code |
 
 ### From Email field
 
