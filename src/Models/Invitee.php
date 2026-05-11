@@ -7,36 +7,17 @@ namespace EventsInviteManager\Models;
 if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Database\DatabaseManager;
-use EventsInviteManager\Models\QrCode;
 
 /**
  * Represents a single invitee and provides static CRUD methods against the database.
  *
- * Invitee profile details are global. Event-specific invitation state, including
- * invite codes and registration/send timestamps, lives in the event-invitee pivot
- * table and is hydrated onto instances returned by forEvent(), findForEvent(),
- * findByEmailAndEvent(), and findByInviteCode().
+ * Invitee profile details are global. Event-specific invitation state (RSVP status,
+ * invite-sent timestamp, group membership) is hydrated onto instances returned by
+ * forEvent(), findForEvent(), and findByEmailAndEvent() via JOINs through the
+ * eim_event_invitation_groups and eim_event_invitation_group_members tables.
  */
 final class Invitee
 {
-    /**
-     * @param int         $id            Primary key.
-     * @param int         $eventId       Event ID for an event-specific hydration, or 0 for global profile rows.
-     * @param string      $firstName     First name.
-     * @param string      $lastName      Last name.
-     * @param string      $email         Email address (stored lowercase).
-     * @param string      $phone         Phone number.
-     * @param string      $streetAddress Street address.
-     * @param string      $city          City.
-     * @param string      $state         State or province.
-     * @param string      $zipCode       ZIP / postal code.
-     * @param string      $inviteCode    Event-specific invite code when hydrated for an event.
-     * @param bool        $isRegistered  Whether the invitee has registered for the hydrated event.
-     * @param string|null $registeredAt  MySQL datetime of when event registration was completed, or null.
-     * @param string|null $inviteSentAt  MySQL datetime of when the event invite email was last sent, or null.
-     * @param string      $createdAt     MySQL datetime of row creation.
-     * @param string      $updatedAt     MySQL datetime of last update.
-     */
     public function __construct(
         public readonly int     $id,
         public readonly int     $eventId,
@@ -48,18 +29,23 @@ final class Invitee
         public readonly string  $city,
         public readonly string  $state,
         public readonly string  $zipCode,
-        public readonly string  $inviteCode,
+        /** RSVP status for event context: 'pending' | 'attending' | 'declined' | '' for global. */
+        public readonly string  $rsvpStatus,
+        /** True when rsvpStatus === 'attending'. Kept for template/backward-compat reads. */
         public readonly bool    $isRegistered,
         public readonly ?string $registeredAt,
         public readonly ?string $inviteSentAt,
+        public readonly ?int    $groupId,
         public readonly string  $createdAt,
         public readonly string  $updatedAt,
     ) {}
 
+    // -------------------------------------------------------------------------
+    // Event-scoped finders (hydrated with RSVP state from invitation groups)
+    // -------------------------------------------------------------------------
+
     /**
-     * Returns all invitees for the given event, ordered by last name then first name.
-     *
-     * Event-specific invitation fields are read from the pivot table.
+     * Returns all invitees for the given event ordered by last name then first name.
      *
      * @param int $eventId
      * @return self[]
@@ -68,31 +54,40 @@ final class Invitee
     {
         global $wpdb;
 
-        $inviteesTable      = DatabaseManager::inviteesTable();
-        $eventInviteesTable = DatabaseManager::eventInviteesTable();
+        $inviteesTable = DatabaseManager::inviteesTable();
+        $eiTable       = DatabaseManager::eventInviteesTable();
+        $groupsTable   = DatabaseManager::invitationGroupsTable();
+        $membersTable  = DatabaseManager::invitationGroupMembersTable();
+
         $rows = $wpdb->get_results(
             $wpdb->prepare(
                 "SELECT i.*,
-                        ei.event_id AS invitation_event_id,
-                        ei.invite_code AS invitation_invite_code,
-                        ei.is_registered AS invitation_is_registered,
-                        ei.registered_at AS invitation_registered_at,
-                        ei.invite_sent_at AS invitation_invite_sent_at
-                 FROM {$eventInviteesTable} ei
+                        ei.event_id            AS invitation_event_id,
+                        gd.group_id            AS invitation_group_id,
+                        gd.invite_sent_at      AS invitation_invite_sent_at,
+                        COALESCE(gd.rsvp_status, 'pending') AS invitation_rsvp_status,
+                        gd.registered_at       AS invitation_registered_at
+                 FROM {$eiTable} ei
                  INNER JOIN {$inviteesTable} i ON i.id = ei.invitee_id
+                 LEFT JOIN (
+                     SELECT egm.invitee_id, egm.group_id, egm.rsvp_status,
+                            egm.registered_at, eig.invite_sent_at
+                     FROM {$membersTable} egm
+                     INNER JOIN {$groupsTable} eig ON eig.id = egm.group_id
+                     WHERE eig.event_id = %d
+                 ) gd ON gd.invitee_id = ei.invitee_id
                  WHERE ei.event_id = %d
                  ORDER BY i.last_name ASC, i.first_name ASC",
+                $eventId,
                 $eventId
             )
         );
 
-        return array_map(static fn(object $row) => self::fromRow($row), $rows ?? []);
+        return array_map(static fn(object $row) => self::fromEventRow($row), $rows ?? []);
     }
 
     /**
-     * Finds a single invitee by primary key.
-     *
-     * Returns the global invitee profile without event-specific invitation state.
+     * Finds a single invitee by primary key (global profile, no event context).
      *
      * @param int $id
      * @return self|null
@@ -104,11 +99,11 @@ final class Invitee
         $table = DatabaseManager::inviteesTable();
         $row   = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id = %d LIMIT 1", $id));
 
-        return $row ? self::fromRow($row) : null;
+        return $row ? self::fromPublicRow($row) : null;
     }
 
     /**
-     * Finds an invitee by primary key for a specific event invitation.
+     * Finds an invitee by primary key with event-specific invitation state hydrated.
      *
      * @param int $id
      * @param int $eventId
@@ -118,32 +113,41 @@ final class Invitee
     {
         global $wpdb;
 
-        $inviteesTable      = DatabaseManager::inviteesTable();
-        $eventInviteesTable = DatabaseManager::eventInviteesTable();
+        $inviteesTable = DatabaseManager::inviteesTable();
+        $eiTable       = DatabaseManager::eventInviteesTable();
+        $groupsTable   = DatabaseManager::invitationGroupsTable();
+        $membersTable  = DatabaseManager::invitationGroupMembersTable();
+
         $row = $wpdb->get_row(
             $wpdb->prepare(
                 "SELECT i.*,
-                        ei.event_id AS invitation_event_id,
-                        ei.invite_code AS invitation_invite_code,
-                        ei.is_registered AS invitation_is_registered,
-                        ei.registered_at AS invitation_registered_at,
-                        ei.invite_sent_at AS invitation_invite_sent_at
-                 FROM {$eventInviteesTable} ei
+                        ei.event_id            AS invitation_event_id,
+                        gd.group_id            AS invitation_group_id,
+                        gd.invite_sent_at      AS invitation_invite_sent_at,
+                        COALESCE(gd.rsvp_status, 'pending') AS invitation_rsvp_status,
+                        gd.registered_at       AS invitation_registered_at
+                 FROM {$eiTable} ei
                  INNER JOIN {$inviteesTable} i ON i.id = ei.invitee_id
+                 LEFT JOIN (
+                     SELECT egm.invitee_id, egm.group_id, egm.rsvp_status,
+                            egm.registered_at, eig.invite_sent_at
+                     FROM {$membersTable} egm
+                     INNER JOIN {$groupsTable} eig ON eig.id = egm.group_id
+                     WHERE eig.event_id = %d
+                 ) gd ON gd.invitee_id = ei.invitee_id
                  WHERE ei.invitee_id = %d AND ei.event_id = %d
                  LIMIT 1",
+                $eventId,
                 $id,
                 $eventId
             )
         );
 
-        return $row ? self::fromRow($row) : null;
+        return $row ? self::fromEventRow($row) : null;
     }
 
     /**
-     * Finds an invitee by email address and event ID.
-     *
-     * Used by the REST API to look up the invitee during the registration flow.
+     * Finds an invitee by email address and event ID with event context hydrated.
      *
      * @param string $email
      * @param int    $eventId
@@ -153,83 +157,53 @@ final class Invitee
     {
         global $wpdb;
 
-        $inviteesTable      = DatabaseManager::inviteesTable();
-        $eventInviteesTable = DatabaseManager::eventInviteesTable();
+        $inviteesTable = DatabaseManager::inviteesTable();
+        $eiTable       = DatabaseManager::eventInviteesTable();
+        $groupsTable   = DatabaseManager::invitationGroupsTable();
+        $membersTable  = DatabaseManager::invitationGroupMembersTable();
+
         $row = $wpdb->get_row(
             $wpdb->prepare(
                 "SELECT i.*,
-                        ei.event_id AS invitation_event_id,
-                        ei.invite_code AS invitation_invite_code,
-                        ei.is_registered AS invitation_is_registered,
-                        ei.registered_at AS invitation_registered_at,
-                        ei.invite_sent_at AS invitation_invite_sent_at
-                 FROM {$eventInviteesTable} ei
+                        ei.event_id            AS invitation_event_id,
+                        gd.group_id            AS invitation_group_id,
+                        gd.invite_sent_at      AS invitation_invite_sent_at,
+                        COALESCE(gd.rsvp_status, 'pending') AS invitation_rsvp_status,
+                        gd.registered_at       AS invitation_registered_at
+                 FROM {$eiTable} ei
                  INNER JOIN {$inviteesTable} i ON i.id = ei.invitee_id
+                 LEFT JOIN (
+                     SELECT egm.invitee_id, egm.group_id, egm.rsvp_status,
+                            egm.registered_at, eig.invite_sent_at
+                     FROM {$membersTable} egm
+                     INNER JOIN {$groupsTable} eig ON eig.id = egm.group_id
+                     WHERE eig.event_id = %d
+                 ) gd ON gd.invitee_id = ei.invitee_id
                  WHERE i.email = %s AND ei.event_id = %d
                  ORDER BY i.id ASC
                  LIMIT 1",
+                $eventId,
                 strtolower(trim($email)),
                 $eventId
             )
         );
 
-        return $row ? self::fromRow($row) : null;
+        return $row ? self::fromEventRow($row) : null;
     }
 
-    /**
-     * Finds an invitee by their unique event invitation code.
-     *
-     * @param string $inviteCode
-     * @return self|null
-     */
-    public static function findByInviteCode(string $inviteCode): ?self
-    {
-        global $wpdb;
-
-        $inviteesTable      = DatabaseManager::inviteesTable();
-        $eventInviteesTable = DatabaseManager::eventInviteesTable();
-        $row = $wpdb->get_row(
-            $wpdb->prepare(
-                "SELECT i.*,
-                        ei.event_id AS invitation_event_id,
-                        ei.invite_code AS invitation_invite_code,
-                        ei.is_registered AS invitation_is_registered,
-                        ei.registered_at AS invitation_registered_at,
-                        ei.invite_sent_at AS invitation_invite_sent_at
-                 FROM {$eventInviteesTable} ei
-                 INNER JOIN {$inviteesTable} i ON i.id = ei.invitee_id
-                 WHERE ei.invite_code = %s
-                 LIMIT 1",
-                $inviteCode
-            )
-        );
-
-        if ($row) {
-            return self::fromRow($row);
-        }
-
-        // Backward-compatible fallback for invite codes stored on legacy rows.
-        $eventsTable = DatabaseManager::eventsTable();
-        $row = $wpdb->get_row(
-            $wpdb->prepare(
-                "SELECT i.*
-                 FROM {$inviteesTable} i
-                 INNER JOIN {$eventsTable} e ON e.id = i.event_id
-                 WHERE i.invite_code = %s
-                 LIMIT 1",
-                $inviteCode
-            )
-        );
-
-        return $row ? self::fromRow($row) : null;
-    }
+    // -------------------------------------------------------------------------
+    // Admin list
+    // -------------------------------------------------------------------------
 
     /**
      * Returns invitees with their invited events for the global admin list.
      *
-     * @param string $search  Optional search query.
-     * @param string $orderBy Sort key: first_name, last_name, email, phone, or events.
-     * @param string $order   Sort direction: asc or desc.
+     * Search covers first/last name, email, phone, invited event names, and names
+     * of people who share a connection group with the invitee.
+     *
+     * @param string $search
+     * @param string $orderBy  first_name | last_name | email | phone | events
+     * @param string $order    asc | desc
      * @return array<int, array{invitee: self, events: array<int, array{id: int, name: string}>}>
      */
     public static function listForAdmin(string $search = '', string $orderBy = 'last_name', string $order = 'asc'): array
@@ -239,11 +213,13 @@ final class Invitee
         $inviteesTable      = DatabaseManager::inviteesTable();
         $eventsTable        = DatabaseManager::eventsTable();
         $eventInviteesTable = DatabaseManager::eventInviteesTable();
+        $cgMembersTable     = DatabaseManager::inviteeConnectionGroupMembersTable();
 
         $eventSortSql = "(SELECT GROUP_CONCAT(e_sort.name ORDER BY e_sort.name ASC SEPARATOR ', ')
                           FROM {$eventInviteesTable} ei_sort
                           INNER JOIN {$eventsTable} e_sort ON e_sort.id = ei_sort.event_id
                           WHERE ei_sort.invitee_id = i.id)";
+
         $sortColumns = [
             'first_name' => 'i.first_name',
             'last_name'  => 'i.last_name',
@@ -259,21 +235,29 @@ final class Invitee
         $search  = trim($search);
 
         if ($search !== '') {
-            $like   = '%' . $wpdb->esc_like($search) . '%';
-            $where  = "WHERE (
+            $like  = '%' . $wpdb->esc_like($search) . '%';
+            $where = "WHERE (
                 i.first_name LIKE %s
                 OR i.last_name LIKE %s
                 OR i.email LIKE %s
                 OR i.phone LIKE %s
                 OR EXISTS (
                     SELECT 1
-                    FROM {$eventInviteesTable} ei_search
-                    INNER JOIN {$eventsTable} e_search ON e_search.id = ei_search.event_id
-                    WHERE ei_search.invitee_id = i.id
-                      AND e_search.name LIKE %s
+                    FROM {$eventInviteesTable} ei_s
+                    INNER JOIN {$eventsTable} e_s ON e_s.id = ei_s.event_id
+                    WHERE ei_s.invitee_id = i.id AND e_s.name LIKE %s
+                )
+                OR EXISTS (
+                    SELECT 1
+                    FROM {$cgMembersTable} cgm1
+                    INNER JOIN {$cgMembersTable} cgm2 ON cgm2.group_id = cgm1.group_id
+                    INNER JOIN {$inviteesTable} ci ON ci.id = cgm1.invitee_id
+                    WHERE cgm2.invitee_id = i.id
+                      AND cgm1.invitee_id != i.id
+                      AND (ci.first_name LIKE %s OR ci.last_name LIKE %s)
                 )
             )";
-            $params = [$like, $like, $like, $like, $like];
+            $params = [$like, $like, $like, $like, $like, $like, $like];
         }
 
         $sql = "SELECT i.*
@@ -285,8 +269,9 @@ final class Invitee
             ? $wpdb->get_results($wpdb->prepare($sql, ...$params))
             : $wpdb->get_results($sql);
 
-        $invitees = array_map(static fn(object $row) => self::fromRow($row), $rows ?? []);
-        $eventsByInvitee = self::eventsForInvitees(array_map(static fn(self $invitee) => $invitee->id, $invitees));
+        $invitees        = array_map(static fn(object $row) => self::fromPublicRow($row), $rows ?? []);
+        $inviteeIds      = array_map(static fn(self $inv) => $inv->id, $invitees);
+        $eventsByInvitee = self::eventsForInvitees($inviteeIds);
 
         return array_map(
             static fn(self $invitee): array => [
@@ -298,9 +283,9 @@ final class Invitee
     }
 
     /**
-     * Searches global invitees that are not yet invited to the given event.
+     * Searches global invitees not yet invited to the given event.
      *
-     * Used by the event edit screen's AJAX-powered invitee picker.
+     * Also matches names of people in the same connection group.
      *
      * @param string $search
      * @param int    $eventId
@@ -318,7 +303,9 @@ final class Invitee
 
         $inviteesTable      = DatabaseManager::inviteesTable();
         $eventInviteesTable = DatabaseManager::eventInviteesTable();
+        $cgMembersTable     = DatabaseManager::inviteeConnectionGroupMembersTable();
         $like = '%' . $wpdb->esc_like($search) . '%';
+
         $rows = $wpdb->get_results(
             $wpdb->prepare(
                 "SELECT i.*
@@ -328,24 +315,29 @@ final class Invitee
                     OR i.last_name LIKE %s
                     OR i.email LIKE %s
                     OR i.phone LIKE %s
+                    OR EXISTS (
+                        SELECT 1
+                        FROM {$cgMembersTable} cgm1
+                        INNER JOIN {$cgMembersTable} cgm2 ON cgm2.group_id = cgm1.group_id
+                        INNER JOIN {$inviteesTable} ci ON ci.id = cgm1.invitee_id
+                        WHERE cgm2.invitee_id = i.id
+                          AND cgm1.invitee_id != i.id
+                          AND (ci.first_name LIKE %s OR ci.last_name LIKE %s)
+                    )
                  )
                  AND NOT EXISTS (
-                    SELECT 1
-                    FROM {$eventInviteesTable} ei
+                    SELECT 1 FROM {$eventInviteesTable} ei
                     WHERE ei.invitee_id = i.id AND ei.event_id = %d
                  )
                  ORDER BY i.last_name ASC, i.first_name ASC
                  LIMIT %d",
-                $like,
-                $like,
-                $like,
-                $like,
+                $like, $like, $like, $like, $like, $like,
                 $eventId,
                 max(1, $limit)
             )
         );
 
-        return array_map(static fn(object $row) => self::fromRow($row), $rows ?? []);
+        return array_map(static fn(object $row) => self::fromPublicRow($row), $rows ?? []);
     }
 
     /**
@@ -356,24 +348,24 @@ final class Invitee
      */
     public static function eventsForInvitee(int $inviteeId): array
     {
-        $grouped = self::eventsForInvitees([$inviteeId]);
-
-        return $grouped[$inviteeId] ?? [];
+        return self::eventsForInvitees([$inviteeId])[$inviteeId] ?? [];
     }
 
+    // -------------------------------------------------------------------------
+    // CRUD
+    // -------------------------------------------------------------------------
+
     /**
-     * Inserts a new global invitee row, generating a legacy invite code for compatibility.
+     * Inserts a new global invitee profile row.
      *
      * @param array<string, mixed> $data Must contain first_name, last_name, email.
-     *                                   All other fields are optional.
-     * @return int|false The new row ID, or false on database failure.
+     * @return int|false
      */
     public static function create(array $data): int|false
     {
         global $wpdb;
 
         $result = $wpdb->insert(DatabaseManager::inviteesTable(), [
-            'event_id'       => (int) ($data['event_id'] ?? 0),
             'first_name'     => $data['first_name']     ?? '',
             'last_name'      => $data['last_name']      ?? '',
             'email'          => strtolower(trim($data['email'] ?? '')),
@@ -382,23 +374,13 @@ final class Invitee
             'city'           => $data['city']           ?? '',
             'state'          => $data['state']          ?? '',
             'zip_code'       => $data['zip_code']       ?? '',
-            'invite_code'    => self::generateInviteCode(),
-            'is_registered'  => 0,
         ]);
 
-        $id = $result ? (int) $wpdb->insert_id : false;
-
-        if ($id && (int) ($data['event_id'] ?? 0) > 0) {
-            self::inviteToEvent($id, (int) $data['event_id']);
-        }
-
-        return $id;
+        return $result ? (int) $wpdb->insert_id : false;
     }
 
     /**
      * Updates mutable fields on an existing invitee profile row.
-     *
-     * Only keys present in $data are overwritten; omitted keys are unchanged.
      *
      * @param int                  $id
      * @param array<string, mixed> $data
@@ -429,17 +411,15 @@ final class Invitee
     }
 
     /**
-     * Invites an existing invitee to an event.
+     * Adds an existing invitee to an event's membership table.
      *
-     * A unique event-specific invite code is generated automatically. Existing
-     * event-invitee associations are treated as a successful no-op.
+     * Invitation group creation is handled separately by InvitationGroup::create().
      *
-     * @param int         $inviteeId
-     * @param int         $eventId
-     * @param string|null $inviteCode Optional code used during legacy migration.
+     * @param int $inviteeId
+     * @param int $eventId
      * @return bool
      */
-    public static function inviteToEvent(int $inviteeId, int $eventId, ?string $inviteCode = null): bool
+    public static function addToEvent(int $inviteeId, int $eventId): bool
     {
         global $wpdb;
 
@@ -447,7 +427,7 @@ final class Invitee
             return false;
         }
 
-        $table = DatabaseManager::eventInviteesTable();
+        $table  = DatabaseManager::eventInviteesTable();
         $exists = (int) $wpdb->get_var(
             $wpdb->prepare(
                 "SELECT COUNT(*) FROM {$table} WHERE event_id = %d AND invitee_id = %d",
@@ -460,121 +440,11 @@ final class Invitee
             return true;
         }
 
-        $result = $wpdb->insert($table, [
-            'event_id'    => $eventId,
-            'invitee_id'  => $inviteeId,
-            'invite_code' => $inviteCode ?: self::generateInviteCode(),
-        ]);
-
-        return $result !== false;
+        return $wpdb->insert($table, ['event_id' => $eventId, 'invitee_id' => $inviteeId]) !== false;
     }
 
     /**
-     * Removes an invitee from an event without deleting the global invitee profile.
-     *
-     * Also deletes the QR code record and PNG file for this event-invitee pair so
-     * stale codes cannot be scanned after the invitation is revoked.
-     *
-     * @param int $inviteeId
-     * @param int $eventId
-     * @return bool
-     */
-    public static function removeFromEvent(int $inviteeId, int $eventId): bool
-    {
-        global $wpdb;
-
-        QrCode::deleteForEventInvitee($eventId, $inviteeId);
-
-        $result = $wpdb->delete(DatabaseManager::eventInviteesTable(), [
-            'event_id'   => $eventId,
-            'invitee_id' => $inviteeId,
-        ]);
-
-        return $result !== false;
-    }
-
-    /**
-     * Marks the invitee as registered for a specific event and records the timestamp.
-     *
-     * @param int $inviteeId
-     * @param int $eventId
-     * @return bool
-     */
-    public static function markRegisteredForEvent(int $inviteeId, int $eventId): bool
-    {
-        global $wpdb;
-
-        $result = $wpdb->update(
-            DatabaseManager::eventInviteesTable(),
-            ['is_registered' => 1, 'registered_at' => current_time('mysql')],
-            ['invitee_id' => $inviteeId, 'event_id' => $eventId]
-        );
-
-        return $result !== false;
-    }
-
-    /**
-     * Marks the invitee as registered on the legacy invitee row.
-     *
-     * @param int $id
-     * @return bool
-     */
-    public static function markRegistered(int $id): bool
-    {
-        global $wpdb;
-
-        $result = $wpdb->update(
-            DatabaseManager::inviteesTable(),
-            ['is_registered' => 1, 'registered_at' => current_time('mysql')],
-            ['id' => $id]
-        );
-
-        return $result !== false;
-    }
-
-    /**
-     * Records the event invite-sent timestamp for the given invitee.
-     *
-     * @param int $inviteeId
-     * @param int $eventId
-     * @return bool
-     */
-    public static function markInviteSentForEvent(int $inviteeId, int $eventId): bool
-    {
-        global $wpdb;
-
-        $result = $wpdb->update(
-            DatabaseManager::eventInviteesTable(),
-            ['invite_sent_at' => current_time('mysql')],
-            ['invitee_id' => $inviteeId, 'event_id' => $eventId]
-        );
-
-        return $result !== false;
-    }
-
-    /**
-     * Records the invite-sent timestamp for the legacy invitee row.
-     *
-     * @param int $id
-     * @return bool
-     */
-    public static function markInviteSent(int $id): bool
-    {
-        global $wpdb;
-
-        $result = $wpdb->update(
-            DatabaseManager::inviteesTable(),
-            ['invite_sent_at' => current_time('mysql')],
-            ['id' => $id]
-        );
-
-        return $result !== false;
-    }
-
-    /**
-     * Deletes an invitee profile, all event invitation associations, and their QR codes.
-     *
-     * QR PNG files are removed from disk before the database rows are deleted.
+     * Deletes an invitee profile, removes them from all groups, and cleans up event data.
      *
      * @param int $id
      * @return bool
@@ -583,28 +453,23 @@ final class Invitee
     {
         global $wpdb;
 
-        QrCode::deleteForInvitee($id);
+        ConnectionGroup::removeInviteeFromAllGroups($id);
+        InvitationGroup::removeInviteeFromAllGroups($id);
         $wpdb->delete(DatabaseManager::eventInviteesTable(), ['invitee_id' => $id]);
         $result = $wpdb->delete(DatabaseManager::inviteesTable(), ['id' => $id]);
 
         return $result !== false;
     }
 
-    /**
-     * Returns the invitee's full name as "First Last".
-     *
-     * @return string
-     */
+    // -------------------------------------------------------------------------
+    // Instance helpers
+    // -------------------------------------------------------------------------
+
     public function fullName(): string
     {
         return trim("{$this->firstName} {$this->lastName}");
     }
 
-    /**
-     * Returns a formatted mailing address string, omitting empty components.
-     *
-     * @return string
-     */
     public function formattedAddress(): string
     {
         return implode(', ', array_filter([
@@ -615,15 +480,46 @@ final class Invitee
         ]));
     }
 
+    // -------------------------------------------------------------------------
+    // Row hydration (public so InvitationGroup and ConnectionGroup can use it)
+    // -------------------------------------------------------------------------
+
     /**
-     * Generates a cryptographically secure, URL-safe invite code (32 hex characters).
+     * Hydrates an Invitee from a raw DB row, optionally including invitation_* aliases.
      *
-     * @return string
+     * Used by InvitationGroup::loadMembersForGroups() and ConnectionGroup::loadMembersForGroups().
+     *
+     * @param object $row
+     * @return self
      */
-    public static function generateInviteCode(): string
+    public static function fromPublicRow(object $row): self
     {
-        return bin2hex(random_bytes(16));
+        $rsvpStatus = $row->invitation_rsvp_status ?? '';
+
+        return new self(
+            id:           (int)  $row->id,
+            eventId:      (int)  ($row->invitation_event_id ?? 0),
+            firstName:           $row->first_name,
+            lastName:            $row->last_name,
+            email:               $row->email,
+            phone:               $row->phone           ?? '',
+            streetAddress:       $row->street_address  ?? '',
+            city:                $row->city            ?? '',
+            state:               $row->state           ?? '',
+            zipCode:             $row->zip_code        ?? '',
+            rsvpStatus:          $rsvpStatus,
+            isRegistered:        $rsvpStatus === InvitationGroup::RSVP_ATTENDING,
+            registeredAt:        $row->invitation_registered_at  ?? $row->registered_at  ?? null,
+            inviteSentAt:        $row->invitation_invite_sent_at ?? null,
+            groupId:      isset($row->invitation_group_id) ? (int) $row->invitation_group_id : null,
+            createdAt:           $row->created_at      ?? '',
+            updatedAt:           $row->updated_at      ?? '',
+        );
     }
+
+    // -------------------------------------------------------------------------
+    // Private helpers
+    // -------------------------------------------------------------------------
 
     /**
      * Returns invited events grouped by invitee ID.
@@ -643,6 +539,7 @@ final class Invitee
         $eventsTable        = DatabaseManager::eventsTable();
         $eventInviteesTable = DatabaseManager::eventInviteesTable();
         $placeholders = implode(', ', array_fill(0, count($inviteeIds), '%d'));
+
         $rows = $wpdb->get_results(
             $wpdb->prepare(
                 "SELECT ei.invitee_id, e.id, e.name
@@ -666,33 +563,33 @@ final class Invitee
     }
 
     /**
-     * Hydrates an Invitee instance from a raw database row object.
-     *
-     * Invitation aliases are preferred when present so event-specific rows expose
-     * the correct invite code and registration/send state.
+     * Hydrates an Invitee from a row that includes invitation_* alias columns.
      *
      * @param object $row
      * @return self
      */
-    private static function fromRow(object $row): self
+    private static function fromEventRow(object $row): self
     {
+        $rsvpStatus = $row->invitation_rsvp_status ?? InvitationGroup::RSVP_PENDING;
+
         return new self(
-            id:            (int)  $row->id,
-            eventId:       (int)  ($row->invitation_event_id ?? $row->event_id ?? 0),
-            firstName:            $row->first_name,
-            lastName:             $row->last_name,
-            email:                $row->email,
-            phone:                $row->phone           ?? '',
-            streetAddress:        $row->street_address  ?? '',
-            city:                 $row->city            ?? '',
-            state:                $row->state           ?? '',
-            zipCode:              $row->zip_code        ?? '',
-            inviteCode:           $row->invitation_invite_code ?? $row->invite_code ?? '',
-            isRegistered:  (bool) ($row->invitation_is_registered ?? $row->is_registered ?? false),
-            registeredAt:         $row->invitation_registered_at ?? $row->registered_at ?? null,
-            inviteSentAt:         $row->invitation_invite_sent_at ?? $row->invite_sent_at ?? null,
-            createdAt:            $row->created_at      ?? '',
-            updatedAt:            $row->updated_at      ?? '',
+            id:           (int)  $row->id,
+            eventId:      (int)  ($row->invitation_event_id ?? 0),
+            firstName:           $row->first_name,
+            lastName:            $row->last_name,
+            email:               $row->email,
+            phone:               $row->phone           ?? '',
+            streetAddress:       $row->street_address  ?? '',
+            city:                $row->city            ?? '',
+            state:               $row->state           ?? '',
+            zipCode:             $row->zip_code        ?? '',
+            rsvpStatus:          $rsvpStatus,
+            isRegistered:        $rsvpStatus === InvitationGroup::RSVP_ATTENDING,
+            registeredAt:        $row->invitation_registered_at ?? null,
+            inviteSentAt:        $row->invitation_invite_sent_at ?? null,
+            groupId:      isset($row->invitation_group_id) ? (int) $row->invitation_group_id : null,
+            createdAt:           $row->created_at ?? '',
+            updatedAt:           $row->updated_at ?? '',
         );
     }
 }

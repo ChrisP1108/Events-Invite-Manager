@@ -8,6 +8,7 @@ if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Admin\AbstractAdminPage;
 use EventsInviteManager\Admin\AdminMenu;
+use EventsInviteManager\Models\ConnectionGroup;
 use EventsInviteManager\Models\Invitee;
 
 /**
@@ -15,12 +16,6 @@ use EventsInviteManager\Models\Invitee;
  */
 final class InviteesPage extends AbstractAdminPage
 {
-    /**
-     * Dispatches invitee-page form submissions and GET actions.
-     *
-     * @param string $action
-     * @return void
-     */
     public function handleAction(string $action): void
     {
         match ($action) {
@@ -31,15 +26,9 @@ final class InviteesPage extends AbstractAdminPage
     }
 
     /**
-     * Handles the wp_ajax_eim_search_invitees AJAX action for the global list table.
-     *
-     * Searches invitee profile fields and invited event names, then returns rendered
-     * table rows so the browser can replace the table body without a full page load.
+     * AJAX: searches the global invitee list table.
      *
      * Expected GET params: nonce, query, sort, order.
-     * Returns JSON: { success: true, data: { html, count } }
-     *
-     * @return void
      */
     public function handleAjaxSearchInvitees(): void
     {
@@ -58,22 +47,13 @@ final class InviteesPage extends AbstractAdminPage
         $this->renderInviteeRows($rows);
         $html = (string) ob_get_clean();
 
-        wp_send_json_success([
-            'html'  => $html,
-            'count' => count($rows),
-        ]);
+        wp_send_json_success(['html' => $html, 'count' => count($rows)]);
     }
 
     /**
-     * Handles the wp_ajax_eim_suggest_invitees AJAX action for event invitee assignment.
-     *
-     * Searches global invitees that are not already invited to the supplied event.
-     * Used by the event edit page's autocomplete picker.
+     * AJAX: autocomplete for the event edit invitee picker.
      *
      * Expected GET params: nonce, query, event_id.
-     * Returns JSON: { success: true, data: [ { id, name, email, phone, label }, ... ] }
-     *
-     * @return void
      */
     public function handleAjaxSuggestInvitees(): void
     {
@@ -91,25 +71,42 @@ final class InviteesPage extends AbstractAdminPage
         }
 
         $results = Invitee::searchAvailableForEvent($query, $eventId);
-        $payload = array_map(static fn(Invitee $invitee): array => [
-            'id'    => $invitee->id,
-            'name'  => $invitee->fullName(),
-            'email' => $invitee->email,
-            'phone' => $invitee->phone,
-            'label' => trim($invitee->fullName() . ' - ' . $invitee->email),
-        ], $results);
 
-        wp_send_json_success($payload);
+        wp_send_json_success(array_map(static fn(Invitee $inv): array => [
+            'id'    => $inv->id,
+            'name'  => $inv->fullName(),
+            'email' => $inv->email,
+            'phone' => $inv->phone,
+            'label' => trim($inv->fullName() . ' - ' . $inv->email),
+        ], $results));
     }
 
     /**
-     * Renders the Invitees admin page, dispatching to the list or add/edit form.
+     * AJAX: returns connection-group peers for the selected invitee + event.
      *
-     * Invitees are managed globally here. Event assignment is handled from each
-     * event's edit screen by selecting existing invitees.
+     * Returns each peer with an already_invited flag so the UI can disable
+     * checkboxes for people already invited to the event.
      *
-     * @return void
+     * Expected GET params: nonce, invitee_id, event_id.
      */
+    public function handleAjaxGetConnectionsForEvent(): void
+    {
+        check_ajax_referer('eim_suggest_invitees_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions.', 403);
+        }
+
+        $inviteeId = (int) ($_GET['invitee_id'] ?? 0);
+        $eventId   = (int) ($_GET['event_id']   ?? 0);
+
+        if ($inviteeId <= 0 || $eventId <= 0) {
+            wp_send_json_success([]);
+        }
+
+        wp_send_json_success(ConnectionGroup::connectedInviteesForEvent($inviteeId, $eventId));
+    }
+
     public function renderPage(): void
     {
         $action = $_GET['action'] ?? 'list';
@@ -121,11 +118,6 @@ final class InviteesPage extends AbstractAdminPage
         };
     }
 
-    /**
-     * Processes creating or updating an invitee profile from the admin form.
-     *
-     * @return void
-     */
     private function handleSaveInvitee(): void
     {
         if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_save_invitee')) {
@@ -169,13 +161,6 @@ final class InviteesPage extends AbstractAdminPage
         exit;
     }
 
-    /**
-     * Processes deleting a single invitee profile via a GET request with a nonce.
-     *
-     * Deleting an invitee also removes their event invitation associations.
-     *
-     * @return void
-     */
     private function handleDeleteInvitee(): void
     {
         $id    = (int) ($_GET['id'] ?? 0);
@@ -194,20 +179,18 @@ final class InviteesPage extends AbstractAdminPage
         exit;
     }
 
-    /**
-     * Renders the global invitees list table.
-     *
-     * @return void
-     */
     private function renderInviteesList(): void
     {
         $message = (string) ($_GET['eim_message'] ?? '');
-        $error   = (string) ($_GET['eim_error'] ?? '');
+        $error   = (string) ($_GET['eim_error']   ?? '');
         $search  = sanitize_text_field(wp_unslash($_GET['s'] ?? ''));
         $sort    = $this->sanitizeSortKey((string) ($_GET['sort'] ?? 'last_name'));
         $order   = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
         $rows    = Invitee::listForAdmin($search, $sort, $order);
         $addUrl  = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&action=add');
+
+        $inviteeIds      = array_map(static fn($r) => $r['invitee']->id, $rows);
+        $groupsByInvitee = ConnectionGroup::forInvitees($inviteeIds);
         ?>
         <div class="wrap">
             <h1 class="wp-heading-inline">Invitees</h1>
@@ -217,10 +200,12 @@ final class InviteesPage extends AbstractAdminPage
             <?php $this->renderNotice($message, $error); ?>
 
             <p class="description" style="margin-bottom:16px;">
-                Add and edit invitee profiles here. Invite people to specific events from the event edit screen.
+                Manage invitee profiles here. Assign people to events from the event edit screen.
+                Use <a href="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_CONNECTION_GROUPS)); ?>">Connection Groups</a>
+                to define relationships like couples or families.
             </p>
 
-            <?php $this->renderSearchBar('eim-invitee-search', 'eim-invitee-count', 'eim-invitee-loading', 'Search invitees or invited events...', count($rows), $search); ?>
+            <?php $this->renderSearchBar('eim-invitee-search', 'eim-invitee-count', 'eim-invitee-loading', 'Search invitees, events, or connected people...', count($rows), $search); ?>
 
             <table id="eim-invitees-table"
                    class="wp-list-table widefat fixed striped"
@@ -228,16 +213,17 @@ final class InviteesPage extends AbstractAdminPage
                    data-order="<?= esc_attr($order); ?>">
                 <thead>
                     <tr>
-                        <th style="width:14%;"><?= $this->sortLink('First Name', 'first_name', AdminMenu::PAGE_INVITEES, $sort, $order, $search); ?></th>
-                        <th style="width:14%;"><?= $this->sortLink('Last Name', 'last_name', AdminMenu::PAGE_INVITEES, $sort, $order, $search); ?></th>
-                        <th style="width:22%;"><?= $this->sortLink('Email', 'email', AdminMenu::PAGE_INVITEES, $sort, $order, $search); ?></th>
-                        <th style="width:14%;"><?= $this->sortLink('Phone', 'phone', AdminMenu::PAGE_INVITEES, $sort, $order, $search); ?></th>
+                        <th style="width:12%;"><?= $this->sortLink('First Name', 'first_name', AdminMenu::PAGE_INVITEES, $sort, $order, $search); ?></th>
+                        <th style="width:12%;"><?= $this->sortLink('Last Name', 'last_name', AdminMenu::PAGE_INVITEES, $sort, $order, $search); ?></th>
+                        <th style="width:18%;"><?= $this->sortLink('Email', 'email', AdminMenu::PAGE_INVITEES, $sort, $order, $search); ?></th>
+                        <th style="width:11%;"><?= $this->sortLink('Phone', 'phone', AdminMenu::PAGE_INVITEES, $sort, $order, $search); ?></th>
                         <th><?= $this->sortLink('Invited Events', 'events', AdminMenu::PAGE_INVITEES, $sort, $order, $search); ?></th>
-                        <th style="width:12%;">Actions</th>
+                        <th style="width:17%;">Connection Groups</th>
+                        <th style="width:10%;">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="eim-invitees-table-body">
-                    <?php $this->renderInviteeRows($rows); ?>
+                    <?php $this->renderInviteeRows($rows, $groupsByInvitee); ?>
                 </tbody>
             </table>
         </div>
@@ -245,45 +231,63 @@ final class InviteesPage extends AbstractAdminPage
     }
 
     /**
-     * Renders invitee table rows for both the initial page load and AJAX responses.
-     *
-     * @param array<int, array{invitee: Invitee, events: array<int, array{id: int, name: string}>}> $rows
-     * @return void
+     * @param array<int, array{invitee: Invitee, events: array}>  $rows
+     * @param array<int, ConnectionGroup[]>                        $groupsByInvitee
      */
-    private function renderInviteeRows(array $rows): void
+    private function renderInviteeRows(array $rows, array $groupsByInvitee = []): void
     {
         if (empty($rows)) {
             ?>
-            <tr class="eim-no-results">
-                <td colspan="6">No invitees found.</td>
-            </tr>
+            <tr class="eim-no-results"><td colspan="7">No invitees found.</td></tr>
             <?php
             return;
         }
 
+        // Load groups for AJAX path where they weren't pre-loaded.
+        if (empty($groupsByInvitee)) {
+            $ids = array_map(static fn($r) => $r['invitee']->id, $rows);
+            $groupsByInvitee = ConnectionGroup::forInvitees($ids);
+        }
+
         foreach ($rows as $row) {
             /** @var Invitee $invitee */
-            $invitee = $row['invitee'];
-            $editUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&action=edit&id=' . $invitee->id);
-            $deleteUrl = wp_nonce_url(
+            $invitee     = $row['invitee'];
+            $editUrl     = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&action=edit&id=' . $invitee->id);
+            $deleteUrl   = wp_nonce_url(
                 admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&action=delete_invitee&id=' . $invitee->id),
                 'eim_delete_invitee_' . $invitee->id
             );
+            $connGroups  = $groupsByInvitee[$invitee->id] ?? [];
             ?>
             <tr>
                 <td><a href="<?= esc_url($editUrl); ?>"><?= esc_html($invitee->firstName); ?></a></td>
                 <td><a href="<?= esc_url($editUrl); ?>"><?= esc_html($invitee->lastName); ?></a></td>
                 <td><a href="mailto:<?= esc_attr($invitee->email); ?>"><?= esc_html($invitee->email); ?></a></td>
-                <td><a href="tel:<?= esc_html($invitee->phone ?: '-');?>"><?= esc_html(str_replace('-', '', $invitee->phone)); ?></a></td>
+                <td><?= esc_html($invitee->phone ?: '—'); ?></td>
                 <td>
                     <?php if (empty($row['events'])): ?>
                         <span style="color:#999;">Not invited yet</span>
                     <?php else: ?>
                         <span class="eim-tag-list">
                             <?php foreach ($row['events'] as $event): ?>
-                                <?php $eventUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=edit&id=' . $event['id'] . '#eim-event-invitees'); ?>
-                                <a class="eim-event-tag" href="<?= esc_url($eventUrl); ?>">
+                                <a class="eim-event-tag"
+                                   href="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=edit&id=' . $event['id'] . '#eim-event-invitees')); ?>">
                                     <?= esc_html($event['name']); ?>
+                                </a>
+                            <?php endforeach; ?>
+                        </span>
+                    <?php endif; ?>
+                </td>
+                <td>
+                    <?php if (empty($connGroups)): ?>
+                        <span style="color:#999;">—</span>
+                    <?php else: ?>
+                        <span class="eim-tag-list">
+                            <?php foreach ($connGroups as $cg): ?>
+                                <a class="eim-connection-tag"
+                                   href="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_CONNECTION_GROUPS . '&action=edit&id=' . $cg->id)); ?>"
+                                   title="<?= esc_attr($cg->typeLabel()); ?>">
+                                    <?= esc_html($cg->name); ?>
                                 </a>
                             <?php endforeach; ?>
                         </span>
@@ -292,19 +296,13 @@ final class InviteesPage extends AbstractAdminPage
                 <td>
                     <a href="<?= esc_url($editUrl); ?>">Edit</a> |
                     <a href="<?= esc_url($deleteUrl); ?>"
-                       onclick="return confirm('Delete <?= esc_js($invitee->fullName()); ?> and remove them from all events?');">Delete</a>
+                       onclick="return confirm('Delete <?= esc_js($invitee->fullName()); ?> and remove them from all events and groups?');">Delete</a>
                 </td>
             </tr>
             <?php
         }
     }
 
-    /**
-     * Renders the add/edit invitee profile form.
-     *
-     * @param Invitee|null $invitee Existing invitee to edit, or null when adding a new one.
-     * @return void
-     */
     private function renderInviteeForm(?Invitee $invitee): void
     {
         if (isset($_GET['id']) && $invitee === null) {
@@ -312,99 +310,95 @@ final class InviteesPage extends AbstractAdminPage
             return;
         }
 
-        $isNew   = $invitee === null;
-        $message = (string) ($_GET['eim_message'] ?? '');
-        $error   = (string) ($_GET['eim_error'] ?? '');
-        $backUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES);
-        $title   = $isNew ? 'Add Invitee' : 'Edit Invitee';
-        $events  = $isNew ? [] : Invitee::eventsForInvitee($invitee->id);
+        $isNew        = $invitee === null;
+        $message      = (string) ($_GET['eim_message'] ?? '');
+        $error        = (string) ($_GET['eim_error']   ?? '');
+        $backUrl      = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES);
+        $title        = $isNew ? 'Add Invitee' : 'Edit Invitee';
+        $events       = $isNew ? [] : Invitee::eventsForInvitee($invitee->id);
+        $connGroups   = $isNew ? [] : ConnectionGroup::forInvitee($invitee->id);
+        $cgAddUrl     = admin_url('admin.php?page=' . AdminMenu::PAGE_CONNECTION_GROUPS . '&action=add');
         ?>
         <div class="wrap">
             <h1><?= esc_html($title); ?></h1>
-            <a href="<?= esc_url($backUrl); ?>">Back to Invitees</a>
+            <a href="<?= esc_url($backUrl); ?>">← Back to Invitees</a>
             <hr class="wp-header-end">
 
             <?php $this->renderNotice($message, $error); ?>
 
             <form method="post" action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES)); ?>">
                 <?php wp_nonce_field('eim_save_invitee'); ?>
-                <input type="hidden" name="eim_action" value="save_invitee">
-                <input type="hidden" name="invitee_id" value="<?= esc_attr($isNew ? 0 : $invitee->id); ?>">
+                <input type="hidden" name="eim_action"  value="save_invitee">
+                <input type="hidden" name="invitee_id"  value="<?= esc_attr($isNew ? 0 : $invitee->id); ?>">
 
                 <table class="form-table" role="presentation">
                     <tr>
-                        <th scope="row">
-                            <label for="eim_first_name">First Name <span aria-hidden="true" style="color:#d63638;">*</span></label>
-                        </th>
-                        <td>
-                            <input type="text" id="eim_first_name" name="first_name" class="regular-text"
-                                   value="<?= esc_attr($isNew ? '' : $invitee->firstName); ?>" required>
-                        </td>
+                        <th scope="row"><label for="eim_first_name">First Name <span aria-hidden="true" style="color:#d63638;">*</span></label></th>
+                        <td><input type="text" id="eim_first_name" name="first_name" class="regular-text"
+                                   value="<?= esc_attr($isNew ? '' : $invitee->firstName); ?>" required></td>
                     </tr>
                     <tr>
-                        <th scope="row">
-                            <label for="eim_last_name">Last Name <span aria-hidden="true" style="color:#d63638;">*</span></label>
-                        </th>
-                        <td>
-                            <input type="text" id="eim_last_name" name="last_name" class="regular-text"
-                                   value="<?= esc_attr($isNew ? '' : $invitee->lastName); ?>" required>
-                        </td>
+                        <th scope="row"><label for="eim_last_name">Last Name <span aria-hidden="true" style="color:#d63638;">*</span></label></th>
+                        <td><input type="text" id="eim_last_name" name="last_name" class="regular-text"
+                                   value="<?= esc_attr($isNew ? '' : $invitee->lastName); ?>" required></td>
                     </tr>
                     <tr>
-                        <th scope="row">
-                            <label for="eim_email">Email Address <span aria-hidden="true" style="color:#d63638;">*</span></label>
-                        </th>
-                        <td>
-                            <input type="email" id="eim_email" name="email" class="regular-text"
-                                   value="<?= esc_attr($isNew ? '' : $invitee->email); ?>" required>
-                        </td>
+                        <th scope="row"><label for="eim_email">Email Address <span aria-hidden="true" style="color:#d63638;">*</span></label></th>
+                        <td><input type="email" id="eim_email" name="email" class="regular-text"
+                                   value="<?= esc_attr($isNew ? '' : $invitee->email); ?>" required></td>
                     </tr>
                     <tr>
-                        <th scope="row">
-                            <label for="eim_phone">Phone</label>
-                        </th>
-                        <td>
-                            <input type="tel" id="eim_phone" name="phone" class="regular-text"
-                                   value="<?= esc_attr($isNew ? '' : $invitee->phone); ?>">
-                        </td>
+                        <th scope="row"><label for="eim_phone">Phone</label></th>
+                        <td><input type="tel" id="eim_phone" name="phone" class="regular-text"
+                                   value="<?= esc_attr($isNew ? '' : $invitee->phone); ?>"></td>
                     </tr>
                     <tr>
-                        <th scope="row">
-                            <label for="eim_street_address">Street Address</label>
-                        </th>
-                        <td>
-                            <input type="text" id="eim_street_address" name="street_address" class="regular-text"
-                                   value="<?= esc_attr($isNew ? '' : $invitee->streetAddress); ?>">
-                        </td>
+                        <th scope="row"><label for="eim_street_address">Street Address</label></th>
+                        <td><input type="text" id="eim_street_address" name="street_address" class="regular-text"
+                                   value="<?= esc_attr($isNew ? '' : $invitee->streetAddress); ?>"></td>
                     </tr>
                     <tr>
-                        <th scope="row">
-                            <label for="eim_city">City</label>
-                        </th>
-                        <td>
-                            <input type="text" id="eim_city" name="city" class="regular-text"
-                                   value="<?= esc_attr($isNew ? '' : $invitee->city); ?>">
-                        </td>
+                        <th scope="row"><label for="eim_city">City</label></th>
+                        <td><input type="text" id="eim_city" name="city" class="regular-text"
+                                   value="<?= esc_attr($isNew ? '' : $invitee->city); ?>"></td>
                     </tr>
                     <tr>
-                        <th scope="row">
-                            <label for="eim_state">State</label>
-                        </th>
-                        <td>
-                            <input type="text" id="eim_state" name="state" class="regular-text"
-                                   value="<?= esc_attr($isNew ? '' : $invitee->state); ?>">
-                        </td>
+                        <th scope="row"><label for="eim_state">State</label></th>
+                        <td><input type="text" id="eim_state" name="state" class="regular-text"
+                                   value="<?= esc_attr($isNew ? '' : $invitee->state); ?>"></td>
                     </tr>
                     <tr>
-                        <th scope="row">
-                            <label for="eim_zip_code">ZIP Code</label>
-                        </th>
-                        <td>
-                            <input type="text" id="eim_zip_code" name="zip_code" class="regular-text"
-                                   value="<?= esc_attr($isNew ? '' : $invitee->zipCode); ?>">
-                        </td>
+                        <th scope="row"><label for="eim_zip_code">ZIP Code</label></th>
+                        <td><input type="text" id="eim_zip_code" name="zip_code" class="regular-text"
+                                   value="<?= esc_attr($isNew ? '' : $invitee->zipCode); ?>"></td>
                     </tr>
+
                     <?php if (!$isNew): ?>
+                        <tr>
+                            <th scope="row">Connection Groups</th>
+                            <td>
+                                <?php if (empty($connGroups)): ?>
+                                    <span style="color:#999;">Not in any connection group.</span>
+                                <?php else: ?>
+                                    <span class="eim-tag-list">
+                                        <?php foreach ($connGroups as $cg): ?>
+                                            <a class="eim-connection-tag"
+                                               href="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_CONNECTION_GROUPS . '&action=edit&id=' . $cg->id)); ?>">
+                                                <span class="eim-cg-type-badge eim-cg-type-<?= esc_attr($cg->type); ?>" style="margin-right:4px;">
+                                                    <?= esc_html($cg->typeLabel()); ?>
+                                                </span>
+                                                <?= esc_html($cg->name); ?>
+                                            </a>
+                                        <?php endforeach; ?>
+                                    </span>
+                                <?php endif; ?>
+                                <p class="description" style="margin-top:6px;">
+                                    Manage connection groups from the
+                                    <a href="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_CONNECTION_GROUPS)); ?>">Connection Groups page</a>.
+                                    <a href="<?= esc_url($cgAddUrl); ?>">Create a new group →</a>
+                                </p>
+                            </td>
+                        </tr>
                         <tr>
                             <th scope="row">Invited Events</th>
                             <td>
@@ -413,14 +407,14 @@ final class InviteesPage extends AbstractAdminPage
                                 <?php else: ?>
                                     <span class="eim-tag-list">
                                         <?php foreach ($events as $event): ?>
-                                            <?php $eventUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=edit&id=' . $event['id'] . '#eim-event-invitees'); ?>
-                                            <a class="eim-event-tag" href="<?= esc_url($eventUrl); ?>">
+                                            <a class="eim-event-tag"
+                                               href="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=edit&id=' . $event['id'] . '#eim-event-invitees')); ?>">
                                                 <?= esc_html($event['name']); ?>
                                             </a>
                                         <?php endforeach; ?>
                                     </span>
                                 <?php endif; ?>
-                                <p class="description">Add or remove this invitee from events on each event edit screen.</p>
+                                <p class="description">Add or remove from events on each event edit screen.</p>
                             </td>
                         </tr>
                     <?php endif; ?>
@@ -432,16 +426,9 @@ final class InviteesPage extends AbstractAdminPage
         <?php
     }
 
-    /**
-     * Sanitizes an invitee table sort key against the allowed column list.
-     *
-     * @param string $key
-     * @return string
-     */
     private function sanitizeSortKey(string $key): string
     {
         $key = sanitize_key($key);
-
         return in_array($key, ['first_name', 'last_name', 'email', 'phone', 'events'], true)
             ? $key
             : 'last_name';

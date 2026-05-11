@@ -8,6 +8,7 @@ if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Models\Event;
 use EventsInviteManager\Models\EventLodging;
+use EventsInviteManager\Models\InvitationGroup;
 use EventsInviteManager\Models\Invitee;
 use EventsInviteManager\Models\Location;
 use EventsInviteManager\Models\QrCode;
@@ -18,27 +19,17 @@ use WP_REST_Response;
  * Registers and handles the plugin's public-facing REST API endpoints.
  *
  *   GET  /wp-json/eim/v1/rsvp?confirmation_code={code}
- *     Looks up the QR code and returns event details, lodging options, and the
- *     invitee's current registration status. Used by the RSVP page to populate
- *     itself before the invitee confirms attendance.
+ *     Resolves the QR code to an invitation group. Returns event details, the
+ *     primary invitee (for backward compat), and all group_members with rsvp_status.
  *
  *   POST /wp-json/eim/v1/register
- *     Validates the 16-character QR code confirmation code, marks the invitee
- *     as registered, and returns their details.
- *
- * Both endpoints are publicly accessible (no authentication required) because they
- * are gated by the confirmation code embedded in the scanned QR code URL.
+ *     Accepts a confirmation_code and an optional members array for per-person
+ *     RSVP status. Without members, marks all pending members as attending.
  */
 class RestController
 {
-    /** @var string REST namespace and version. */
     private const NAMESPACE = 'eim/v1';
 
-    /**
-     * Registers the REST routes with WordPress via the rest_api_init action.
-     *
-     * @return void
-     */
     public function register(): void
     {
         add_action('rest_api_init', function (): void {
@@ -65,6 +56,17 @@ class RestController
                         'type'              => 'string',
                         'sanitize_callback' => 'sanitize_text_field',
                     ],
+                    'members' => [
+                        'required' => false,
+                        'type'     => 'array',
+                        'items'    => [
+                            'type'       => 'object',
+                            'properties' => [
+                                'invitee_id'  => ['type' => 'integer'],
+                                'rsvp_status' => ['type' => 'string', 'enum' => ['attending', 'declined', 'pending']],
+                            ],
+                        ],
+                    ],
                 ],
             ]);
         });
@@ -73,13 +75,8 @@ class RestController
     /**
      * Handles GET /eim/v1/rsvp.
      *
-     * Looks up the QR code by confirmation_code and returns the event details,
-     * lodging options, and the invitee's current registration status. Intended
-     * to be called by the RSVP WordPress page on load so it can render personalised
-     * content before the invitee confirms attendance.
-     *
-     * @param WP_REST_Request $request
-     * @return WP_REST_Response
+     * Returns event details, primary invitee (backward compat), all group members
+     * with their current rsvp_status, and lodging options.
      */
     public function handleRsvp(WP_REST_Request $request): WP_REST_Response
     {
@@ -93,18 +90,31 @@ class RestController
             );
         }
 
-        $event   = Event::find($qrCode->eventId);
-        $invitee = Invitee::findForEvent($qrCode->inviteeId, $qrCode->eventId);
+        $group = InvitationGroup::find($qrCode->groupId);
+        $event = Event::find($qrCode->eventId);
 
-        if ($event === null || $invitee === null) {
+        if ($group === null || $event === null) {
             return new WP_REST_Response(
-                ['success' => false, 'message' => 'Event or invitee not found.'],
+                ['success' => false, 'message' => 'Event or invitation group not found.'],
                 404
             );
         }
 
+        $primaryInvitee = Invitee::find($group->primaryInviteeId);
+
+        if ($primaryInvitee === null) {
+            return new WP_REST_Response(
+                ['success' => false, 'message' => 'Primary invitee not found.'],
+                404
+            );
+        }
+
+        $members = $group->getMembers();
         $venue   = $event->venueId ? Location::find($event->venueId) : null;
         $lodging = $event->lodgingEnabled ? EventLodging::forEvent($event->id) : [];
+
+        $allAttending = !empty($members)
+            && count(array_filter($members, static fn(Invitee $m) => $m->rsvpStatus === InvitationGroup::RSVP_ATTENDING)) === count($members);
 
         return new WP_REST_Response([
             'success' => true,
@@ -118,12 +128,21 @@ class RestController
                 ] : null,
             ],
             'invitee' => [
-                'first_name'    => $invitee->firstName,
-                'last_name'     => $invitee->lastName,
-                'email'         => $invitee->email,
-                'is_registered' => $invitee->isRegistered,
-                'registered_at' => $invitee->registeredAt,
+                'first_name'    => $primaryInvitee->firstName,
+                'last_name'     => $primaryInvitee->lastName,
+                'email'         => $primaryInvitee->email,
+                'is_registered' => $allAttending,
+                'registered_at' => $allAttending ? ($members[0]->registeredAt ?? null) : null,
             ],
+            'group_members' => array_map(static fn(Invitee $m): array => [
+                'invitee_id'    => $m->id,
+                'first_name'    => $m->firstName,
+                'last_name'     => $m->lastName,
+                'email'         => $m->email,
+                'rsvp_status'   => $m->rsvpStatus ?: InvitationGroup::RSVP_PENDING,
+                'is_registered' => $m->rsvpStatus === InvitationGroup::RSVP_ATTENDING,
+                'registered_at' => $m->registeredAt,
+            ], $members),
             'lodging' => array_map(static fn(EventLodging $l): array => [
                 'name'        => $l->name,
                 'address'     => $l->formattedAddress(),
@@ -136,11 +155,14 @@ class RestController
     /**
      * Handles POST /eim/v1/register.
      *
-     * Looks up the QR code record by the provided confirmation code, then marks the
-     * associated invitee as registered for the event.
+     * If `members` is provided, updates each listed member's rsvp_status individually.
+     * If omitted, marks all pending members as attending (backward compatible).
      *
-     * @param WP_REST_Request $request
-     * @return WP_REST_Response
+     * Example with per-member statuses:
+     *   { "confirmation_code": "...", "members": [
+     *       { "invitee_id": 1, "rsvp_status": "attending" },
+     *       { "invitee_id": 2, "rsvp_status": "declined" }
+     *   ]}
      */
     public function handleRegister(WP_REST_Request $request): WP_REST_Response
     {
@@ -155,40 +177,62 @@ class RestController
             );
         }
 
-        $invitee = Invitee::findForEvent($qrCode->inviteeId, $qrCode->eventId);
+        $group = InvitationGroup::find($qrCode->groupId);
 
-        if ($invitee === null) {
+        if ($group === null) {
             return new WP_REST_Response(
-                ['success' => false, 'message' => 'No invitation was found for this confirmation code.'],
+                ['success' => false, 'message' => 'No invitation group was found for this confirmation code.'],
                 404
             );
         }
 
-        if ($invitee->isRegistered) {
-            return new WP_REST_Response([
-                'success'            => true,
-                'already_registered' => true,
-                'message'            => 'You are already registered for this event.',
-                'invitee'            => $this->inviteePayload($invitee),
-            ], 200);
+        $primaryInvitee = Invitee::find($group->primaryInviteeId);
+
+        if ($primaryInvitee === null) {
+            return new WP_REST_Response(
+                ['success' => false, 'message' => 'Primary invitee not found.'],
+                404
+            );
         }
 
-        Invitee::markRegisteredForEvent($invitee->id, $qrCode->eventId);
+        $members      = $group->getMembers();
+        $rawMemberList = $request->get_param('members');
+
+        if (!empty($rawMemberList) && is_array($rawMemberList)) {
+            // Per-member status update.
+            foreach ($rawMemberList as $entry) {
+                $inviteeId  = (int) ($entry['invitee_id']  ?? 0);
+                $rsvpStatus = (string) ($entry['rsvp_status'] ?? InvitationGroup::RSVP_ATTENDING);
+
+                if ($inviteeId > 0) {
+                    InvitationGroup::updateMemberRsvp($group->id, $inviteeId, $rsvpStatus);
+                }
+            }
+        } else {
+            // Backward-compatible: mark all pending members attending.
+            $allAlreadyAttending = !empty($members)
+                && count(array_filter($members, static fn(Invitee $m) => $m->rsvpStatus !== InvitationGroup::RSVP_ATTENDING)) === 0;
+
+            if ($allAlreadyAttending) {
+                return new WP_REST_Response([
+                    'success'            => true,
+                    'already_registered' => true,
+                    'message'            => 'You are already registered for this event.',
+                    'invitee'            => $this->inviteePayload($primaryInvitee),
+                ], 200);
+            }
+
+            InvitationGroup::markAllMembersAttending($group->id);
+        }
 
         return new WP_REST_Response([
             'success'            => true,
             'already_registered' => false,
             'message'            => 'You have successfully registered for the event!',
-            'invitee'            => $this->inviteePayload($invitee),
+            'invitee'            => $this->inviteePayload($primaryInvitee),
         ], 200);
     }
 
-    /**
-     * Returns the public-facing invitee data array included in successful responses.
-     *
-     * @param Invitee $invitee
-     * @return array<string, string>
-     */
     private function inviteePayload(Invitee $invitee): array
     {
         return [

@@ -11,6 +11,7 @@ use EventsInviteManager\Admin\AdminMenu;
 use EventsInviteManager\Email\EmailService;
 use EventsInviteManager\Models\Event;
 use EventsInviteManager\Models\EventLodging;
+use EventsInviteManager\Models\InvitationGroup;
 use EventsInviteManager\Models\Invitee;
 use EventsInviteManager\Models\Location;
 use EventsInviteManager\Services\QrCodeService;
@@ -20,28 +21,15 @@ use EventsInviteManager\Services\QrCodeService;
  */
 final class EventsPage extends AbstractAdminPage
 {
-    /** @var EmailService Used when sending event invite emails from the admin. */
-    private EmailService $emailService;
-
-    /** @var QrCodeService Used to generate QR codes when sending invite emails. */
+    private EmailService  $emailService;
     private QrCodeService $qrCodeService;
 
-    /**
-     * @param EmailService   $emailService
-     * @param QrCodeService  $qrCodeService
-     */
     public function __construct(EmailService $emailService, QrCodeService $qrCodeService)
     {
-        $this->emailService   = $emailService;
-        $this->qrCodeService  = $qrCodeService;
+        $this->emailService  = $emailService;
+        $this->qrCodeService = $qrCodeService;
     }
 
-    /**
-     * Dispatches event-page form submissions and GET actions.
-     *
-     * @param string $action
-     * @return void
-     */
     public function handleAction(string $action): void
     {
         match ($action) {
@@ -57,11 +45,6 @@ final class EventsPage extends AbstractAdminPage
         };
     }
 
-    /**
-     * Renders the Events admin page, dispatching to the list or add/edit form.
-     *
-     * @return void
-     */
     public function renderPage(): void
     {
         $action = $_GET['action'] ?? 'list';
@@ -73,11 +56,6 @@ final class EventsPage extends AbstractAdminPage
         };
     }
 
-    /**
-     * Processes creating or updating an event from the admin form.
-     *
-     * @return void
-     */
     private function handleSaveEvent(): void
     {
         if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_save_event')) {
@@ -112,7 +90,6 @@ final class EventsPage extends AbstractAdminPage
             exit;
         }
 
-        // Validate venue selection — must reference an existing location when provided.
         $venueLocationId = (int) ($_POST['venue_library_id'] ?? 0);
         if ($venueLocationId > 0 && Location::find($venueLocationId) === null) {
             wp_redirect(add_query_arg([
@@ -124,7 +101,6 @@ final class EventsPage extends AbstractAdminPage
             exit;
         }
 
-        // Validate initial lodging selections (new events only).
         if ($id === 0 && !empty($data['lodging_enabled'])) {
             $lodgingLibraryIds = wp_unslash($_POST['lodging_init_library_id'] ?? []);
             $seenLodgingIds    = [];
@@ -165,7 +141,6 @@ final class EventsPage extends AbstractAdminPage
             if ($newId && !empty($data['lodging_enabled'])) {
                 $this->saveInitialLodgingLocation($newId);
             }
-            // Redirect to edit so the admin can continue managing lodging locations.
             wp_redirect(add_query_arg([
                 'page'        => AdminMenu::PAGE_EVENTS,
                 'action'      => 'edit',
@@ -176,15 +151,6 @@ final class EventsPage extends AbstractAdminPage
         exit;
     }
 
-    /**
-     * Creates EventLodging pivot rows for any initial lodging locations submitted with a new event form.
-     *
-     * Reads lodging_init_library_id[] (location IDs) and lodging_init_sort[] as parallel arrays.
-     * Skips any row with a zero or invalid location ID.
-     *
-     * @param int $eventId Newly created event ID.
-     * @return void
-     */
     private function saveInitialLodgingLocation(int $eventId): void
     {
         $locationIds = wp_unslash($_POST['lodging_init_library_id'] ?? []);
@@ -208,16 +174,6 @@ final class EventsPage extends AbstractAdminPage
         }
     }
 
-    /**
-     * Sanitizes the optional event "From Email" field while preserving the
-     * {{current_domain}} placeholder for runtime expansion.
-     *
-     * The stored value must still become a valid email address once the
-     * placeholder is replaced with a real host.
-     *
-     * @param string $value Raw submitted value.
-     * @return string
-     */
     private function sanitizeFromEmailTemplate(string $value): string
     {
         $value = sanitize_text_field(wp_unslash($value));
@@ -237,17 +193,6 @@ final class EventsPage extends AbstractAdminPage
         return is_email($validationValue) ? $normalized : '';
     }
 
-    /**
-     * Converts a datetime-local input value ("YYYY-MM-DDTHH:MM") to a UTC MySQL
-     * DATETIME string ("YYYY-MM-DD HH:MM:00"), or returns an empty string if blank.
-     *
-     * When a valid IANA timezone is provided the local time is converted to UTC before
-     * storing. Without a timezone the local value is stored as-is (legacy fallback).
-     *
-     * @param string $value    Raw POST value from a datetime-local input.
-     * @param string $timezone IANA timezone identifier (e.g. "America/New_York").
-     * @return string
-     */
     private function sanitizeDatetimeLocal(string $value, string $timezone = ''): string
     {
         $value = sanitize_text_field(wp_unslash($value));
@@ -256,7 +201,6 @@ final class EventsPage extends AbstractAdminPage
             return '';
         }
 
-        // datetime-local sends "YYYY-MM-DDTHH:MM" — normalise to a MySQL datetime.
         $local = str_replace('T', ' ', $value);
         if (strlen($local) === 16) {
             $local .= ':00';
@@ -279,17 +223,6 @@ final class EventsPage extends AbstractAdminPage
         }
     }
 
-    /**
-     * Converts a UTC MySQL DATETIME string to the "YYYY-MM-DDTHH:MM" format required
-     * by an HTML datetime-local input, expressed in the given event timezone.
-     *
-     * Used when populating form fields for an existing event so the admin sees local
-     * times rather than the raw UTC values stored in the database.
-     *
-     * @param string $utcDatetime MySQL DATETIME string in UTC.
-     * @param string $timezone    IANA timezone identifier for the event.
-     * @return string
-     */
     private function utcToDatetimeLocal(string $utcDatetime, string $timezone): string
     {
         if ($utcDatetime === '') {
@@ -307,11 +240,6 @@ final class EventsPage extends AbstractAdminPage
         }
     }
 
-    /**
-     * Processes deleting an event and its invitation associations via a GET request with a nonce.
-     *
-     * @return void
-     */
     private function handleDeleteEvent(): void
     {
         $id    = (int) ($_GET['id'] ?? 0);
@@ -327,11 +255,6 @@ final class EventsPage extends AbstractAdminPage
         exit;
     }
 
-    /**
-     * Adds a lodging location (selected from the library) to an event.
-     *
-     * @return void
-     */
     private function handleAddLodgingToEvent(): void
     {
         if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_add_lodging_to_event')) {
@@ -353,11 +276,7 @@ final class EventsPage extends AbstractAdminPage
         }
 
         $created = EventLodging::create($eventId, $locationId, (int) ($_POST['sort_order'] ?? 0));
-        $args    = [
-            'page'        => AdminMenu::PAGE_EVENTS,
-            'action'      => 'edit',
-            'id'          => $eventId,
-        ];
+        $args    = ['page' => AdminMenu::PAGE_EVENTS, 'action' => 'edit', 'id' => $eventId];
 
         if ($created) {
             $args['eim_message'] = 'lodging_created';
@@ -369,11 +288,6 @@ final class EventsPage extends AbstractAdminPage
         exit;
     }
 
-    /**
-     * Removes a lodging location from an event via a GET request with a nonce.
-     *
-     * @return void
-     */
     private function handleRemoveLodgingFromEvent(): void
     {
         $id      = (int) ($_GET['id']       ?? 0);
@@ -396,9 +310,12 @@ final class EventsPage extends AbstractAdminPage
     }
 
     /**
-     * Adds an existing global invitee profile to an event.
+     * Adds an invitee (and optionally connected invitees) to an event as a group.
      *
-     * @return void
+     * POST params:
+     *   - event_id
+     *   - invitee_id            (primary)
+     *   - connected_invitee_ids[] (optional, checked connections to include in group)
      */
     private function handleAddInviteeToEvent(): void
     {
@@ -406,12 +323,13 @@ final class EventsPage extends AbstractAdminPage
             wp_die('Security check failed.');
         }
 
-        $eventId   = (int) ($_POST['event_id'] ?? 0);
+        $eventId   = (int) ($_POST['event_id']   ?? 0);
         $inviteeId = (int) ($_POST['invitee_id'] ?? 0);
 
-        $event = $eventId > 0 ? Event::find($eventId) : null;
+        $event   = $eventId > 0 ? Event::find($eventId) : null;
+        $invitee = $inviteeId > 0 ? Invitee::find($inviteeId) : null;
 
-        if ($eventId <= 0 || $inviteeId <= 0 || $event === null || Invitee::find($inviteeId) === null) {
+        if ($event === null || $invitee === null) {
             wp_redirect(add_query_arg([
                 'page'      => AdminMenu::PAGE_EVENTS,
                 'action'    => 'edit',
@@ -431,7 +349,23 @@ final class EventsPage extends AbstractAdminPage
             exit;
         }
 
-        if ($event->maxInvitees !== null && $event->inviteeCount() >= $event->maxInvitees) {
+        // Collect connected invitees that were checked and are not yet invited.
+        $rawConnected      = wp_unslash($_POST['connected_invitee_ids'] ?? []);
+        $connectedIds      = is_array($rawConnected)
+            ? array_values(array_unique(array_filter(array_map('intval', $rawConnected))))
+            : [];
+
+        // Filter out any connected invitees already in the event.
+        $filteredConnectedIds = [];
+        foreach ($connectedIds as $cid) {
+            if ($cid > 0 && Invitee::findForEvent($cid, $eventId) === null && Invitee::find($cid) !== null) {
+                $filteredConnectedIds[] = $cid;
+            }
+        }
+
+        $totalToAdd = 1 + count($filteredConnectedIds);
+
+        if ($event->maxInvitees !== null && ($event->inviteeCount() + $totalToAdd) > $event->maxInvitees) {
             wp_redirect(add_query_arg([
                 'page'      => AdminMenu::PAGE_EVENTS,
                 'action'    => 'edit',
@@ -441,7 +375,16 @@ final class EventsPage extends AbstractAdminPage
             exit;
         }
 
-        Invitee::inviteToEvent($inviteeId, $eventId);
+        // Add primary to event_invitees.
+        Invitee::addToEvent($inviteeId, $eventId);
+
+        // Add connected invitees to event_invitees.
+        foreach ($filteredConnectedIds as $cid) {
+            Invitee::addToEvent($cid, $eventId);
+        }
+
+        // Create one invitation group for all of them.
+        InvitationGroup::create($eventId, $inviteeId, $filteredConnectedIds);
 
         wp_redirect(add_query_arg([
             'page'        => AdminMenu::PAGE_EVENTS,
@@ -452,14 +395,9 @@ final class EventsPage extends AbstractAdminPage
         exit;
     }
 
-    /**
-     * Removes an invitee from an event without deleting the global invitee profile.
-     *
-     * @return void
-     */
     private function handleRemoveInviteeFromEvent(): void
     {
-        $eventId   = (int) ($_GET['event_id'] ?? 0);
+        $eventId   = (int) ($_GET['event_id']   ?? 0);
         $inviteeId = (int) ($_GET['invitee_id'] ?? 0);
         $nonce     = (string) ($_GET['_wpnonce'] ?? '');
 
@@ -467,7 +405,7 @@ final class EventsPage extends AbstractAdminPage
             wp_die('Security check failed.');
         }
 
-        Invitee::removeFromEvent($inviteeId, $eventId);
+        InvitationGroup::removeMemberFromEvent($inviteeId, $eventId);
 
         wp_redirect(add_query_arg([
             'page'        => AdminMenu::PAGE_EVENTS,
@@ -479,39 +417,48 @@ final class EventsPage extends AbstractAdminPage
     }
 
     /**
-     * Sends an event invite email to a single event invitee.
+     * Sends an invite email for a specific invitation group.
      *
-     * @return void
+     * GET params: event_id, group_id, _wpnonce
      */
     private function handleSendEventInvite(): void
     {
-        $eventId   = (int) ($_GET['event_id'] ?? 0);
-        $inviteeId = (int) ($_GET['invitee_id'] ?? 0);
-        $nonce     = (string) ($_GET['_wpnonce'] ?? '');
+        $eventId = (int) ($_GET['event_id'] ?? 0);
+        $groupId = (int) ($_GET['group_id'] ?? 0);
+        $nonce   = (string) ($_GET['_wpnonce'] ?? '');
 
-        if (!wp_verify_nonce($nonce, 'eim_send_event_invite_' . $eventId . '_' . $inviteeId)) {
+        if (!wp_verify_nonce($nonce, 'eim_send_event_invite_' . $eventId . '_' . $groupId)) {
             wp_die('Security check failed.');
         }
 
-        $event   = Event::find($eventId);
-        $invitee = Invitee::findForEvent($inviteeId, $eventId);
+        $event = Event::find($eventId);
+        $group = InvitationGroup::find($groupId);
 
-        if ($event && $invitee) {
-            $qrCode = $this->qrCodeService->getOrCreate($event, $invitee);
+        if ($event && $group && $group->eventId === $eventId) {
+            $primaryInvitee = Invitee::find($group->primaryInviteeId);
+            $members        = $group->getMembers();
 
-            if ($qrCode === null) {
-                $message = 'invite_failed';
-            } else {
-                $sent    = $this->emailService->sendInvite(
-                    $event,
-                    $invitee,
-                    $this->qrCodeService->imgTag($qrCode),
-                    $this->qrCodeService->inviteUrl($qrCode)
-                );
-                $message = $sent ? 'invite_sent' : 'invite_failed';
-                if ($sent) {
-                    Invitee::markInviteSentForEvent($inviteeId, $eventId);
+            if ($primaryInvitee) {
+                $qrCode = $this->qrCodeService->getOrCreateForGroup($event, $group);
+
+                if ($qrCode === null) {
+                    $message = 'invite_failed';
+                } else {
+                    $sent = $this->emailService->sendGroupInvite(
+                        $event,
+                        $group,
+                        $primaryInvitee,
+                        $members,
+                        $this->qrCodeService->imgTag($qrCode),
+                        $this->qrCodeService->inviteUrl($qrCode)
+                    );
+                    $message = $sent ? 'invite_sent' : 'invite_failed';
+                    if ($sent) {
+                        InvitationGroup::markInviteSent($groupId);
+                    }
                 }
+            } else {
+                $message = 'not_found';
             }
         } else {
             $message = 'not_found';
@@ -527,9 +474,7 @@ final class EventsPage extends AbstractAdminPage
     }
 
     /**
-     * Sends event invite emails to all event invitees who have not received one.
-     *
-     * @return void
+     * Sends invite emails to all groups in an event that have not yet received one.
      */
     private function handleSendAllEventInvites(): void
     {
@@ -544,24 +489,34 @@ final class EventsPage extends AbstractAdminPage
         $sentCount = 0;
 
         if ($event) {
-            foreach (Invitee::forEvent($eventId) as $invitee) {
-                if ($invitee->inviteSentAt !== null) {
+            $groups = InvitationGroup::forEvent($eventId);
+
+            foreach ($groups as $group) {
+                if ($group->inviteSentAt !== null) {
                     continue;
                 }
 
-                $qrCode = $this->qrCodeService->getOrCreate($event, $invitee);
-
-                if ($qrCode === null) {
-                    continue; // QR generation failed — skip this invitee, don't mark sent.
+                $primaryInvitee = Invitee::find($group->primaryInviteeId);
+                if ($primaryInvitee === null) {
+                    continue;
                 }
 
-                if ($this->emailService->sendInvite(
+                $qrCode = $this->qrCodeService->getOrCreateForGroup($event, $group);
+                if ($qrCode === null) {
+                    continue;
+                }
+
+                $members = $group->getMembers();
+
+                if ($this->emailService->sendGroupInvite(
                     $event,
-                    $invitee,
+                    $group,
+                    $primaryInvitee,
+                    $members,
                     $this->qrCodeService->imgTag($qrCode),
                     $this->qrCodeService->inviteUrl($qrCode)
                 )) {
-                    Invitee::markInviteSentForEvent($invitee->id, $eventId);
+                    InvitationGroup::markInviteSent($group->id);
                     $sentCount++;
                 }
             }
@@ -577,11 +532,6 @@ final class EventsPage extends AbstractAdminPage
         exit;
     }
 
-    /**
-     * Renders the events list page: admin notices, calendar (when events exist), and the events table.
-     *
-     * @return void
-     */
     private function renderEventsList(): void
     {
         $events       = Event::all();
@@ -681,16 +631,6 @@ final class EventsPage extends AbstractAdminPage
         <?php
     }
 
-    /**
-     * Renders the monthly calendar view including the jump-to-event dropdown and month navigation.
-     *
-     * Only events that have a start datetime set appear on the calendar grid. Events without
-     * a date still appear in the list table below.
-     *
-     * @param int $year  Four-digit year to display.
-     * @param int $month Month number (1–12) to display.
-     * @return void
-     */
     private function renderCalendar(int $year, int $month): void
     {
         $eventsByDay  = Event::byDayForMonth($year, $month);
@@ -901,17 +841,10 @@ final class EventsPage extends AbstractAdminPage
         <?php
     }
 
-    /**
-     * Renders the add/edit event form.
-     *
-     * @param Event|null $event Existing event to edit, or null when creating a new one.
-     * @return void
-     */
     private function renderEventForm(?Event $event): void
     {
         $isNew = $event === null;
 
-        // Require at least one location in the catalogue before creating a new event.
         if ($isNew && Location::count() === 0) {
             ?>
             <div class="wrap">
@@ -938,7 +871,7 @@ final class EventsPage extends AbstractAdminPage
             <a href="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS)); ?>" style="margin-top: 12px; display: block;">← Back to Events</a>
             <hr class="wp-header-end">
 
-            <?php $this->renderNotice($message, $error); ?>
+            <?php $this->renderNotice($message, $error, (int) ($_GET['count'] ?? 0)); ?>
 
             <?php if (!$isNew): ?>
                 <form id="<?= esc_attr($addLodgingFormId); ?>" method="post" action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS)); ?>"></form>
@@ -952,55 +885,35 @@ final class EventsPage extends AbstractAdminPage
                 <table class="form-table" role="presentation">
                     <tr><td colspan="2" class="sub-heading"><h2 class="title" style="margin-top:0;">Details</h2></td></tr>
                     <tr>
-                        <th scope="row">
-                            <label for="eim_name">Event Name <span aria-hidden="true" style="color:#d63638;">*</span></label>
-                        </th>
+                        <th scope="row"><label for="eim_name">Event Name <span aria-hidden="true" style="color:#d63638;">*</span></label></th>
                         <td>
                             <input type="text" id="eim_name" name="name" class="regular-text"
                                    value="<?= esc_attr($isNew ? '' : $event->name); ?>" required>
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row">
-                            <label for="eim_description">Description</label>
-                        </th>
+                        <th scope="row"><label for="eim_description">Description</label></th>
                         <td>
                             <textarea id="eim_description" name="description" class="large-text" rows="4"><?= esc_textarea($isNew ? '' : $event->description); ?></textarea>
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row">
-                            <label for="eim_start_datetime">Event Start</label>
-                        </th>
+                        <th scope="row"><label for="eim_start_datetime">Event Start</label></th>
                         <td>
-                            <?php
-                            $startVal = (!$isNew && $event->startDatetime)
-                                ? $this->utcToDatetimeLocal($event->startDatetime, $event->timezone)
-                                : '';
-                            ?>
-                            <input type="datetime-local" id="eim_start_datetime" name="start_datetime"
-                                   value="<?= esc_attr($startVal); ?>">
+                            <?php $startVal = (!$isNew && $event->startDatetime) ? $this->utcToDatetimeLocal($event->startDatetime, $event->timezone) : ''; ?>
+                            <input type="datetime-local" id="eim_start_datetime" name="start_datetime" value="<?= esc_attr($startVal); ?>">
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row">
-                            <label for="eim_end_datetime">Event End</label>
-                        </th>
+                        <th scope="row"><label for="eim_end_datetime">Event End</label></th>
                         <td>
-                            <?php
-                            $endVal = (!$isNew && $event->endDatetime)
-                                ? $this->utcToDatetimeLocal($event->endDatetime, $event->timezone)
-                                : '';
-                            ?>
-                            <input type="datetime-local" id="eim_end_datetime" name="end_datetime"
-                                   value="<?= esc_attr($endVal); ?>">
+                            <?php $endVal = (!$isNew && $event->endDatetime) ? $this->utcToDatetimeLocal($event->endDatetime, $event->timezone) : ''; ?>
+                            <input type="datetime-local" id="eim_end_datetime" name="end_datetime" value="<?= esc_attr($endVal); ?>">
                             <p class="description">Leave blank if the event has no fixed end time.</p>
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row">
-                            <label for="eim_timezone">Timezone</label>
-                        </th>
+                        <th scope="row"><label for="eim_timezone">Timezone</label></th>
                         <td>
                             <?php
                             $usTimezones = [
@@ -1025,36 +938,33 @@ final class EventsPage extends AbstractAdminPage
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row">
-                            <label for="eim_max_invitees">Max Invitees</label>
-                        </th>
+                        <th scope="row"><label for="eim_max_invitees">Max Invitees</label></th>
                         <td>
                             <input type="number" id="eim_max_invitees" name="max_invitees" min="1" step="1"
                                    class="small-text"
                                    value="<?= esc_attr($isNew ? '' : ($event->maxInvitees ?? '')); ?>">
                             <p class="description">
-                                Leave blank for no limit. When set, new invitees cannot be added once this number is reached.
+                                Leave blank for no limit. Counts individual people, not invitation groups.
                             </p>
                         </td>
                     </tr>
                     <tr><td colspan="2" class="sub-heading"><h2 class="title" style="margin-top:0;">Venue / Location</h2></td></tr>
 
                     <?php
-                    $venue          = (!$isNew && $event->venueId !== null) ? Location::find($event->venueId) : null;
+                    $venue           = (!$isNew && $event->venueId !== null) ? Location::find($event->venueId) : null;
                     $venueLocationId = $venue ? $venue->id : 0;
                     $venueAddress    = $venue ? $venue->formattedAddress() : '';
                     ?>
-                    <input type="hidden" id="eim_venue_library_id"    name="venue_library_id"     value="<?= esc_attr($venueLocationId); ?>">
-                    <input type="hidden" id="eim_venue_street"        name="venue_street_address" value="<?= esc_attr($venue ? $venue->streetAddress : ''); ?>">
-                    <input type="hidden" id="eim_venue_city"          name="venue_city"           value="<?= esc_attr($venue ? $venue->city : ''); ?>">
-                    <input type="hidden" id="eim_venue_state"         name="venue_state"          value="<?= esc_attr($venue ? $venue->state : ''); ?>">
-                    <input type="hidden" id="eim_venue_zip"           name="venue_zip_code"       value="<?= esc_attr($venue ? $venue->zipCode : ''); ?>">
+                    <input type="hidden" id="eim_venue_library_id" name="venue_library_id"     value="<?= esc_attr($venueLocationId); ?>">
+                    <input type="hidden" id="eim_venue_street"     name="venue_street_address" value="<?= esc_attr($venue ? $venue->streetAddress : ''); ?>">
+                    <input type="hidden" id="eim_venue_city"       name="venue_city"           value="<?= esc_attr($venue ? $venue->city : ''); ?>">
+                    <input type="hidden" id="eim_venue_state"      name="venue_state"          value="<?= esc_attr($venue ? $venue->state : ''); ?>">
+                    <input type="hidden" id="eim_venue_zip"        name="venue_zip_code"       value="<?= esc_attr($venue ? $venue->zipCode : ''); ?>">
                     <tr>
                         <th scope="row"><label for="eim_venue_name">Venue Name</label></th>
                         <td>
                             <input type="text" id="eim_venue_name" name="venue_name" class="regular-text"
-                                   value="<?= esc_attr($venue ? $venue->name : ''); ?>"
-                                   autocomplete="off">
+                                   value="<?= esc_attr($venue ? $venue->name : ''); ?>" autocomplete="off">
                             <p id="eim_venue_address_display" style="margin-top:6px;color:#3c434a;<?= $venueAddress ? '' : 'display:none;'; ?>">
                                 <?= esc_html($venueAddress); ?>
                             </p>
@@ -1068,48 +978,34 @@ final class EventsPage extends AbstractAdminPage
                     <tr><td colspan="2" class="sub-heading"><h2 class="title" style="margin-top:0;">Invite Email</h2></td></tr>
 
                     <tr>
-                        <th scope="row">
-                            <label for="eim_from_name">From Name</label>
-                        </th>
+                        <th scope="row"><label for="eim_from_name">From Name</label></th>
                         <td>
                             <input type="text" id="eim_from_name" name="from_name" class="regular-text"
                                    value="<?= esc_attr($isNew ? '' : $event->fromName); ?>">
-                            <p class="description">
-                                Optional display name for outgoing event emails.
-                            </p>
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row">
-                            <label for="eim_from_email">From Email</label>
-                        </th>
+                        <th scope="row"><label for="eim_from_email">From Email</label></th>
                         <td>
                             <input type="text" id="eim_from_email" name="from_email" class="regular-text"
                                    value="<?= esc_attr($isNew ? '' : $event->fromEmail); ?>">
                             <p class="description">
-                                Optional. Leave blank to use the site's default WordPress sender address.
-                                Supports <code>{{ current_domain }}</code>, for example
-                                <code>noreply@{{current_domain}}</code>.
+                                Optional. Supports <code>{{ current_domain }}</code>, e.g. <code>noreply@{{current_domain}}</code>.
                             </p>
                         </td>
                     </tr>
-
                     <tr>
-                        <th scope="row">
-                            <label for="eim_invite_email_subject">Subject Line</label>
-                        </th>
+                        <th scope="row"><label for="eim_invite_email_subject">Subject Line</label></th>
                         <td>
                             <input type="text" id="eim_invite_email_subject" name="invite_email_subject" class="regular-text"
                                    value="<?= esc_attr($isNew ? '' : $event->inviteEmailSubject); ?>">
                             <p class="description">
-                                Available tags: <code>{{ event_name }}</code> <code>{{ first_name }}</code> <code>{{ last_name }}</code>
+                                Tags: <code>{{ event_name }}</code> <code>{{ first_name }}</code> <code>{{ last_name }}</code>
                             </p>
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row">
-                            <label for="invite_email_template">Email Body</label>
-                        </th>
+                        <th scope="row"><label for="invite_email_template">Email Body</label></th>
                         <td>
                             <?php
                             wp_editor(
@@ -1119,13 +1015,15 @@ final class EventsPage extends AbstractAdminPage
                             );
                             ?>
                             <p class="description">
-                                Available tags:
+                                Invitee tags:
                                 <code>{{ event_name }}</code> <code>{{ first_name }}</code> <code>{{ last_name }}</code>
                                 <code>{{ full_name }}</code> <code>{{ email }}</code> <code>{{ qr_code }}</code> <code>{{ invite_url }}</code>
                             </p>
                             <p class="description">
-                                <code>{{ qr_code }}</code> — inserts the invitee's personalised QR code image, linking to the RSVP page configured below.
-                                <code>{{ invite_url }}</code> — inserts the same personalized RSVP URL encoded in that QR code.
+                                Group tags:
+                                <code>{{ group_names }}</code> — all members' names ·
+                                <code>{{ invitee_names }}</code> — same as group_names ·
+                                <code>{{ invitee_count }}</code> — number of people in the group
                             </p>
                         </td>
                     </tr>
@@ -1133,9 +1031,7 @@ final class EventsPage extends AbstractAdminPage
                     <tr><td colspan="2" class="sub-heading"><h2 class="title" style="margin-top:0;">QR Code &amp; RSVP</h2></td></tr>
 
                     <tr>
-                        <th scope="row">
-                            <label for="eim_rsvp_page_id">QR Code RSVP Page Redirect</label>
-                        </th>
+                        <th scope="row"><label for="eim_rsvp_page_id">QR Code RSVP Page Redirect</label></th>
                         <td>
                             <?php
                             $pages          = get_pages(['sort_column' => 'post_title', 'sort_order' => 'ASC']);
@@ -1149,11 +1045,6 @@ final class EventsPage extends AbstractAdminPage
                                     </option>
                                 <?php endforeach; ?>
                             </select>
-                            <p class="description">
-                                When an invitee scans their QR code, WordPress will redirect them to this page with
-                                <code>?eim_confirmation={code}</code> appended to the URL.
-                                Leave blank if no redirect is needed.
-                            </p>
                             <?php if ($selectedPageId > 0): ?>
                                 <p class="description">
                                     Current RSVP page: <a href="<?= esc_url(get_permalink($selectedPageId)); ?>" target="_blank"><?= esc_html(get_the_title($selectedPageId)); ?> ↗</a>
@@ -1172,7 +1063,6 @@ final class EventsPage extends AbstractAdminPage
                                        <?php checked($isNew ? false : $event->lodgingEnabled); ?>>
                                 Enable lodging options for this event
                             </label>
-                            <p class="description">When enabled, lodging location choices can be presented to invitees.</p>
                         </td>
                     </tr>
                     <?php if ($isNew): ?>
@@ -1199,7 +1089,7 @@ final class EventsPage extends AbstractAdminPage
                                     </div>
                                 </div>
                                 <button type="button" id="eim-add-lodging-row" class="button" style="margin-bottom:8px;">+ Add Another Location</button>
-                                <p class="description">Optional. Select locations from the library. More can be added after saving.</p>
+                                <p class="description">Optional. Select locations from the library.</p>
 
                                 <template id="eim-lodging-init-row-template">
                                     <div class="eim-lodging-init-row" style="margin-bottom:8px;">
@@ -1267,9 +1157,9 @@ final class EventsPage extends AbstractAdminPage
                                 <?php endif; ?>
 
                                 <div>
-                                    <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" name="_wpnonce" value="<?= esc_attr(wp_create_nonce('eim_add_lodging_to_event')); ?>">
-                                    <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" name="eim_action" value="add_lodging_to_event">
-                                    <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" name="event_id" value="<?= esc_attr($event->id); ?>">
+                                    <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" name="_wpnonce"          value="<?= esc_attr(wp_create_nonce('eim_add_lodging_to_event')); ?>">
+                                    <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" name="eim_action"        value="add_lodging_to_event">
+                                    <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" name="event_id"          value="<?= esc_attr($event->id); ?>">
                                     <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" id="eim_lodging_add_library_id" name="lodging_add_library_id" value="">
                                     <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" id="eim_lodging_add_street"     name="street_address">
                                     <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" id="eim_lodging_add_city"       name="city">
@@ -1285,7 +1175,6 @@ final class EventsPage extends AbstractAdminPage
                                         <button form="<?= esc_attr($addLodgingFormId); ?>" type="submit" class="button">Add Location</button>
                                     </div>
                                     <p id="eim_lodging_add_display" style="margin:4px 0 0;color:#3c434a;font-size:13px;display:none;"></p>
-                                    <p class="description">Start typing to search the locations library.</p>
                                 </div>
                             </td>
                         </tr>
@@ -1303,51 +1192,43 @@ final class EventsPage extends AbstractAdminPage
     }
 
     /**
-     * Renders the event-specific invitee assignment and invite status section.
-     *
-     * Invitee profiles are not edited here; this section only associates existing
-     * global invitees with the current event and handles event-specific email sends.
-     *
-     * @param Event $event
-     * @return void
+     * Renders the event-specific invitee section, grouped by invitation group.
      */
     private function renderEventInviteesSection(Event $event): void
     {
-        $invitees   = Invitee::forEvent($event->id);
-        $dateFormat = get_option('date_format');
-        $sendAllUrl = wp_nonce_url(
+        $groups       = InvitationGroup::forEvent($event->id);
+        $memberCount  = $event->inviteeCount();
+        $dateFormat   = get_option('date_format');
+        $sendAllUrl   = wp_nonce_url(
             admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=send_all_event_invites&event_id=' . $event->id),
             'eim_send_all_event_invites_' . $event->id
         );
         $addInviteeUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&action=add');
-        ?>
-        <?php
-        $inviteeCount = count($invitees);
-        $maxInvitees  = $event->maxInvitees;
-        $atLimit      = $maxInvitees !== null && $inviteeCount >= $maxInvitees;
+        $maxInvitees   = $event->maxInvitees;
+        $atLimit       = $maxInvitees !== null && $memberCount >= $maxInvitees;
         ?>
         <hr id="eim-event-invitees" style="margin:32px 0 20px;">
         <h2>
             Invited Invitees
             <?php if ($maxInvitees !== null): ?>
                 <span style="font-size:14px;font-weight:normal;color:<?= $atLimit ? '#d63638' : '#3c434a'; ?>;">
-                    (<?= esc_html($inviteeCount); ?> / <?= esc_html($maxInvitees); ?>)
+                    (<?= esc_html($memberCount); ?> / <?= esc_html($maxInvitees); ?> people)
                 </span>
             <?php else: ?>
-                <span style="font-size:14px;font-weight:normal;color:#3c434a;">(<?= esc_html($inviteeCount); ?>)</span>
+                <span style="font-size:14px;font-weight:normal;color:#3c434a;">(<?= esc_html($memberCount); ?> people, <?= count($groups); ?> group<?= count($groups) === 1 ? '' : 's'; ?>)</span>
             <?php endif; ?>
         </h2>
         <p class="description">
-            Add existing invitees to this event here. Create or edit invitee profiles from the Invitees page.
-            <?php if ($maxInvitees !== null): ?>
-                Maximum of <?= esc_html($maxInvitees); ?> invitees for this event.
-            <?php endif; ?>
+            Invitees are organised into invitation groups — one email is sent per group.
+            <?php if ($maxInvitees !== null): ?>Maximum of <?= esc_html($maxInvitees); ?> individual people.<?php endif; ?>
         </p>
         <?php if ($atLimit): ?>
-            <div class="notice notice-warning inline" style="margin:8px 0;"><p>This event has reached its maximum of <?= esc_html($maxInvitees); ?> invitees. No more can be added.</p></div>
+            <div class="notice notice-warning inline" style="margin:8px 0;"><p>This event has reached its maximum of <?= esc_html($maxInvitees); ?> invitees.</p></div>
         <?php endif; ?>
 
-        <form method="post" action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS)); ?>" class="eim-event-invitee-add-form">
+        <form method="post" action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS)); ?>"
+              class="eim-event-invitee-add-form"
+              id="eim-add-invitee-form">
             <?php wp_nonce_field('eim_add_invitee_to_event'); ?>
             <input type="hidden" name="eim_action" value="add_invitee_to_event">
             <input type="hidden" name="event_id" value="<?= esc_attr($event->id); ?>">
@@ -1365,12 +1246,18 @@ final class EventsPage extends AbstractAdminPage
                 <a href="<?= esc_url($addInviteeUrl); ?>" class="button">Create Invitee</a>
             </div>
             <p id="eim_event_invitee_selected" class="description" style="margin-top:6px;"></p>
+
+            <?php /* Connected invitees checkboxes rendered by JS after an invitee is selected */ ?>
+            <div id="eim-connected-invitees-wrap" style="display:none;margin-top:10px;">
+                <p style="margin:0 0 6px;font-weight:600;">Connected people — include in this invitation group?</p>
+                <div id="eim-connected-invitees-list"></div>
+            </div>
         </form>
 
-        <?php if (!empty($invitees)): ?>
+        <?php if (!empty($groups)): ?>
             <p style="margin-top:14px;">
                 <a href="<?= esc_url($sendAllUrl); ?>" class="button"
-                   onclick="return confirm('Send invite emails to all event invitees who have not yet received one?');">
+                   onclick="return confirm('Send invite emails to all groups that have not yet received one?');">
                     Send All Unsent Invites
                 </a>
             </p>
@@ -1379,59 +1266,87 @@ final class EventsPage extends AbstractAdminPage
         <table class="wp-list-table widefat fixed striped" style="margin-top:12px;">
             <thead>
                 <tr>
-                    <th style="width:14%;">First Name</th>
-                    <th style="width:14%;">Last Name</th>
-                    <th style="width:22%;">Email</th>
-                    <th style="width:14%;">Phone</th>
-                    <th style="width:11%;">Invite Sent</th>
-                    <th style="width:11%;">Registered</th>
-                    <th style="width:14%;">Actions</th>
+                    <th style="width:28%;">Group Members</th>
+                    <th style="width:20%;">Email (Primary)</th>
+                    <th style="width:13%;">Invite Sent</th>
+                    <th style="width:12%;">Registered</th>
+                    <th style="width:27%;">Actions</th>
                 </tr>
             </thead>
             <tbody>
-                <?php if (empty($invitees)): ?>
+                <?php if (empty($groups)): ?>
                     <tr>
-                        <td colspan="7">No invitees have been added to this event yet.</td>
+                        <td colspan="5">No invitees have been added to this event yet.</td>
                     </tr>
                 <?php else: ?>
-                    <?php foreach ($invitees as $invitee): ?>
+                    <?php foreach ($groups as $group): ?>
                         <?php
-                        $editUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&action=edit&id=' . $invitee->id);
-                        $sendUrl = wp_nonce_url(
-                            admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=send_event_invite&event_id=' . $event->id . '&invitee_id=' . $invitee->id),
-                            'eim_send_event_invite_' . $event->id . '_' . $invitee->id
-                        );
-                        $removeUrl = wp_nonce_url(
-                            admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=remove_invitee_from_event&event_id=' . $event->id . '&invitee_id=' . $invitee->id),
-                            'eim_remove_invitee_' . $event->id . '_' . $invitee->id
+                        $members        = $group->getMembers();
+                        $primaryInvitee = Invitee::find($group->primaryInviteeId);
+                        $attendingCount = $group->attendingCount();
+                        $memberCount    = $group->memberCount();
+                        $sendUrl        = wp_nonce_url(
+                            admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=send_event_invite&event_id=' . $event->id . '&group_id=' . $group->id),
+                            'eim_send_event_invite_' . $event->id . '_' . $group->id
                         );
                         ?>
                         <tr>
-                            <td><strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($invitee->firstName); ?></a></strong></td>
-                            <td><?= esc_html($invitee->lastName); ?></td>
-                            <td><a href="mailto:<?= esc_attr($invitee->email); ?>"><?= esc_html($invitee->email); ?></a></td>
-                            <td><?= esc_html($invitee->phone ?: '-'); ?></td>
                             <td>
-                                <?php if ($invitee->inviteSentAt): ?>
-                                    <?= esc_html(date_i18n($dateFormat, strtotime($invitee->inviteSentAt))); ?>
+                                <span class="eim-tag-list">
+                                    <?php foreach ($members as $member): ?>
+                                        <?php
+                                        $removeUrl = wp_nonce_url(
+                                            admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=remove_invitee_from_event&event_id=' . $event->id . '&invitee_id=' . $member->id),
+                                            'eim_remove_invitee_' . $event->id . '_' . $member->id
+                                        );
+                                        $editInvUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&action=edit&id=' . $member->id);
+                                        $isPrimary  = $member->id === $group->primaryInviteeId;
+                                        ?>
+                                        <span class="eim-group-member-tag<?= $isPrimary ? ' eim-group-member-primary' : ''; ?>">
+                                            <a href="<?= esc_url($editInvUrl); ?>" style="text-decoration:none;color:inherit;"><?= esc_html($member->fullName()); ?></a><?= $isPrimary ? ' <span class="eim-event-tag-role" title="Primary recipient">✉</span>' : ''; ?>
+                                            <a href="<?= esc_url($removeUrl); ?>"
+                                               class="eim-member-remove-link"
+                                               onclick="return confirm('Remove <?= esc_js($member->fullName()); ?> from this event? Their profile will remain.');"
+                                               title="Remove">×</a>
+                                        </span>
+                                    <?php endforeach; ?>
+                                </span>
+                            </td>
+                            <td>
+                                <?php if ($primaryInvitee): ?>
+                                    <a href="mailto:<?= esc_attr($primaryInvitee->email); ?>"><?= esc_html($primaryInvitee->email); ?></a>
                                 <?php else: ?>
-                                    <span style="color:#999;">-</span>
+                                    <span style="color:#999;">—</span>
                                 <?php endif; ?>
                             </td>
                             <td>
-                                <?php if ($invitee->isRegistered): ?>
+                                <?php if ($group->inviteSentAt): ?>
+                                    <?= esc_html(date_i18n($dateFormat, strtotime($group->inviteSentAt))); ?>
+                                <?php else: ?>
+                                    <span style="color:#999;">Not sent</span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <?php
+                                $pending  = count(array_filter($members, static fn(Invitee $m) => $m->rsvpStatus === InvitationGroup::RSVP_PENDING));
+                                $declined = count(array_filter($members, static fn(Invitee $m) => $m->rsvpStatus === InvitationGroup::RSVP_DECLINED));
+                                if ($memberCount === 0):
+                                ?>
+                                    <span style="color:#999;">—</span>
+                                <?php elseif ($attendingCount === $memberCount): ?>
                                     <span style="color:#00a32a;font-weight:600;">
-                                        Yes<?= $invitee->registeredAt ? ' - ' . esc_html(date_i18n($dateFormat, strtotime($invitee->registeredAt))) : ''; ?>
+                                        All attending<?= $memberCount > 1 ? ' (' . $memberCount . ')' : ''; ?>
                                     </span>
                                 <?php else: ?>
-                                    <span style="color:#999;">No</span>
+                                    <span style="color:#3c434a;">
+                                        <?= esc_html($attendingCount); ?> attending
+                                        <?php if ($declined > 0): ?>, <?= esc_html($declined); ?> declined<?php endif; ?>
+                                        <?php if ($pending > 0): ?>, <?= esc_html($pending); ?> pending<?php endif; ?>
+                                    </span>
                                 <?php endif; ?>
                             </td>
                             <td>
-                                <a href="<?= esc_url($editUrl); ?>">Edit Profile</a> |
-                                <a href="<?= esc_url($sendUrl); ?>">Send Invite</a> |
-                                <a href="<?= esc_url($removeUrl); ?>"
-                                   onclick="return confirm('Remove <?= esc_js($invitee->fullName()); ?> from this event? Their invitee profile will remain.');">Remove</a>
+                                <a href="<?= esc_url($sendUrl); ?>">Send Invite</a>
                             </td>
                         </tr>
                     <?php endforeach; ?>

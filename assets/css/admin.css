@@ -36,6 +36,8 @@ h1 {
     text-decoration: none;
 }
 
+/* ---- Tag lists ---- */
+
 .eim-tag-list {
     align-items: center;
     display: flex;
@@ -43,6 +45,7 @@ h1 {
     gap: 4px;
 }
 
+/* Event tags (blue) */
 .eim-event-tag {
     background: #e7f2fb;
     border: 1px solid #b8d9f0;
@@ -69,6 +72,82 @@ h1 {
     color: #0a4b78;
 }
 
+/* Connection tags (purple/lavender) */
+.eim-connection-tag {
+    background: #f3eefb;
+    border: 1px solid #c9b5e8;
+    border-radius: 999px;
+    color: #6a3fa0;
+    display: inline-flex;
+    align-items: center;
+    font-size: 12px;
+    gap: 4px;
+    line-height: 1.4;
+    padding: 2px 8px;
+    text-decoration: none;
+}
+
+.eim-connection-tag:hover,
+.eim-connection-tag:focus {
+    background: #e9dff6;
+    color: #4e2e7a;
+}
+
+.eim-connection-tag-removable {
+    padding-right: 4px;
+}
+
+.eim-connection-remove {
+    background: none;
+    border: none;
+    color: #6a3fa0;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 2px;
+    opacity: 0.7;
+}
+
+.eim-connection-remove:hover {
+    opacity: 1;
+    color: #d63638;
+}
+
+/* Group member tags in the event invitees table */
+.eim-group-member-tag {
+    background: #f0faf0;
+    border: 1px solid #a3d9a3;
+    border-radius: 999px;
+    color: #1a5c1a;
+    display: inline-flex;
+    align-items: center;
+    font-size: 12px;
+    gap: 4px;
+    line-height: 1.4;
+    padding: 2px 6px 2px 8px;
+}
+
+.eim-group-member-primary {
+    background: #d8f0d8;
+    border-color: #7abf7a;
+    font-weight: 600;
+}
+
+.eim-member-remove-link {
+    color: #666;
+    font-size: 14px;
+    font-weight: bold;
+    line-height: 1;
+    padding: 0 2px;
+    text-decoration: none;
+}
+
+.eim-member-remove-link:hover {
+    color: #d63638;
+}
+
+/* ---- Invitee add form ---- */
+
 .eim-event-invitee-add-form {
     margin: 12px 0 0;
 }
@@ -83,6 +162,8 @@ h1 {
 .eim-invitee-picker-positioner {
     position: relative;
 }
+
+/* ---- Autocomplete dropdown ---- */
 
 .eim-invitee-suggestions {
     background: #fff;
@@ -123,4 +204,51 @@ h1 {
 .eim-invitee-suggestion-empty {
     color: #646970;
     cursor: default;
+}
+
+/* ---- Connection group type badges ---- */
+
+.eim-cg-type-badge {
+    border-radius: 3px;
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .02em;
+    padding: 1px 5px;
+    text-transform: uppercase;
+}
+
+.eim-cg-type-couple    { background: #fce8f3; color: #8f1d5f; }
+.eim-cg-type-family    { background: #e8f4e8; color: #1d5c1d; }
+.eim-cg-type-household { background: #e8eef8; color: #1d3e8f; }
+.eim-cg-type-custom    { background: #f0f0f1; color: #3c434a; }
+
+/* ---- Connected invitees checkboxes (event add flow) ---- */
+
+#eim-connected-invitees-wrap {
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    padding: 12px 16px;
+}
+
+.eim-connected-invitee-row {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.eim-connected-invitee-row:last-child {
+    margin-bottom: 0;
+}
+
+.eim-connected-invitee-row label {
+    font-size: 13px;
+}
+
+.eim-connected-invitee-row .eim-already-invited {
+    color: #646970;
+    font-size: 12px;
+    font-style: italic;
 }

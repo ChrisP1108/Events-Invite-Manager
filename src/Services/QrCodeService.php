@@ -12,57 +12,43 @@ use Endroid\QrCode\ErrorCorrectionLevel;
 use Endroid\QrCode\RoundBlockSizeMode;
 use Endroid\QrCode\Writer\PngWriter;
 use EventsInviteManager\Models\Event;
-use EventsInviteManager\Models\Invitee;
+use EventsInviteManager\Models\InvitationGroup;
 use EventsInviteManager\Models\QrCode;
 
 /**
- * Generates, stores, and retrieves QR codes for event invitees.
+ * Generates, stores, and retrieves QR codes for invitation groups.
  *
- * QR code PNGs are saved to {wp_upload_dir}/eim-qr-codes/{event_id}_{invitee_id}.png
- * and tracked in the eim_qr_codes database table. Using the uploads directory avoids
- * data loss during plugin updates and ensures the web server can always write there.
+ * QR code PNGs are saved to {wp_upload_dir}/eim-qr-codes/group_{group_id}.png
+ * and tracked in the eim_qr_codes database table.
  *
  * Each QR code encodes a URL of the form: {home_url}/?eim_confirmation={16-char-code}
- * The plugin intercepts that URL and redirects to the event's configured RSVP page,
- * preserving the confirmation code in the query string.
  */
 final class QrCodeService
 {
-    /** Subdirectory name inside the WordPress uploads directory. */
     private const QR_SUBDIR = 'eim-qr-codes';
-
-    /** Side length in pixels of the generated QR code PNG. */
-    private const QR_SIZE = 300;
-
-    /** Margin in pixels around the QR code modules. */
+    private const QR_SIZE   = 300;
     private const QR_MARGIN = 10;
 
     /**
-     * Returns the existing QR code for the event-invitee pair, or generates and stores
-     * a new one if none exists yet.
+     * Returns the existing QR code for the invitation group, or generates a new one.
      *
-     * If a DB record exists but the PNG file has been removed from disk (e.g. by a manual
-     * upload cleanup), the stale record is deleted and a fresh QR code is generated so
-     * embed tags in invite emails always point to a real file.
-     *
-     * @param Event   $event
-     * @param Invitee $invitee
-     * @return QrCode|null Null when the PNG could not be written to disk or the DB insert failed.
+     * @param Event           $event
+     * @param InvitationGroup $group
+     * @return QrCode|null Null when the PNG could not be written or the DB insert failed.
      */
-    public function getOrCreate(Event $event, Invitee $invitee): ?QrCode
+    public function getOrCreateForGroup(Event $event, InvitationGroup $group): ?QrCode
     {
-        $existing = QrCode::findForEventInvitee($event->id, $invitee->id);
+        $existing = QrCode::findForGroup($group->id);
 
         if ($existing !== null) {
             if (file_exists($existing->absolutePath())) {
                 return $existing;
             }
 
-            // File missing — drop the stale record and regenerate below.
-            QrCode::deleteForEventInvitee($event->id, $invitee->id);
+            QrCode::deleteForGroup($group->id);
         }
 
-        return $this->generate($event->id, $invitee->id);
+        return $this->generateForGroup($event->id, $group->id);
     }
 
     /**
@@ -87,20 +73,13 @@ final class QrCodeService
         return $this->buildInviteUrl($qrCode->confirmationCode);
     }
 
-    /**
-     * Generates a QR code PNG, saves it to the uploads directory, and creates the DB record.
-     *
-     * @param int $eventId
-     * @param int $inviteeId
-     * @return QrCode|null
-     */
-    private function generate(int $eventId, int $inviteeId): ?QrCode
+    private function generateForGroup(int $eventId, int $groupId): ?QrCode
     {
         $code    = $this->generateCode();
         $url     = $this->buildInviteUrl($code);
         $upload  = wp_upload_dir();
         $dir     = $upload['basedir'] . '/' . self::QR_SUBDIR;
-        $file    = $eventId . '_' . $inviteeId . '.png';
+        $file    = 'group_' . $groupId . '.png';
         $absPath = $dir . '/' . $file;
         $relPath = self::QR_SUBDIR . '/' . $file;
 
@@ -124,14 +103,9 @@ final class QrCodeService
             return null;
         }
 
-        return QrCode::create($eventId, $inviteeId, $code, $relPath);
+        return QrCode::create($eventId, $groupId, $code, $relPath);
     }
 
-    /**
-     * Generates a cryptographically random 16-character alphanumeric confirmation code.
-     *
-     * @return string
-     */
     private function generateCode(): string
     {
         $chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -144,12 +118,6 @@ final class QrCodeService
         return $code;
     }
 
-    /**
-     * Builds the public URL that starts the RSVP redirect flow.
-     *
-     * @param string $code
-     * @return string
-     */
     private function buildInviteUrl(string $code): string
     {
         return home_url('/') . '?eim_confirmation=' . $code;

@@ -8,6 +8,7 @@ if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Database\DatabaseManager;
 use EventsInviteManager\Models\EventLodging;
+use EventsInviteManager\Models\InvitationGroup;
 use EventsInviteManager\Models\QrCode;
 
 /**
@@ -160,9 +161,10 @@ final class Event
     {
         global $wpdb;
 
+        QrCode::deleteForEvent($id);
+        InvitationGroup::deleteForEvent($id);
         $wpdb->delete(DatabaseManager::eventInviteesTable(), ['event_id' => $id]);
         EventLodging::deleteForEvent($id);
-        QrCode::deleteForEvent($id);
         $result = $wpdb->delete(DatabaseManager::eventsTable(), ['id' => $id]);
 
         return $result !== false;
@@ -191,10 +193,16 @@ final class Event
     {
         global $wpdb;
 
-        $table = DatabaseManager::eventInviteesTable();
+        $groupsTable  = DatabaseManager::invitationGroupsTable();
+        $membersTable = DatabaseManager::invitationGroupMembersTable();
 
         return (int) $wpdb->get_var(
-            $wpdb->prepare("SELECT COUNT(*) FROM {$table} WHERE event_id = %d AND is_registered = 1", $this->id)
+            $wpdb->prepare(
+                "SELECT COUNT(*) FROM {$membersTable} egm
+                 INNER JOIN {$groupsTable} eig ON eig.id = egm.group_id
+                 WHERE eig.event_id = %d AND egm.is_registered = 1",
+                $this->id
+            )
         );
     }
 

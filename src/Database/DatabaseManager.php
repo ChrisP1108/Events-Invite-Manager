@@ -6,78 +6,41 @@ namespace EventsInviteManager\Database;
 
 if (!defined('ABSPATH')) exit;
 
-/**
- * Manages database table creation and schema for the plugin.
- *
- * All methods are static so they can be called from the activation hook
- * in the root plugin file without needing an instantiated Plugin object.
- * Uses dbDelta for idempotent table creation — safe to call on re-activation.
- */
 final class DatabaseManager
 {
-    /** @var string Current schema version stored in the WordPress options table. */
-    private const SCHEMA_VERSION = '8';
+    private const SCHEMA_VERSION = '10';
 
-    /** @var string Events table name suffix (without WP prefix). */
-    private const EVENTS_TABLE = 'eim_events';
+    private const EVENTS_TABLE                          = 'eim_events';
+    private const INVITEES_TABLE                        = 'eim_invitees';
+    private const EVENT_INVITEES_TABLE                  = 'eim_event_invitees';
+    private const LOCATIONS_TABLE                       = 'eim_locations';
+    private const EVENT_LODGING_TABLE                   = 'eim_event_lodging';
+    private const QR_CODES_TABLE                        = 'eim_qr_codes';
+    private const INVITEE_CONNECTION_GROUPS_TABLE       = 'eim_invitee_connection_groups';
+    private const INVITEE_CONNECTION_GROUP_MEMBERS_TABLE = 'eim_invitee_connection_group_members';
+    private const INVITATION_GROUPS_TABLE               = 'eim_event_invitation_groups';
+    private const INVITATION_GROUP_MEMBERS_TABLE        = 'eim_event_invitation_group_members';
 
-    /** @var string Invitees table name suffix (without WP prefix). */
-    private const INVITEES_TABLE = 'eim_invitees';
-
-    /** @var string Event-invitee pivot table name suffix (without WP prefix). */
-    private const EVENT_INVITEES_TABLE = 'eim_event_invitees';
-
-    /**
-     * Global location catalogue table (replaces legacy eim_location_library).
-     * No event_id — events reference this table via venue_id and the
-     * eim_event_lodging pivot table.
-     *
-     * @var string
-     */
-    private const LOCATIONS_TABLE = 'eim_locations';
-
-    /** @var string Per-event lodging pivot table name suffix (without WP prefix). */
-    private const EVENT_LODGING_TABLE = 'eim_event_lodging';
-
-    /** @var string QR codes table name suffix (without WP prefix). */
-    private const QR_CODES_TABLE = 'eim_qr_codes';
-
-    /**
-     * Creates or updates the plugin's database tables via dbDelta.
-     *
-     * Safe to call multiple times — dbDelta only applies changes that differ
-     * from the current schema, so re-activation will not destroy existing data.
-     *
-     * @return void
-     */
     public static function createTables(): void
     {
         global $wpdb;
 
-        $storedSchemaVersion = (string) get_option('eim_db_version', '0');
-        $charset             = $wpdb->get_charset_collate();
-        $eventsTable         = $wpdb->prefix . self::EVENTS_TABLE;
-        $inviteesTable       = $wpdb->prefix . self::INVITEES_TABLE;
-        $eventInviteesTable  = $wpdb->prefix . self::EVENT_INVITEES_TABLE;
-        $locationsTable      = $wpdb->prefix . self::LOCATIONS_TABLE;
-        $eventLodgingTable   = $wpdb->prefix . self::EVENT_LODGING_TABLE;
-        $qrCodesTable        = $wpdb->prefix . self::QR_CODES_TABLE;
+        $storedVersion = (string) get_option('eim_db_version', '0');
+        $charset       = $wpdb->get_charset_collate();
 
-        // Migration: rename legacy eim_lodging_locations table if it exists and the new one doesn't.
-        $oldLodgingTable = $wpdb->prefix . 'eim_lodging_locations';
-        if (
-            $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $oldLodgingTable))
-            && !$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $locationsTable))
-        ) {
-            $wpdb->query("RENAME TABLE `{$oldLodgingTable}` TO `{$locationsTable}`");
-        }
+        $eventsTable        = $wpdb->prefix . self::EVENTS_TABLE;
+        $inviteesTable      = $wpdb->prefix . self::INVITEES_TABLE;
+        $eventInviteesTable = $wpdb->prefix . self::EVENT_INVITEES_TABLE;
+        $locationsTable     = $wpdb->prefix . self::LOCATIONS_TABLE;
+        $eventLodgingTable  = $wpdb->prefix . self::EVENT_LODGING_TABLE;
+        $qrCodesTable       = $wpdb->prefix . self::QR_CODES_TABLE;
+        $cgroupsTable       = $wpdb->prefix . self::INVITEE_CONNECTION_GROUPS_TABLE;
+        $cgMembersTable     = $wpdb->prefix . self::INVITEE_CONNECTION_GROUP_MEMBERS_TABLE;
+        $invGroupsTable     = $wpdb->prefix . self::INVITATION_GROUPS_TABLE;
+        $invMembersTable    = $wpdb->prefix . self::INVITATION_GROUP_MEMBERS_TABLE;
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
-        // eim_locations is the global location catalogue (no event_id).
-        // For existing installs the migration below will rename the old per-event
-        // eim_locations away and replace it with eim_location_library.
-        // For fresh installs dbDelta creates this table with the correct schema.
         $sql = "CREATE TABLE {$eventsTable} (
                 id                     BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
                 name                   VARCHAR(255)        NOT NULL,
@@ -99,7 +62,6 @@ final class DatabaseManager
             ) ENGINE=InnoDB {$charset};
             CREATE TABLE {$inviteesTable} (
                 id              BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-                event_id        BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
                 first_name      VARCHAR(100)        NOT NULL,
                 last_name       VARCHAR(100)        NOT NULL,
                 email           VARCHAR(255)        NOT NULL,
@@ -108,30 +70,19 @@ final class DatabaseManager
                 city            VARCHAR(100)        NOT NULL DEFAULT '',
                 state           VARCHAR(50)         NOT NULL DEFAULT '',
                 zip_code        VARCHAR(20)         NOT NULL DEFAULT '',
-                invite_code     VARCHAR(64)         NOT NULL DEFAULT '',
-                is_registered   TINYINT(1)          NOT NULL DEFAULT 0,
-                registered_at   DATETIME,
-                invite_sent_at  DATETIME,
                 created_at      DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at      DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (id),
-                UNIQUE KEY invite_code (invite_code),
-                KEY event_id (event_id),
-                KEY email_event (email, event_id)
+                KEY email (email)
             ) ENGINE=InnoDB {$charset};
             CREATE TABLE {$eventInviteesTable} (
                 id              BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
                 event_id        BIGINT(20) UNSIGNED NOT NULL,
                 invitee_id      BIGINT(20) UNSIGNED NOT NULL,
-                invite_code     VARCHAR(64)         NOT NULL,
-                is_registered   TINYINT(1)          NOT NULL DEFAULT 0,
-                registered_at   DATETIME,
-                invite_sent_at  DATETIME,
                 created_at      DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at      DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (id),
                 UNIQUE KEY event_invitee (event_id, invitee_id),
-                UNIQUE KEY invite_code (invite_code),
                 KEY event_id (event_id),
                 KEY invitee_id (invitee_id)
             ) ENGINE=InnoDB {$charset};
@@ -162,34 +113,69 @@ final class DatabaseManager
             CREATE TABLE {$qrCodesTable} (
                 id                BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
                 event_id          BIGINT(20) UNSIGNED NOT NULL,
-                invitee_id        BIGINT(20) UNSIGNED NOT NULL,
+                group_id          BIGINT(20) UNSIGNED NOT NULL,
                 confirmation_code VARCHAR(16)         NOT NULL,
                 qr_code_path      VARCHAR(500)        NOT NULL DEFAULT '',
                 created_at        DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at        DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (id),
                 UNIQUE KEY confirmation_code (confirmation_code),
-                UNIQUE KEY event_invitee (event_id, invitee_id),
-                KEY event_id (event_id),
+                UNIQUE KEY group_id (group_id),
+                KEY event_id (event_id)
+            ) ENGINE=InnoDB {$charset};
+            CREATE TABLE {$cgroupsTable} (
+                id         BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                name       VARCHAR(255)        NOT NULL DEFAULT '',
+                type       VARCHAR(20)         NOT NULL DEFAULT 'custom',
+                created_at DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY type (type)
+            ) ENGINE=InnoDB {$charset};
+            CREATE TABLE {$cgMembersTable} (
+                id         BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                group_id   BIGINT(20) UNSIGNED NOT NULL,
+                invitee_id BIGINT(20) UNSIGNED NOT NULL,
+                role       VARCHAR(100)        NOT NULL DEFAULT '',
+                created_at DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY group_member (group_id, invitee_id),
+                KEY group_id (group_id),
                 KEY invitee_id (invitee_id)
+            ) ENGINE=InnoDB {$charset};
+            CREATE TABLE {$invGroupsTable} (
+                id                  BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                event_id            BIGINT(20) UNSIGNED NOT NULL,
+                primary_invitee_id  BIGINT(20) UNSIGNED NOT NULL,
+                invite_sent_at      DATETIME,
+                created_at          DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at          DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY event_id (event_id),
+                KEY primary_invitee_id (primary_invitee_id)
+            ) ENGINE=InnoDB {$charset};
+            CREATE TABLE {$invMembersTable} (
+                id            BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                group_id      BIGINT(20) UNSIGNED NOT NULL,
+                invitee_id    BIGINT(20) UNSIGNED NOT NULL,
+                rsvp_status   VARCHAR(10)         NOT NULL DEFAULT 'pending',
+                registered_at DATETIME,
+                created_at    DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at    DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY group_member (group_id, invitee_id),
+                KEY group_id (group_id),
+                KEY invitee_id (invitee_id),
+                KEY rsvp_status (rsvp_status)
             ) ENGINE=InnoDB {$charset};";
 
         dbDelta($sql);
 
-        self::migrateLegacyInviteeInvitations();
-        self::migrateLocationsToUnifiedSchema();
-        self::migrateEventDatetimesToUtc($storedSchemaVersion);
+        self::migrateToV10($storedVersion);
         update_option('eim_db_version', self::SCHEMA_VERSION, false);
     }
 
-    /**
-     * Runs schema creation when the stored schema version is behind the code version.
-     *
-     * Plugin updates do not trigger activation hooks, so this lightweight guard keeps
-     * new tables and columns available after an ordinary plugin update.
-     *
-     * @return void
-     */
     public static function maybeUpgrade(): void
     {
         if ((string) get_option('eim_db_version', '0') === self::SCHEMA_VERSION) {
@@ -200,227 +186,104 @@ final class DatabaseManager
     }
 
     /**
-     * Copies legacy per-event invitee state into the new event-invitee table.
-     *
-     * @return void
+     * Migrates v9 → v10:
+     *  1. Adds rsvp_status to eim_event_invitation_group_members from is_registered, then drops it.
+     *  2. Migrates pairwise eim_invitee_connections rows into named connection groups.
      */
-    private static function migrateLegacyInviteeInvitations(): void
+    private static function migrateToV10(string $storedVersion): void
     {
+        if (version_compare($storedVersion, '10', '>=')) {
+            return;
+        }
+
         global $wpdb;
 
-        $eventsTable        = self::eventsTable();
-        $inviteesTable      = self::inviteesTable();
-        $eventInviteesTable = self::eventInviteesTable();
+        $invMembersTable = self::invitationGroupMembersTable();
+        $inviteesTable   = self::inviteesTable();
+        $cgroupsTable    = self::inviteeConnectionGroupsTable();
+        $cgMembersTable  = self::inviteeConnectionGroupMembersTable();
+        $oldPairsTable   = $wpdb->prefix . 'eim_invitee_connections';
 
-        $rows = $wpdb->get_results(
-            "SELECT i.id AS invitee_id,
-                    i.event_id,
-                    i.invite_code,
-                    i.is_registered,
-                    i.registered_at,
-                    i.invite_sent_at
-             FROM {$inviteesTable} i
-             INNER JOIN {$eventsTable} e ON e.id = i.event_id
-             WHERE i.event_id > 0"
+        // 1. Migrate is_registered → rsvp_status on event invitation group members.
+        $hasIsRegistered = $wpdb->get_var(
+            $wpdb->prepare("SHOW COLUMNS FROM `{$invMembersTable}` LIKE %s", 'is_registered')
         );
 
-        foreach ($rows ?? [] as $row) {
-            $exists = (int) $wpdb->get_var(
-                $wpdb->prepare(
-                    "SELECT COUNT(*) FROM {$eventInviteesTable} WHERE event_id = %d AND invitee_id = %d",
-                    (int) $row->event_id,
-                    (int) $row->invitee_id
-                )
+        if ($hasIsRegistered) {
+            // Add rsvp_status if not present yet (dbDelta may have already done this).
+            $hasRsvp = $wpdb->get_var(
+                $wpdb->prepare("SHOW COLUMNS FROM `{$invMembersTable}` LIKE %s", 'rsvp_status')
+            );
+            if (!$hasRsvp) {
+                $wpdb->query(
+                    "ALTER TABLE `{$invMembersTable}`
+                     ADD COLUMN rsvp_status VARCHAR(10) NOT NULL DEFAULT 'pending' AFTER invitee_id"
+                );
+            }
+
+            // Copy data: is_registered=1 → attending, 0 → pending.
+            $wpdb->query(
+                "UPDATE `{$invMembersTable}`
+                 SET rsvp_status = CASE WHEN is_registered = 1 THEN 'attending' ELSE 'pending' END
+                 WHERE rsvp_status = 'pending'"
             );
 
-            if ($exists > 0) {
-                continue;
-            }
-
-            $wpdb->insert($eventInviteesTable, [
-                'event_id'       => (int) $row->event_id,
-                'invitee_id'     => (int) $row->invitee_id,
-                'invite_code'    => $row->invite_code ?: self::generateInviteCode(),
-                'is_registered'  => (int) ($row->is_registered ?? 0),
-                'registered_at'  => $row->registered_at ?: null,
-                'invite_sent_at' => $row->invite_sent_at ?: null,
-            ]);
-        }
-    }
-
-    /**
-     * Consolidates the legacy two-table location system into a single global catalogue.
-     *
-     * Before this migration:
-     *   eim_location_library  — global catalogue (name, address, has_lodging, booking_url)
-     *   eim_locations         — per-event assignments (event_id, type, name, address)
-     *
-     * After this migration:
-     *   eim_locations         — global catalogue (library schema, no event_id)
-     *   eim_event_lodging     — per-event lodging pivot (event_id, location_id)
-     *   eim_events.venue_id   — FK to eim_locations for the event venue
-     *
-     * Migration is skipped when eim_location_library no longer exists (already migrated
-     * or a fresh install that never had the legacy schema).
-     *
-     * @return void
-     */
-    private static function migrateLocationsToUnifiedSchema(): void
-    {
-        global $wpdb;
-
-        $library          = $wpdb->prefix . 'eim_location_library';
-        $locationsTable   = self::locationsTable();
-        $legacyTable      = $wpdb->prefix . 'eim_locations_old';
-        $eventLodging     = self::eventLodgingTable();
-        $eventsTable      = self::eventsTable();
-
-        // Nothing to do when library doesn't exist (fresh install or already migrated).
-        if (!$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $library))) {
-            // Clean up any leftover legacy table from a partially-completed migration.
-            $wpdb->query("DROP TABLE IF EXISTS `{$legacyTable}`");
-            return;
+            // Drop the old column.
+            $wpdb->query("ALTER TABLE `{$invMembersTable}` DROP COLUMN `is_registered`");
         }
 
-        // Step 1 — move the old per-event eim_locations out of the way.
-        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $locationsTable))) {
-            $wpdb->query("RENAME TABLE `{$locationsTable}` TO `{$legacyTable}`");
-        }
-
-        // Step 2 — the library becomes the new global catalogue.
-        $wpdb->query("RENAME TABLE `{$library}` TO `{$locationsTable}`");
-
-        // Step 3 — migrate venue and lodging rows from the legacy per-event table.
-        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $legacyTable))) {
-
-            // Venue rows → set venue_id on the parent event.
-            $venues = $wpdb->get_results("SELECT * FROM `{$legacyTable}` WHERE type = 'venue'");
-            foreach ($venues ?? [] as $row) {
-                $locationId = self::findOrCreateLocation($locationsTable, $row, false);
-                if ($locationId > 0 && (int) $row->event_id > 0) {
-                    $wpdb->update($eventsTable, ['venue_id' => $locationId], ['id' => (int) $row->event_id]);
-                }
-            }
-
-            // Lodging rows → insert into the event_lodging pivot.
-            $lodgings = $wpdb->get_results("SELECT * FROM `{$legacyTable}` WHERE type = 'lodging'");
-            foreach ($lodgings ?? [] as $row) {
-                $locationId = self::findOrCreateLocation($locationsTable, $row, true);
-                if ($locationId > 0 && (int) $row->event_id > 0) {
-                    $existing = (int) $wpdb->get_var(
-                        $wpdb->prepare(
-                            "SELECT COUNT(*) FROM `{$eventLodging}` WHERE event_id = %d AND location_id = %d",
-                            (int) $row->event_id,
-                            $locationId
-                        )
-                    );
-                    if ($existing === 0) {
-                        $wpdb->insert($eventLodging, [
-                            'event_id'    => (int) $row->event_id,
-                            'location_id' => $locationId,
-                            'sort_order'  => (int) ($row->sort_order ?? 0),
-                        ]);
-                    }
-                }
-            }
-
-            $wpdb->query("DROP TABLE IF EXISTS `{$legacyTable}`");
-        }
-    }
-
-    /**
-     * Finds a location in the catalogue by name or inserts one from legacy row data.
-     *
-     * @param string   $table      Fully-qualified eim_locations table name.
-     * @param object   $legacyRow  Row from the old eim_locations table.
-     * @param bool     $hasLodging Whether to mark a newly-created row as having lodging.
-     * @return int Location ID, or 0 on failure.
-     */
-    private static function findOrCreateLocation(string $table, object $legacyRow, bool $hasLodging): int
-    {
-        global $wpdb;
-
-        $id = (int) $wpdb->get_var(
-            $wpdb->prepare("SELECT id FROM `{$table}` WHERE name = %s LIMIT 1", $legacyRow->name)
+        // 2. Migrate pairwise eim_invitee_connections → named connection groups.
+        $pairsTableExists = $wpdb->get_var(
+            $wpdb->prepare('SHOW TABLES LIKE %s', $oldPairsTable)
         );
 
-        if ($id > 0) {
-            return $id;
-        }
+        if ($pairsTableExists) {
+            $pairs = $wpdb->get_results("SELECT * FROM `{$oldPairsTable}` ORDER BY id ASC");
 
-        $isOther = (bool) ($legacyRow->is_other ?? false);
+            foreach ($pairs ?? [] as $pair) {
+                $id1 = (int) $pair->invitee_id_1;
+                $id2 = (int) $pair->invitee_id_2;
 
-        $wpdb->insert($table, [
-            'name'           => $legacyRow->name,
-            'street_address' => $isOther ? '' : ($legacyRow->street_address ?? ''),
-            'city'           => $isOther ? '' : ($legacyRow->city           ?? ''),
-            'state'          => $isOther ? '' : ($legacyRow->state          ?? ''),
-            'zip_code'       => $isOther ? '' : ($legacyRow->zip_code       ?? ''),
-            'is_other'       => $isOther ? 1 : 0,
-            'has_lodging'    => $hasLodging ? 1 : 0,
-            'booking_url'    => '',
-        ]);
+                // Already migrated as a group containing both? Skip.
+                $alreadyMigrated = (int) $wpdb->get_var(
+                    $wpdb->prepare(
+                        "SELECT COUNT(*) FROM `{$cgMembersTable}` cgm1
+                         INNER JOIN `{$cgMembersTable}` cgm2 ON cgm2.group_id = cgm1.group_id
+                         WHERE cgm1.invitee_id = %d AND cgm2.invitee_id = %d",
+                        $id1,
+                        $id2
+                    )
+                );
 
-        return (int) $wpdb->insert_id;
-    }
-
-    /**
-     * Converts start_datetime and end_datetime from local time to UTC for events that have
-     * a timezone set but were saved before the UTC-storage requirement was introduced.
-     *
-     * Gated on the stored schema version being below 8 so that re-activation, manual
-     * createTables() calls, or future schema bumps never double-convert event times.
-     * Events with no timezone set cannot be converted and are left unchanged.
-     *
-     * @param string $storedSchemaVersion Schema version recorded before createTables() began.
-     * @return void
-     */
-    private static function migrateEventDatetimesToUtc(string $storedSchemaVersion): void
-    {
-        // Only run when upgrading from a schema that pre-dates UTC storage (< v8).
-        if (version_compare($storedSchemaVersion, '8', '>=')) {
-            return;
-        }
-
-        global $wpdb;
-
-        $table = self::eventsTable();
-        $rows  = $wpdb->get_results(
-            "SELECT id, start_datetime, end_datetime, timezone FROM {$table} WHERE timezone != '' AND timezone IS NOT NULL"
-        );
-
-        foreach ($rows ?? [] as $row) {
-            $updates = [];
-
-            foreach (['start_datetime' => $row->start_datetime, 'end_datetime' => $row->end_datetime] as $col => $value) {
-                if (empty($value) || $value === '0000-00-00 00:00:00') {
+                if ($alreadyMigrated > 0) {
                     continue;
                 }
 
-                // Values from schemas before v8 were stored in the event's local timezone.
-                try {
-                    $dt = new \DateTime($value, new \DateTimeZone($row->timezone));
-                    $dt->setTimezone(new \DateTimeZone('UTC'));
-                    $updates[$col] = $dt->format('Y-m-d H:i:s');
-                } catch (\Throwable) {
-                    // Invalid timezone or datetime — leave unchanged.
+                // Build a "First Last & First Last" name.
+                $i1 = $wpdb->get_row($wpdb->prepare(
+                    "SELECT first_name, last_name FROM `{$inviteesTable}` WHERE id = %d LIMIT 1",
+                    $id1
+                ));
+                $i2 = $wpdb->get_row($wpdb->prepare(
+                    "SELECT first_name, last_name FROM `{$inviteesTable}` WHERE id = %d LIMIT 1",
+                    $id2
+                ));
+
+                $name = trim(($i1->first_name ?? '') . ' ' . ($i1->last_name ?? ''))
+                    . ' & '
+                    . trim(($i2->first_name ?? '') . ' ' . ($i2->last_name ?? ''));
+
+                $wpdb->insert($cgroupsTable, ['name' => $name, 'type' => 'couple']);
+                $groupId = (int) $wpdb->insert_id;
+
+                if ($groupId > 0) {
+                    $wpdb->insert($cgMembersTable, ['group_id' => $groupId, 'invitee_id' => $id1]);
+                    $wpdb->insert($cgMembersTable, ['group_id' => $groupId, 'invitee_id' => $id2]);
                 }
             }
 
-            if (!empty($updates)) {
-                $wpdb->update($table, $updates, ['id' => (int) $row->id]);
-            }
+            $wpdb->query("DROP TABLE IF EXISTS `{$oldPairsTable}`");
         }
-    }
-
-    /**
-     * Generates a cryptographically secure fallback invite code for migrations.
-     *
-     * @return string
-     */
-    private static function generateInviteCode(): string
-    {
-        return bin2hex(random_bytes(16));
     }
 
     /** @return string Fully-qualified events table name. */
@@ -437,7 +300,7 @@ final class DatabaseManager
         return $wpdb->prefix . self::INVITEES_TABLE;
     }
 
-    /** @return string Fully-qualified event-invitee pivot table name. */
+    /** @return string Fully-qualified event-invitee membership table name. */
     public static function eventInviteesTable(): string
     {
         global $wpdb;
@@ -463,5 +326,33 @@ final class DatabaseManager
     {
         global $wpdb;
         return $wpdb->prefix . self::QR_CODES_TABLE;
+    }
+
+    /** @return string Fully-qualified global connection groups table name. */
+    public static function inviteeConnectionGroupsTable(): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . self::INVITEE_CONNECTION_GROUPS_TABLE;
+    }
+
+    /** @return string Fully-qualified global connection group members table name. */
+    public static function inviteeConnectionGroupMembersTable(): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . self::INVITEE_CONNECTION_GROUP_MEMBERS_TABLE;
+    }
+
+    /** @return string Fully-qualified event invitation groups table name. */
+    public static function invitationGroupsTable(): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . self::INVITATION_GROUPS_TABLE;
+    }
+
+    /** @return string Fully-qualified event invitation group members table name. */
+    public static function invitationGroupMembersTable(): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . self::INVITATION_GROUP_MEMBERS_TABLE;
     }
 }
