@@ -212,6 +212,87 @@ final class InvitationGroup
     }
 
     /**
+     * Sets a group member as the primary recipient.
+     *
+     * @param int $groupId
+     * @param int $inviteeId
+     * @return bool
+     */
+    public static function setPrimaryMember(int $groupId, int $inviteeId): bool
+    {
+        global $wpdb;
+
+        $isMember = (bool) $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT 1 FROM " . DatabaseManager::invitationGroupMembersTable() . " WHERE group_id = %d AND invitee_id = %d",
+                $groupId, $inviteeId
+            )
+        );
+
+        if (!$isMember) {
+            return false;
+        }
+
+        return $wpdb->update(
+            DatabaseManager::invitationGroupsTable(),
+            ['primary_invitee_id' => $inviteeId],
+            ['id' => $groupId]
+        ) !== false;
+    }
+
+    /**
+     * Adds a new member to an existing group and registers them on the event.
+     *
+     * @param int $groupId
+     * @param int $inviteeId
+     * @param int $eventId
+     * @return bool
+     */
+    public static function addMemberToGroup(int $groupId, int $inviteeId, int $eventId): bool
+    {
+        global $wpdb;
+
+        $wpdb->query($wpdb->prepare(
+            "INSERT IGNORE INTO " . DatabaseManager::eventInviteesTable() . " (event_id, invitee_id) VALUES (%d, %d)",
+            $eventId, $inviteeId
+        ));
+
+        return $wpdb->query($wpdb->prepare(
+            "INSERT IGNORE INTO " . DatabaseManager::invitationGroupMembersTable() . " (group_id, invitee_id, rsvp_status) VALUES (%d, %d, %s)",
+            $groupId, $inviteeId, self::RSVP_PENDING
+        )) !== false;
+    }
+
+    /**
+     * Deletes an entire group, removing all its members from the event.
+     *
+     * @param int $groupId
+     * @param int $eventId
+     * @return bool
+     */
+    public static function deleteGroup(int $groupId, int $eventId): bool
+    {
+        global $wpdb;
+
+        $membersTable       = DatabaseManager::invitationGroupMembersTable();
+        $eventInviteesTable = DatabaseManager::eventInviteesTable();
+
+        $memberIds = $wpdb->get_col(
+            $wpdb->prepare("SELECT invitee_id FROM {$membersTable} WHERE group_id = %d", $groupId)
+        );
+
+        foreach ($memberIds as $mid) {
+            $wpdb->delete($eventInviteesTable, ['event_id' => $eventId, 'invitee_id' => (int) $mid]);
+        }
+
+        $wpdb->delete($membersTable, ['group_id' => $groupId]);
+        QrCode::deleteForGroup($groupId);
+        $wpdb->delete(DatabaseManager::invitationGroupsTable(), ['id' => $groupId]);
+
+        return true;
+    }
+
+    /**
      * Removes an invitee from every invitation group across all events.
      *
      * Called by Invitee::delete() before the invitee row is removed.

@@ -146,6 +146,89 @@ h1 {
     color: #d63638;
 }
 
+/* Member name dropdown trigger */
+.eim-member-dropdown {
+    align-items: center;
+    display: inline-flex;
+    position: relative;
+}
+
+.eim-member-dropdown-trigger {
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    padding: 0;
+}
+
+.eim-member-dropdown-trigger:hover {
+    text-decoration: underline;
+}
+
+.eim-member-dropdown-menu {
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+    min-width: 130px;
+    position: absolute;
+    left: 0;
+    top: calc(100% + 4px);
+    z-index: 99;
+}
+
+.eim-member-dropdown-menu[hidden] {
+    display: none;
+}
+
+.eim-member-dropdown-menu a {
+    color: #1d2327;
+    display: block;
+    font-size: 12px;
+    padding: 6px 12px;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.eim-member-dropdown-menu a:hover {
+    background: #f0f0f1;
+    color: #135e96;
+}
+
+/* Group actions column */
+.eim-group-actions {
+    white-space: nowrap;
+}
+
+.eim-action-sep {
+    color: #c3c4c7;
+    padding: 0 2px;
+}
+
+.eim-remove-group-link {
+    color: #d63638;
+    text-decoration: none;
+}
+
+.eim-remove-group-link:hover {
+    color: #b32d2e;
+    text-decoration: underline;
+}
+
+/* Add member inline row */
+.eim-add-member-cell {
+    background: #f6f7f7;
+    padding: 10px 12px !important;
+}
+
+.eim-add-member-form {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
 /* ---- Invitee add form ---- */
 
 .eim-event-invitee-add-form {

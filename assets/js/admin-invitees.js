@@ -105,9 +105,10 @@
     // ConnectionGroupTable — Connection Groups list live search
     // -----------------------------------------------------------------------
     class ConnectionGroupTable {
-        #tbody; #search; #count; #spinner;
+        #table; #tbody; #search; #count; #spinner; #sort; #order;
 
         constructor() {
+            this.#table   = document.getElementById('eim-connection-groups-table');
             this.#tbody   = document.getElementById('eim-connection-groups-table-body');
             this.#search  = document.getElementById('eim-connection-group-search');
             this.#count   = document.getElementById('eim-connection-group-count');
@@ -115,17 +116,33 @@
 
             if (!this.#tbody || !this.#search || !config.connectionGroupSearchNonce) return;
 
+            this.#sort  = this.#table?.dataset.sort  || config.connectionGroupTable?.sort  || 'name';
+            this.#order = this.#table?.dataset.order || config.connectionGroupTable?.order || 'asc';
+
             this.#search.addEventListener('input', debounce(() => this.#refresh()));
+
+            for (const link of (this.#table?.querySelectorAll('.eim-sort-link') ?? [])) {
+                link.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    this.#sort  = link.dataset.sort  || 'name';
+                    this.#order = link.dataset.order || 'asc';
+                    this.#updateSortLinks();
+                    this.#refresh();
+                });
+            }
         }
 
         async #refresh() {
             if (this.#spinner) this.#spinner.classList.add('is-active');
 
             try {
-                const { success, data } = await (await fetch(ajaxUrl('eim_search_connection_groups', {
+                const url = ajaxUrl('eim_search_connection_groups', {
                     nonce: config.connectionGroupSearchNonce,
                     query: this.#search?.value || '',
-                }), { credentials: 'same-origin' })).json();
+                    sort:  this.#sort,
+                    order: this.#order,
+                });
+                const { success, data } = await (await fetch(url, { credentials: 'same-origin' })).json();
 
                 if (!success) return;
 
@@ -135,6 +152,19 @@
                 console.error('[EIM] Connection group search failed:', e);
             } finally {
                 if (this.#spinner) this.#spinner.classList.remove('is-active');
+            }
+        }
+
+        #updateSortLinks() {
+            if (!this.#table) return;
+            this.#table.dataset.sort  = this.#sort;
+            this.#table.dataset.order = this.#order;
+
+            for (const link of this.#table.querySelectorAll('.eim-sort-link')) {
+                const isCurrent = (link.dataset.sort || '') === this.#sort;
+                link.dataset.order = isCurrent && this.#order === 'asc' ? 'desc' : 'asc';
+                const indicator = link.querySelector('span[aria-hidden]');
+                if (indicator) indicator.textContent = isCurrent ? (this.#order === 'asc' ? '^' : 'v') : '';
             }
         }
     }
@@ -363,12 +393,238 @@
     }
 
     // -----------------------------------------------------------------------
+    // EventGroupManager — member dropdown + add-member per group row
+    // Uses full event delegation so it works after AJAX tbody replacement.
+    // -----------------------------------------------------------------------
+    class EventGroupManager {
+        #debounceMap = new WeakMap();
+
+        constructor() {
+            if (!document.getElementById('eim-event-groups-table')) return;
+
+            document.addEventListener('click',    (e) => this.#handleClick(e));
+            document.addEventListener('focusout', (e) => this.#handleFocusOut(e));
+            document.addEventListener('input',    (e) => this.#handleInput(e));
+            document.addEventListener('submit',   (e) => this.#handleSubmit(e));
+        }
+
+        #handleClick(e) {
+            const trigger = e.target.closest('.eim-member-dropdown-trigger');
+            if (trigger) { this.#toggleDropdown(e, trigger); return; }
+
+            const addToggle = e.target.closest('.eim-add-member-toggle');
+            if (addToggle) { this.#showRow(`eim-add-member-row-${addToggle.dataset.groupId}`, `eim-add-member-search-${addToggle.dataset.groupId}`); return; }
+
+            const addCancel = e.target.closest('.eim-add-member-cancel');
+            if (addCancel) { this.#hideAddMember(addCancel.dataset.groupId); return; }
+
+            const connToggle = e.target.closest('.eim-add-connection-toggle');
+            if (connToggle) { this.#showRow(`eim-add-connection-row-${connToggle.dataset.groupId}`, null, `.eim-connection-select`); return; }
+
+            const connCancel = e.target.closest('.eim-add-connection-cancel');
+            if (connCancel) { this.#hideAddConnection(connCancel.dataset.groupId); return; }
+
+            this.#closeAll();
+        }
+
+        #handleFocusOut(e) {
+            const input = e.target.closest('.eim-group-member-search');
+            if (!input) return;
+            setTimeout(() => {
+                const drop = input.parentElement?.querySelector('.eim-invitee-suggestions');
+                if (drop) drop.style.display = 'none';
+            }, 150);
+        }
+
+        #handleInput(e) {
+            const input = e.target.closest('.eim-group-member-search');
+            if (input) this.#debouncedSearch(input);
+        }
+
+        #handleSubmit(e) {
+            const form = e.target.closest('.eim-add-member-form');
+            if (!form) return;
+            const hidden = form.querySelector('.eim-add-member-invitee-id');
+            const select = form.querySelector('.eim-connection-select');
+            if (hidden && !hidden.value) {
+                e.preventDefault();
+                alert('Please select an invitee from the search results.');
+            } else if (select && !select.value) {
+                e.preventDefault();
+                alert('Please select a connection from the list.');
+            }
+        }
+
+        #toggleDropdown(e, btn) {
+            e.stopPropagation();
+            const menu   = btn.nextElementSibling;
+            if (!menu) return;
+            const isOpen = !menu.hidden;
+            this.#closeAll();
+            if (!isOpen) {
+                menu.hidden = false;
+                btn.setAttribute('aria-expanded', 'true');
+            }
+        }
+
+        #closeAll() {
+            document.querySelectorAll('.eim-member-dropdown-menu').forEach(m => {
+                m.hidden = true;
+                m.previousElementSibling?.setAttribute('aria-expanded', 'false');
+            });
+        }
+
+        #showRow(rowId, focusId, focusSelector) {
+            const row = document.getElementById(rowId);
+            if (!row) return;
+            row.style.display = '';
+            if (focusId) document.getElementById(focusId)?.focus();
+            else if (focusSelector) row.querySelector(focusSelector)?.focus();
+        }
+
+        #hideAddMember(groupId) {
+            const row = document.getElementById(`eim-add-member-row-${groupId}`);
+            if (row) row.style.display = 'none';
+            const input  = document.getElementById(`eim-add-member-search-${groupId}`);
+            const hidden = document.getElementById(`eim-add-member-invitee-id-${groupId}`);
+            if (input)  input.value  = '';
+            if (hidden) hidden.value = '';
+        }
+
+        #hideAddConnection(groupId) {
+            const row = document.getElementById(`eim-add-connection-row-${groupId}`);
+            if (!row) return;
+            row.style.display = 'none';
+            const sel = row.querySelector('.eim-connection-select');
+            if (sel) sel.value = '';
+        }
+
+        #debouncedSearch(input) {
+            clearTimeout(this.#debounceMap.get(input) || 0);
+            this.#debounceMap.set(input, setTimeout(() => this.#searchMember(input), 250));
+        }
+
+        async #searchMember(input) {
+            const query   = input.value.trim();
+            const eventId = input.dataset.eventId || 0;
+            const groupId = input.dataset.groupId || 0;
+
+            let drop = input.parentElement?.querySelector('.eim-invitee-suggestions');
+            if (!drop) {
+                drop = document.createElement('ul');
+                drop.className = 'eim-invitee-suggestions';
+                drop.setAttribute('role', 'listbox');
+                drop.style.display = 'none';
+                input.parentElement?.appendChild(drop);
+            }
+
+            if (query.length < 2) { drop.style.display = 'none'; return; }
+
+            try {
+                const { success, data } = await (await fetch(ajaxUrl('eim_suggest_invitees', {
+                    nonce: config.suggestNonce, query, event_id: eventId,
+                }), { credentials: 'same-origin' })).json();
+
+                drop.replaceChildren();
+                const items = success ? data : [];
+
+                if (!items.length) {
+                    const li = document.createElement('li');
+                    li.className = 'eim-invitee-suggestion-empty';
+                    li.textContent = 'No available invitees found.';
+                    drop.appendChild(li);
+                } else {
+                    for (const inv of items) {
+                        const li = document.createElement('li');
+                        li.className = 'eim-invitee-suggestion';
+                        li.setAttribute('role', 'option');
+                        const name = document.createElement('strong');
+                        name.textContent = inv.name || '';
+                        li.appendChild(name);
+                        if (inv.email) li.appendChild(document.createTextNode(` - ${inv.email}`));
+                        li.addEventListener('mousedown', (ev) => {
+                            ev.preventDefault();
+                            input.value = inv.name || inv.label || '';
+                            drop.style.display = 'none';
+                            const hidden = document.getElementById(`eim-add-member-invitee-id-${groupId}`);
+                            if (hidden) hidden.value = String(inv.id || '');
+                        });
+                        drop.appendChild(li);
+                    }
+                }
+                drop.style.display = 'block';
+            } catch (err) {
+                console.error('[EIM] Member search failed:', err);
+                drop.style.display = 'none';
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // EventGroupsTable — AJAX column sort for the Invited Invitees table
+    // -----------------------------------------------------------------------
+    class EventGroupsTable {
+        #table; #tbody; #sort; #order;
+
+        constructor() {
+            this.#table = document.getElementById('eim-event-groups-table');
+            this.#tbody = document.getElementById('eim-event-groups-table-body');
+
+            if (!this.#table || !this.#tbody || !config.event?.groupsSortNonce) return;
+
+            this.#sort  = this.#table.dataset.sort  || 'name';
+            this.#order = this.#table.dataset.order || 'asc';
+
+            for (const link of this.#table.querySelectorAll('.eim-sort-link')) {
+                link.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    this.#sort  = link.dataset.sort  || 'name';
+                    this.#order = link.dataset.order || 'asc';
+                    this.#updateSortLinks();
+                    this.#refresh();
+                });
+            }
+        }
+
+        async #refresh() {
+            try {
+                const url = ajaxUrl('eim_sort_event_groups', {
+                    nonce:    config.event.groupsSortNonce,
+                    event_id: config.event.id || 0,
+                    sort:     this.#sort,
+                    order:    this.#order,
+                });
+                const { success, data } = await (await fetch(url, { credentials: 'same-origin' })).json();
+                if (!success) return;
+                this.#tbody.innerHTML = data.html || '';
+            } catch (e) {
+                console.error('[EIM] Event groups sort failed:', e);
+            }
+        }
+
+        #updateSortLinks() {
+            if (!this.#table) return;
+            this.#table.dataset.sort  = this.#sort;
+            this.#table.dataset.order = this.#order;
+
+            for (const link of this.#table.querySelectorAll('.eim-sort-link')) {
+                const isCurrent = (link.dataset.sort || '') === this.#sort;
+                link.dataset.order = isCurrent && this.#order === 'asc' ? 'desc' : 'asc';
+                const indicator = link.querySelector('span[aria-hidden]');
+                if (indicator) indicator.textContent = isCurrent ? (this.#order === 'asc' ? '^' : 'v') : '';
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Boot
     // -----------------------------------------------------------------------
     document.addEventListener('DOMContentLoaded', () => {
-        if (config.table?.enabled)            new InviteeTable();
+        if (config.table?.enabled)                new InviteeTable();
         if (config.connectionGroupTable?.enabled) new ConnectionGroupTable();
-        if (config.event?.enabled)            new EventInviteePicker();
-        if (config.connectionGroup?.enabled)  new ConnectionGroupMemberPicker();
+        if (config.event?.enabled)                new EventInviteePicker();
+        if (config.connectionGroup?.enabled)      new ConnectionGroupMemberPicker();
+        new EventGroupManager();
+        if (config.event?.enabled)                new EventGroupsTable();
     });
 })();

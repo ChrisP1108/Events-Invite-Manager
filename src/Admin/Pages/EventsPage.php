@@ -9,6 +9,7 @@ if (!defined('ABSPATH')) exit;
 use EventsInviteManager\Admin\AbstractAdminPage;
 use EventsInviteManager\Admin\AdminMenu;
 use EventsInviteManager\Email\EmailService;
+use EventsInviteManager\Models\ConnectionGroup;
 use EventsInviteManager\Models\Event;
 use EventsInviteManager\Models\EventLodging;
 use EventsInviteManager\Models\InvitationGroup;
@@ -39,6 +40,9 @@ final class EventsPage extends AbstractAdminPage
             'remove_lodging_from_event' => $this->handleRemoveLodgingFromEvent(),
             'add_invitee_to_event'      => $this->handleAddInviteeToEvent(),
             'remove_invitee_from_event' => $this->handleRemoveInviteeFromEvent(),
+            'set_group_primary'         => $this->handleSetGroupPrimary(),
+            'add_member_to_group'       => $this->handleAddMemberToGroup(),
+            'remove_group_from_event'   => $this->handleRemoveGroupFromEvent(),
             'send_event_invite'         => $this->handleSendEventInvite(),
             'send_all_event_invites'    => $this->handleSendAllEventInvites(),
             default                     => null,
@@ -406,6 +410,105 @@ final class EventsPage extends AbstractAdminPage
         }
 
         InvitationGroup::removeMemberFromEvent($inviteeId, $eventId);
+
+        wp_redirect(add_query_arg([
+            'page'        => AdminMenu::PAGE_EVENTS,
+            'action'      => 'edit',
+            'id'          => $eventId,
+            'eim_message' => 'event_invitee_removed',
+        ], admin_url('admin.php')) . '#eim-event-invitees');
+        exit;
+    }
+
+    private function handleSetGroupPrimary(): void
+    {
+        $eventId   = (int) ($_GET['event_id']   ?? 0);
+        $groupId   = (int) ($_GET['group_id']   ?? 0);
+        $inviteeId = (int) ($_GET['invitee_id'] ?? 0);
+        $nonce     = (string) ($_GET['_wpnonce'] ?? '');
+
+        if (!wp_verify_nonce($nonce, 'eim_set_primary_' . $eventId . '_' . $groupId . '_' . $inviteeId)) {
+            wp_die('Security check failed.');
+        }
+
+        InvitationGroup::setPrimaryMember($groupId, $inviteeId);
+
+        wp_redirect(add_query_arg([
+            'page'        => AdminMenu::PAGE_EVENTS,
+            'action'      => 'edit',
+            'id'          => $eventId,
+            'eim_message' => 'primary_updated',
+        ], admin_url('admin.php')) . '#eim-event-invitees');
+        exit;
+    }
+
+    private function handleAddMemberToGroup(): void
+    {
+        $groupId = (int) ($_POST['group_id'] ?? 0);
+
+        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_add_member_to_group_' . $groupId)) {
+            wp_die('Security check failed.');
+        }
+
+        $eventId   = (int) ($_POST['event_id']   ?? 0);
+        $inviteeId = (int) ($_POST['invitee_id'] ?? 0);
+
+        $event   = $eventId > 0 ? Event::find($eventId) : null;
+        $invitee = $inviteeId > 0 ? Invitee::find($inviteeId) : null;
+        $group   = $groupId > 0 ? InvitationGroup::find($groupId) : null;
+
+        if (!$event || !$invitee || !$group || $group->eventId !== $eventId) {
+            wp_redirect(add_query_arg([
+                'page'      => AdminMenu::PAGE_EVENTS,
+                'action'    => 'edit',
+                'id'        => $eventId ?: null,
+                'eim_error' => 'invalid_request',
+            ], admin_url('admin.php')) . '#eim-event-invitees');
+            exit;
+        }
+
+        if (Invitee::findForEvent($inviteeId, $eventId) !== null) {
+            wp_redirect(add_query_arg([
+                'page'      => AdminMenu::PAGE_EVENTS,
+                'action'    => 'edit',
+                'id'        => $eventId,
+                'eim_error' => 'invitee_already_invited',
+            ], admin_url('admin.php')) . '#eim-event-invitees');
+            exit;
+        }
+
+        if ($event->maxInvitees !== null && ($event->inviteeCount() + 1) > $event->maxInvitees) {
+            wp_redirect(add_query_arg([
+                'page'      => AdminMenu::PAGE_EVENTS,
+                'action'    => 'edit',
+                'id'        => $eventId,
+                'eim_error' => 'invitee_limit_reached',
+            ], admin_url('admin.php')) . '#eim-event-invitees');
+            exit;
+        }
+
+        InvitationGroup::addMemberToGroup($groupId, $inviteeId, $eventId);
+
+        wp_redirect(add_query_arg([
+            'page'        => AdminMenu::PAGE_EVENTS,
+            'action'      => 'edit',
+            'id'          => $eventId,
+            'eim_message' => 'event_invitee_added',
+        ], admin_url('admin.php')) . '#eim-event-invitees');
+        exit;
+    }
+
+    private function handleRemoveGroupFromEvent(): void
+    {
+        $eventId = (int) ($_GET['event_id'] ?? 0);
+        $groupId = (int) ($_GET['group_id'] ?? 0);
+        $nonce   = (string) ($_GET['_wpnonce'] ?? '');
+
+        if (!wp_verify_nonce($nonce, 'eim_remove_group_' . $eventId . '_' . $groupId)) {
+            wp_die('Security check failed.');
+        }
+
+        InvitationGroup::deleteGroup($groupId, $eventId);
 
         wp_redirect(add_query_arg([
             'page'        => AdminMenu::PAGE_EVENTS,
@@ -1194,11 +1297,260 @@ final class EventsPage extends AbstractAdminPage
     /**
      * Renders the event-specific invitee section, grouped by invitation group.
      */
+    private function sanitizeEventGroupSortKey(string $key): string
+    {
+        $key = sanitize_key($key);
+        return in_array($key, ['name', 'email', 'members', 'invite_sent', 'attending'], true) ? $key : 'name';
+    }
+
+    private function sortEventGroups(array $groups, string $sort, string $order): array
+    {
+        $primaryInviteeMap = [];
+        if (in_array($sort, ['name', 'email'], true) && !empty($groups)) {
+            foreach (array_unique(array_map(fn($g) => $g->primaryInviteeId, $groups)) as $pid) {
+                $inv = Invitee::find($pid);
+                if ($inv) {
+                    $primaryInviteeMap[$pid] = $inv;
+                }
+            }
+        }
+
+        $mul = $order === 'desc' ? -1 : 1;
+        usort($groups, function (InvitationGroup $a, InvitationGroup $b) use ($sort, $mul, $primaryInviteeMap): int {
+            if ($sort === 'name') {
+                $aInv = $primaryInviteeMap[$a->primaryInviteeId] ?? null;
+                $bInv = $primaryInviteeMap[$b->primaryInviteeId] ?? null;
+                return $mul * strcasecmp(
+                    ($aInv ? $aInv->lastName . ' ' . $aInv->firstName : ''),
+                    ($bInv ? $bInv->lastName . ' ' . $bInv->firstName : '')
+                );
+            }
+            if ($sort === 'email') {
+                $aInv = $primaryInviteeMap[$a->primaryInviteeId] ?? null;
+                $bInv = $primaryInviteeMap[$b->primaryInviteeId] ?? null;
+                return $mul * strcasecmp($aInv?->email ?? '', $bInv?->email ?? '');
+            }
+            if ($sort === 'members') {
+                return $mul * ($a->memberCount() <=> $b->memberCount());
+            }
+            if ($sort === 'invite_sent') {
+                if ($a->inviteSentAt === null && $b->inviteSentAt === null) return 0;
+                if ($a->inviteSentAt === null) return 1;
+                if ($b->inviteSentAt === null) return -1;
+                return $mul * strcmp($a->inviteSentAt, $b->inviteSentAt);
+            }
+            if ($sort === 'attending') {
+                return $mul * ($a->attendingCount() <=> $b->attendingCount());
+            }
+            return 0;
+        });
+
+        return $groups;
+    }
+
+    public function handleAjaxSortGroups(): void
+    {
+        check_ajax_referer('eim_event_groups_sort_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions.', 403);
+        }
+
+        $eventId = (int) ($_GET['event_id'] ?? 0);
+        $sort    = $this->sanitizeEventGroupSortKey((string) ($_GET['sort']  ?? 'name'));
+        $order   = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
+
+        $event = $eventId > 0 ? Event::find($eventId) : null;
+        if (!$event) {
+            wp_send_json_error('Event not found.', 404);
+        }
+
+        $groups     = $this->sortEventGroups(InvitationGroup::forEvent($eventId), $sort, $order);
+        $dateFormat = get_option('date_format');
+
+        ob_start();
+        $this->renderEventGroupRows($event, $groups, $dateFormat);
+        $html = (string) ob_get_clean();
+
+        wp_send_json_success(['html' => $html]);
+    }
+
+    private function renderEventGroupRows(Event $event, array $groups, string $dateFormat): void
+    {
+        if (empty($groups)) {
+            echo '<tr><td colspan="5">No invitees have been added to this event yet.</td></tr>';
+            return;
+        }
+
+        foreach ($groups as $group) {
+            $members              = $group->getMembers();
+            $primaryInvitee       = Invitee::find($group->primaryInviteeId);
+            $attendingCount       = $group->attendingCount();
+            $memberCount          = $group->memberCount();
+            $pending              = count(array_filter($members, static fn(Invitee $m) => $m->rsvpStatus === InvitationGroup::RSVP_PENDING));
+            $declined             = count(array_filter($members, static fn(Invitee $m) => $m->rsvpStatus === InvitationGroup::RSVP_DECLINED));
+            $sendUrl              = wp_nonce_url(
+                admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=send_event_invite&event_id=' . $event->id . '&group_id=' . $group->id),
+                'eim_send_event_invite_' . $event->id . '_' . $group->id
+            );
+            $removeGroupUrl       = wp_nonce_url(
+                admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=remove_group_from_event&event_id=' . $event->id . '&group_id=' . $group->id),
+                'eim_remove_group_' . $event->id . '_' . $group->id
+            );
+            $allConnections       = ConnectionGroup::connectedInviteesForEvent($group->primaryInviteeId, $event->id);
+            $uninvitedConnections = array_values(array_filter($allConnections, static fn(array $c) => !$c['already_invited']));
+            ?>
+            <tr>
+                <td>
+                    <span class="eim-tag-list">
+                        <?php foreach ($members as $member): ?>
+                            <?php
+                            $removeUrl      = wp_nonce_url(
+                                admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=remove_invitee_from_event&event_id=' . $event->id . '&invitee_id=' . $member->id),
+                                'eim_remove_invitee_' . $event->id . '_' . $member->id
+                            );
+                            $editInvUrl     = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&action=edit&id=' . $member->id);
+                            $makePrimaryUrl = wp_nonce_url(
+                                admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=set_group_primary&event_id=' . $event->id . '&group_id=' . $group->id . '&invitee_id=' . $member->id),
+                                'eim_set_primary_' . $event->id . '_' . $group->id . '_' . $member->id
+                            );
+                            $isPrimary      = $member->id === $group->primaryInviteeId;
+                            ?>
+                            <span class="eim-group-member-tag<?= $isPrimary ? ' eim-group-member-primary' : ''; ?>">
+                                <span class="eim-member-dropdown">
+                                    <button type="button"
+                                            class="eim-member-dropdown-trigger"
+                                            aria-haspopup="true"
+                                            aria-expanded="false"><?= esc_html($member->fullName()); ?><?= $isPrimary ? ' <span class="eim-event-tag-role" title="Primary recipient">✉</span>' : ''; ?></button>
+                                    <div class="eim-member-dropdown-menu" role="menu" hidden>
+                                        <a href="<?= esc_url($editInvUrl); ?>" role="menuitem">Edit Invitee</a>
+                                        <?php if (!$isPrimary): ?>
+                                        <a href="<?= esc_url($makePrimaryUrl); ?>"
+                                           role="menuitem"
+                                           onclick="return confirm('Make <?= esc_js($member->fullName()); ?> the primary recipient for this group?');">Make Primary</a>
+                                        <?php endif; ?>
+                                    </div>
+                                </span>
+                                <a href="<?= esc_url($removeUrl); ?>"
+                                   class="eim-member-remove-link"
+                                   onclick="return confirm('Remove <?= esc_js($member->fullName()); ?> from this event? Their profile will remain.');"
+                                   title="Remove">×</a>
+                            </span>
+                        <?php endforeach; ?>
+                    </span>
+                </td>
+                <td>
+                    <?php if ($primaryInvitee): ?>
+                        <a href="mailto:<?= esc_attr($primaryInvitee->email); ?>"><?= esc_html($primaryInvitee->email); ?></a>
+                    <?php else: ?>
+                        <span style="color:#999;">—</span>
+                    <?php endif; ?>
+                </td>
+                <td>
+                    <?php if ($group->inviteSentAt): ?>
+                        <?= esc_html(date_i18n($dateFormat, strtotime($group->inviteSentAt))); ?>
+                    <?php else: ?>
+                        <span style="color:#999;">Not sent</span>
+                    <?php endif; ?>
+                </td>
+                <td>
+                    <?php if ($memberCount === 0): ?>
+                        <span style="color:#999;">—</span>
+                    <?php elseif ($attendingCount === $memberCount): ?>
+                        <span style="color:#00a32a;font-weight:600;">
+                            All attending<?= $memberCount > 1 ? ' (' . $memberCount . ')' : ''; ?>
+                        </span>
+                    <?php else: ?>
+                        <span style="color:#3c434a;">
+                            <?= esc_html($attendingCount); ?> attending
+                            <?php if ($declined > 0): ?>, <?= esc_html($declined); ?> declined<?php endif; ?>
+                            <?php if ($pending > 0): ?>, <?= esc_html($pending); ?> pending<?php endif; ?>
+                        </span>
+                    <?php endif; ?>
+                </td>
+                <td class="eim-group-actions">
+                    <a href="<?= esc_url($sendUrl); ?>">Send Invite</a>
+                    <span class="eim-action-sep">|</span>
+                    <button type="button"
+                            class="button-link eim-add-member-toggle"
+                            data-group-id="<?= esc_attr($group->id); ?>">Add Any Invitee</button>
+                    <?php if (!empty($uninvitedConnections)): ?>
+                    <span class="eim-action-sep">|</span>
+                    <button type="button"
+                            class="button-link eim-add-connection-toggle"
+                            data-group-id="<?= esc_attr($group->id); ?>">Add Connection Invitee</button>
+                    <?php endif; ?>
+                    <span class="eim-action-sep">|</span>
+                    <a href="<?= esc_url($removeGroupUrl); ?>"
+                       class="eim-remove-group-link"
+                       onclick="return confirm('Remove this entire group from the event? All group members will be removed.');">Remove Group</a>
+                </td>
+            </tr>
+            <tr class="eim-add-member-row" id="eim-add-member-row-<?= esc_attr($group->id); ?>" style="display:none;">
+                <td colspan="5" class="eim-add-member-cell">
+                    <form method="post"
+                          action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=add_member_to_group')); ?>"
+                          class="eim-add-member-form">
+                        <?php wp_nonce_field('eim_add_member_to_group_' . $group->id); ?>
+                        <input type="hidden" name="event_id" value="<?= esc_attr($event->id); ?>">
+                        <input type="hidden" name="group_id" value="<?= esc_attr($group->id); ?>">
+                        <input type="hidden"
+                               name="invitee_id"
+                               class="eim-add-member-invitee-id"
+                               id="eim-add-member-invitee-id-<?= esc_attr($group->id); ?>"
+                               value="">
+                        <div class="eim-invitee-picker-positioner">
+                            <input type="text"
+                                   class="regular-text eim-group-member-search"
+                                   id="eim-add-member-search-<?= esc_attr($group->id); ?>"
+                                   placeholder="Search for an invitee…"
+                                   data-event-id="<?= esc_attr($event->id); ?>"
+                                   data-group-id="<?= esc_attr($group->id); ?>"
+                                   autocomplete="off">
+                        </div>
+                        <button type="submit" class="button button-primary">Add to Group</button>
+                        <button type="button"
+                                class="button eim-add-member-cancel"
+                                data-group-id="<?= esc_attr($group->id); ?>">Cancel</button>
+                    </form>
+                </td>
+            </tr>
+            <?php if (!empty($uninvitedConnections)): ?>
+            <tr class="eim-add-connection-row" id="eim-add-connection-row-<?= esc_attr($group->id); ?>" style="display:none;">
+                <td colspan="5" class="eim-add-member-cell">
+                    <form method="post"
+                          action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=add_member_to_group')); ?>"
+                          class="eim-add-member-form">
+                        <?php wp_nonce_field('eim_add_member_to_group_' . $group->id); ?>
+                        <input type="hidden" name="event_id" value="<?= esc_attr($event->id); ?>">
+                        <input type="hidden" name="group_id" value="<?= esc_attr($group->id); ?>">
+                        <select name="invitee_id" class="eim-connection-select">
+                            <option value="">Select a connection…</option>
+                            <?php foreach ($uninvitedConnections as $conn): ?>
+                            <option value="<?= esc_attr($conn['id']); ?>">
+                                <?= esc_html($conn['name']); ?><?= $conn['group_name'] ? ' (' . esc_html($conn['group_name']) . ')' : ''; ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <button type="submit" class="button button-primary">Add to Group</button>
+                        <button type="button"
+                                class="button eim-add-connection-cancel"
+                                data-group-id="<?= esc_attr($group->id); ?>">Cancel</button>
+                    </form>
+                </td>
+            </tr>
+            <?php endif; ?>
+            <?php
+        }
+    }
+
     private function renderEventInviteesSection(Event $event): void
     {
-        $groups       = InvitationGroup::forEvent($event->id);
-        $memberCount  = $event->inviteeCount();
-        $dateFormat   = get_option('date_format');
+        $sort        = $this->sanitizeEventGroupSortKey((string) ($_GET['sort']  ?? 'name'));
+        $order       = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
+        $groups      = $this->sortEventGroups(InvitationGroup::forEvent($event->id), $sort, $order);
+        $memberCount = $event->inviteeCount();
+        $dateFormat  = get_option('date_format');
         $sendAllUrl   = wp_nonce_url(
             admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=send_all_event_invites&event_id=' . $event->id),
             'eim_send_all_event_invites_' . $event->id
@@ -1263,94 +1615,23 @@ final class EventsPage extends AbstractAdminPage
             </p>
         <?php endif; ?>
 
-        <table class="wp-list-table widefat fixed striped" style="margin-top:12px;">
+        <?php $sortArgs = ['action' => 'edit', 'id' => $event->id]; ?>
+        <table id="eim-event-groups-table"
+               class="wp-list-table widefat fixed striped"
+               style="margin-top:12px;"
+               data-sort="<?= esc_attr($sort); ?>"
+               data-order="<?= esc_attr($order); ?>">
             <thead>
                 <tr>
-                    <th style="width:28%;">Group Members</th>
-                    <th style="width:20%;">Email (Primary)</th>
-                    <th style="width:13%;">Invite Sent</th>
-                    <th style="width:12%;">Registered</th>
+                    <th style="width:28%;"><?= $this->sortLink('Group Members',   'name',        AdminMenu::PAGE_EVENTS, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:20%;"><?= $this->sortLink('Email (Primary)', 'email',       AdminMenu::PAGE_EVENTS, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:13%;"><?= $this->sortLink('Invite Sent',     'invite_sent', AdminMenu::PAGE_EVENTS, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:12%;"><?= $this->sortLink('Registered',      'attending',   AdminMenu::PAGE_EVENTS, $sort, $order, '', $sortArgs); ?></th>
                     <th style="width:27%;">Actions</th>
                 </tr>
             </thead>
-            <tbody>
-                <?php if (empty($groups)): ?>
-                    <tr>
-                        <td colspan="5">No invitees have been added to this event yet.</td>
-                    </tr>
-                <?php else: ?>
-                    <?php foreach ($groups as $group): ?>
-                        <?php
-                        $members        = $group->getMembers();
-                        $primaryInvitee = Invitee::find($group->primaryInviteeId);
-                        $attendingCount = $group->attendingCount();
-                        $memberCount    = $group->memberCount();
-                        $sendUrl        = wp_nonce_url(
-                            admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=send_event_invite&event_id=' . $event->id . '&group_id=' . $group->id),
-                            'eim_send_event_invite_' . $event->id . '_' . $group->id
-                        );
-                        ?>
-                        <tr>
-                            <td>
-                                <span class="eim-tag-list">
-                                    <?php foreach ($members as $member): ?>
-                                        <?php
-                                        $removeUrl = wp_nonce_url(
-                                            admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=remove_invitee_from_event&event_id=' . $event->id . '&invitee_id=' . $member->id),
-                                            'eim_remove_invitee_' . $event->id . '_' . $member->id
-                                        );
-                                        $editInvUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&action=edit&id=' . $member->id);
-                                        $isPrimary  = $member->id === $group->primaryInviteeId;
-                                        ?>
-                                        <span class="eim-group-member-tag<?= $isPrimary ? ' eim-group-member-primary' : ''; ?>">
-                                            <a href="<?= esc_url($editInvUrl); ?>" style="text-decoration:none;color:inherit;"><?= esc_html($member->fullName()); ?></a><?= $isPrimary ? ' <span class="eim-event-tag-role" title="Primary recipient">✉</span>' : ''; ?>
-                                            <a href="<?= esc_url($removeUrl); ?>"
-                                               class="eim-member-remove-link"
-                                               onclick="return confirm('Remove <?= esc_js($member->fullName()); ?> from this event? Their profile will remain.');"
-                                               title="Remove">×</a>
-                                        </span>
-                                    <?php endforeach; ?>
-                                </span>
-                            </td>
-                            <td>
-                                <?php if ($primaryInvitee): ?>
-                                    <a href="mailto:<?= esc_attr($primaryInvitee->email); ?>"><?= esc_html($primaryInvitee->email); ?></a>
-                                <?php else: ?>
-                                    <span style="color:#999;">—</span>
-                                <?php endif; ?>
-                            </td>
-                            <td>
-                                <?php if ($group->inviteSentAt): ?>
-                                    <?= esc_html(date_i18n($dateFormat, strtotime($group->inviteSentAt))); ?>
-                                <?php else: ?>
-                                    <span style="color:#999;">Not sent</span>
-                                <?php endif; ?>
-                            </td>
-                            <td>
-                                <?php
-                                $pending  = count(array_filter($members, static fn(Invitee $m) => $m->rsvpStatus === InvitationGroup::RSVP_PENDING));
-                                $declined = count(array_filter($members, static fn(Invitee $m) => $m->rsvpStatus === InvitationGroup::RSVP_DECLINED));
-                                if ($memberCount === 0):
-                                ?>
-                                    <span style="color:#999;">—</span>
-                                <?php elseif ($attendingCount === $memberCount): ?>
-                                    <span style="color:#00a32a;font-weight:600;">
-                                        All attending<?= $memberCount > 1 ? ' (' . $memberCount . ')' : ''; ?>
-                                    </span>
-                                <?php else: ?>
-                                    <span style="color:#3c434a;">
-                                        <?= esc_html($attendingCount); ?> attending
-                                        <?php if ($declined > 0): ?>, <?= esc_html($declined); ?> declined<?php endif; ?>
-                                        <?php if ($pending > 0): ?>, <?= esc_html($pending); ?> pending<?php endif; ?>
-                                    </span>
-                                <?php endif; ?>
-                            </td>
-                            <td>
-                                <a href="<?= esc_url($sendUrl); ?>">Send Invite</a>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                <?php endif; ?>
+            <tbody id="eim-event-groups-table-body">
+                <?php $this->renderEventGroupRows($event, $groups, $dateFormat); ?>
             </tbody>
         </table>
         <?php

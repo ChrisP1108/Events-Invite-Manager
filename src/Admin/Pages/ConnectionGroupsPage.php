@@ -57,7 +57,9 @@ final class ConnectionGroupsPage extends AbstractAdminPage
         }
 
         $query  = sanitize_text_field(wp_unslash($_GET['query'] ?? ''));
-        $groups = ConnectionGroup::listForAdmin($query);
+        $sort   = $this->sanitizeGroupSortKey((string) ($_GET['sort']  ?? 'name'));
+        $order  = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
+        $groups = ConnectionGroup::listForAdmin($query, $sort, $order);
 
         ob_start();
         $this->renderGroupRows($groups, $query);
@@ -67,6 +69,12 @@ final class ConnectionGroupsPage extends AbstractAdminPage
             'html'  => $html,
             'count' => count($groups),
         ]);
+    }
+
+    private function sanitizeGroupSortKey(string $key): string
+    {
+        $key = sanitize_key($key);
+        return in_array($key, ['name', 'type', 'members'], true) ? $key : 'name';
     }
 
     /**
@@ -213,7 +221,9 @@ final class ConnectionGroupsPage extends AbstractAdminPage
         $message = (string) ($_GET['eim_message'] ?? '');
         $error   = (string) ($_GET['eim_error']   ?? '');
         $search  = sanitize_text_field(wp_unslash($_GET['s'] ?? ''));
-        $groups  = ConnectionGroup::listForAdmin($search);
+        $sort    = $this->sanitizeGroupSortKey((string) ($_GET['sort']  ?? 'name'));
+        $order   = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
+        $groups  = ConnectionGroup::listForAdmin($search, $sort, $order);
         $addUrl  = admin_url('admin.php?page=' . AdminMenu::PAGE_CONNECTION_GROUPS . '&action=add');
         ?>
         <div class="wrap">
@@ -231,12 +241,16 @@ final class ConnectionGroupsPage extends AbstractAdminPage
 
             <?php $this->renderSearchBar('eim-connection-group-search', 'eim-connection-group-count', 'eim-connection-group-loading', 'Search groups or members...', count($groups), $search); ?>
 
-            <table id="eim-connection-groups-table" class="wp-list-table widefat fixed striped" style="margin-top:12px;">
+            <table id="eim-connection-groups-table"
+                   class="wp-list-table widefat fixed striped"
+                   style="margin-top:12px;"
+                   data-sort="<?= esc_attr($sort); ?>"
+                   data-order="<?= esc_attr($order); ?>">
                 <thead>
                     <tr>
-                        <th style="width:28%;">Name</th>
-                        <th style="width:10%;">Type</th>
-                        <th>Members</th>
+                        <th style="width:28%;"><?= $this->sortLink('Name',    'name',    AdminMenu::PAGE_CONNECTION_GROUPS, $sort, $order, $search); ?></th>
+                        <th style="width:10%;"><?= $this->sortLink('Type',    'type',    AdminMenu::PAGE_CONNECTION_GROUPS, $sort, $order, $search); ?></th>
+                        <th><?= $this->sortLink('Members', 'members', AdminMenu::PAGE_CONNECTION_GROUPS, $sort, $order, $search); ?></th>
                         <th style="width:14%;">Actions</th>
                     </tr>
                 </thead>

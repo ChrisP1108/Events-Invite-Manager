@@ -59,6 +59,7 @@ final class AdminMenu
 
         // Connection group member picker (on ConnectionGroupsPage).
         add_action('wp_ajax_eim_search_connection_groups', [$this->connectionGroupsPage, 'handleAjaxSearchGroups']);
+        add_action('wp_ajax_eim_sort_event_groups',       [$this->eventsPage,            'handleAjaxSortGroups']);
         add_action('wp_ajax_eim_suggest_cg_members', [$this->connectionGroupsPage, 'handleAjaxSuggestMembers']);
 
         add_filter('script_loader_tag', [$this, 'addModuleTypeToScript'], 10, 2);
@@ -123,8 +124,9 @@ final class AdminMenu
                     'order'   => strtolower((string) ($_GET['order'] ?? 'asc')) === 'desc' ? 'desc' : 'asc',
                 ],
                 'event'        => [
-                    'enabled' => $page === self::PAGE_EVENTS && $action === 'edit',
-                    'id'      => (int) ($_GET['id'] ?? 0),
+                    'enabled'              => $page === self::PAGE_EVENTS && $action === 'edit',
+                    'id'                   => (int) ($_GET['id'] ?? 0),
+                    'groupsSortNonce'      => wp_create_nonce('eim_event_groups_sort_nonce'),
                 ],
                 'connectionGroup' => [
                     'enabled' => $page === self::PAGE_CONNECTION_GROUPS && in_array($action, ['add', 'edit'], true),
@@ -132,6 +134,8 @@ final class AdminMenu
                 ],
                 'connectionGroupTable' => [
                     'enabled' => $page === self::PAGE_CONNECTION_GROUPS && !in_array($action, ['add', 'edit'], true),
+                    'sort'    => sanitize_key($_GET['sort']  ?? 'name'),
+                    'order'   => strtolower((string) ($_GET['order'] ?? 'asc')) === 'desc' ? 'desc' : 'asc',
                 ],
             ]);
         }

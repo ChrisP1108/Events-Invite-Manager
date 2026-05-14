@@ -73,11 +73,14 @@ abstract class AbstractAdminPage
         string $pageSlug,
         string $currentSort,
         string $currentOrder,
-        string $search = ''
+        string $search    = '',
+        array  $extraArgs = []
     ): string {
         $isCurrent = $currentSort === $key;
         $nextOrder = $isCurrent && $currentOrder === 'asc' ? 'desc' : 'asc';
-        $args      = ['page' => $pageSlug, 'sort' => $key, 'order' => $nextOrder];
+
+        // Extra args (e.g. action=edit&id=X) supply the base; sort params always win.
+        $args = array_merge($extraArgs, ['page' => $pageSlug, 'sort' => $key, 'order' => $nextOrder]);
 
         if ($search !== '') {
             $args['s'] = $search;

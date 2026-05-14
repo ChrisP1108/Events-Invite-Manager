@@ -53,12 +53,12 @@ final class ConnectionGroup
      * @param string $search
      * @return self[]
      */
-    public static function listForAdmin(string $search = ''): array
+    public static function listForAdmin(string $search = '', string $sort = 'name', string $order = 'asc'): array
     {
         global $wpdb;
 
-        $groupsTable  = DatabaseManager::inviteeConnectionGroupsTable();
-        $membersTable = DatabaseManager::inviteeConnectionGroupMembersTable();
+        $groupsTable   = DatabaseManager::inviteeConnectionGroupsTable();
+        $membersTable  = DatabaseManager::inviteeConnectionGroupMembersTable();
         $inviteesTable = DatabaseManager::inviteesTable();
 
         $where  = '';
@@ -76,7 +76,14 @@ final class ConnectionGroup
             $params = [$like, $like, $like, $like];
         }
 
-        $sql  = "SELECT cg.* FROM {$groupsTable} cg {$where} ORDER BY cg.name ASC, cg.id ASC";
+        $dir         = $order === 'desc' ? 'DESC' : 'ASC';
+        $orderClause = match ($sort) {
+            'type'    => "ORDER BY cg.type {$dir}, cg.name ASC",
+            'members' => 'ORDER BY cg.name ASC', // re-sorted in PHP after member counts are known
+            default   => "ORDER BY cg.name {$dir}, cg.id ASC",
+        };
+
+        $sql  = "SELECT cg.* FROM {$groupsTable} cg {$where} {$orderClause}";
         $rows = !empty($params)
             ? $wpdb->get_results($wpdb->prepare($sql, ...$params))
             : $wpdb->get_results($sql);
@@ -91,6 +98,11 @@ final class ConnectionGroup
         $membersByGroup = self::loadMembersForGroups($groupIds);
         foreach ($groups as $group) {
             $group->members = $membersByGroup[$group->id] ?? [];
+        }
+
+        if ($sort === 'members') {
+            $mul = $order === 'desc' ? -1 : 1;
+            usort($groups, static fn(self $a, self $b) => $mul * (count($a->members) <=> count($b->members)));
         }
 
         return $groups;
