@@ -8,6 +8,7 @@ if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Database\DatabaseManager;
 use EventsInviteManager\Models\EventLodging;
+use EventsInviteManager\Models\EventRsvpOption;
 use EventsInviteManager\Models\InvitationGroup;
 use EventsInviteManager\Models\QrCode;
 
@@ -33,8 +34,10 @@ final class Event
      * @param ?string $startDatetime       MySQL DATETIME string (Y-m-d H:i:s) for the event start, or null.
      * @param ?string $endDatetime         MySQL DATETIME string (Y-m-d H:i:s) for the event end, or null.
      * @param string  $timezone            IANA timezone identifier (e.g. "America/New_York"), or empty string.
-     * @param bool    $lodgingEnabled      Whether lodging options are offered for this event.
-     * @param ?int    $maxInvitees         Maximum number of invitees allowed, or null for unlimited.
+     * @param bool    $lodgingEnabled          Whether lodging options are offered for this event.
+     * @param bool    $foodOptionsEnabled      Whether food menu options are enabled for this event.
+     * @param bool    $beverageOptionsEnabled  Whether beverage menu options are enabled for this event.
+     * @param ?int    $maxInvitees             Maximum number of invitees allowed, or null for unlimited.
      * @param string  $createdAt           MySQL datetime string.
      * @param string  $updatedAt           MySQL datetime string.
      */
@@ -52,6 +55,8 @@ final class Event
         public readonly ?string $endDatetime,
         public readonly string  $timezone,
         public readonly bool    $lodgingEnabled,
+        public readonly bool    $foodOptionsEnabled,
+        public readonly bool    $beverageOptionsEnabled,
         public readonly ?int    $maxInvitees,
         public readonly string  $createdAt,
         public readonly string  $updatedAt,
@@ -110,8 +115,10 @@ final class Event
             'start_datetime'        => !empty($data['start_datetime']) ? $data['start_datetime'] : null,
             'end_datetime'          => !empty($data['end_datetime'])   ? $data['end_datetime']   : null,
             'timezone'              => $data['timezone'] ?? '',
-            'lodging_enabled'       => isset($data['lodging_enabled']) ? (int) $data['lodging_enabled'] : 0,
-            'max_invitees'          => isset($data['max_invitees']) && $data['max_invitees'] > 0 ? (int) $data['max_invitees'] : null,
+            'lodging_enabled'          => isset($data['lodging_enabled']) ? (int) $data['lodging_enabled'] : 0,
+            'food_options_enabled'     => isset($data['food_options_enabled']) ? (int) $data['food_options_enabled'] : 0,
+            'beverage_options_enabled' => isset($data['beverage_options_enabled']) ? (int) $data['beverage_options_enabled'] : 0,
+            'max_invitees'             => isset($data['max_invitees']) && $data['max_invitees'] > 0 ? (int) $data['max_invitees'] : null,
         ]);
 
         return $result ? (int) $wpdb->insert_id : false;
@@ -142,8 +149,10 @@ final class Event
                 'start_datetime'        => !empty($data['start_datetime']) ? $data['start_datetime'] : null,
                 'end_datetime'          => !empty($data['end_datetime'])   ? $data['end_datetime']   : null,
                 'timezone'              => $data['timezone'] ?? '',
-                'lodging_enabled'       => isset($data['lodging_enabled']) ? (int) $data['lodging_enabled'] : 0,
-                'max_invitees'          => isset($data['max_invitees']) && $data['max_invitees'] > 0 ? (int) $data['max_invitees'] : null,
+                'lodging_enabled'          => isset($data['lodging_enabled']) ? (int) $data['lodging_enabled'] : 0,
+                'food_options_enabled'     => isset($data['food_options_enabled']) ? (int) $data['food_options_enabled'] : 0,
+                'beverage_options_enabled' => isset($data['beverage_options_enabled']) ? (int) $data['beverage_options_enabled'] : 0,
+                'max_invitees'             => isset($data['max_invitees']) && $data['max_invitees'] > 0 ? (int) $data['max_invitees'] : null,
             ],
             ['id' => $id]
         );
@@ -165,6 +174,7 @@ final class Event
         InvitationGroup::deleteForEvent($id);
         $wpdb->delete(DatabaseManager::eventInviteesTable(), ['event_id' => $id]);
         EventLodging::deleteForEvent($id);
+        EventRsvpOption::deleteForEvent($id);
         $result = $wpdb->delete(DatabaseManager::eventsTable(), ['id' => $id]);
 
         return $result !== false;
@@ -200,7 +210,7 @@ final class Event
             $wpdb->prepare(
                 "SELECT COUNT(*) FROM {$membersTable} egm
                  INNER JOIN {$groupsTable} eig ON eig.id = egm.group_id
-                 WHERE eig.event_id = %d AND egm.is_registered = 1",
+                 WHERE eig.event_id = %d AND egm.rsvp_status = 'attending'",
                 $this->id
             )
         );
@@ -405,8 +415,10 @@ final class Event
             startDatetime:             $row->start_datetime        ?? null,
             endDatetime:               $row->end_datetime          ?? null,
             timezone:                  $row->timezone              ?? '',
-            lodgingEnabled:     (bool) ($row->lodging_enabled      ?? false),
-            maxInvitees:         isset($row->max_invitees) && $row->max_invitees !== null ? (int) $row->max_invitees : null,
+            lodgingEnabled:          (bool) ($row->lodging_enabled           ?? false),
+            foodOptionsEnabled:      (bool) ($row->food_options_enabled      ?? false),
+            beverageOptionsEnabled:  (bool) ($row->beverage_options_enabled  ?? false),
+            maxInvitees:              isset($row->max_invitees) && $row->max_invitees !== null ? (int) $row->max_invitees : null,
             createdAt:                 $row->created_at            ?? '',
             updatedAt:                 $row->updated_at            ?? '',
         );

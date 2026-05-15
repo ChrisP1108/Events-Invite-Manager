@@ -8,6 +8,7 @@ if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Models\Event;
 use EventsInviteManager\Models\EventLodging;
+use EventsInviteManager\Models\EventRsvpOption;
 use EventsInviteManager\Models\InvitationGroup;
 use EventsInviteManager\Models\Invitee;
 use EventsInviteManager\Models\Location;
@@ -62,8 +63,11 @@ class RestController
                         'items'    => [
                             'type'       => 'object',
                             'properties' => [
-                                'invitee_id'  => ['type' => 'integer'],
-                                'rsvp_status' => ['type' => 'string', 'enum' => ['attending', 'declined', 'pending']],
+                                'invitee_id'         => ['type' => 'integer'],
+                                'rsvp_status'        => ['type' => 'string', 'enum' => ['attending', 'declined', 'pending']],
+                                'food_option_id'     => ['type' => 'integer'],
+                                'beverage_option_id' => ['type' => 'integer'],
+                                'dietary_notes'      => ['type' => 'string'],
                             ],
                         ],
                     ],
@@ -116,6 +120,13 @@ class RestController
         $allAttending = !empty($members)
             && count(array_filter($members, static fn(Invitee $m) => $m->rsvpStatus === InvitationGroup::RSVP_ATTENDING)) === count($members);
 
+        $mapOption = static fn(EventRsvpOption $o): array => [
+            'id'          => $o->id,
+            'label'       => $o->label,
+            'description' => $o->description,
+            'sort_order'  => $o->sortOrder,
+        ];
+
         return new WP_REST_Response([
             'success' => true,
             'event'   => [
@@ -127,21 +138,30 @@ class RestController
                     'address' => $venue->formattedAddress(),
                 ] : null,
             ],
+            'rsvp_options' => [
+                'food'     => $event->foodOptionsEnabled
+                    ? array_map($mapOption, EventRsvpOption::forEventByType($event->id, EventRsvpOption::TYPE_FOOD))
+                    : [],
+                'beverage' => $event->beverageOptionsEnabled
+                    ? array_map($mapOption, EventRsvpOption::forEventByType($event->id, EventRsvpOption::TYPE_BEVERAGE))
+                    : [],
+            ],
             'invitee' => [
                 'first_name'    => $primaryInvitee->firstName,
                 'last_name'     => $primaryInvitee->lastName,
                 'email'         => $primaryInvitee->email,
-                'is_registered' => $allAttending,
                 'registered_at' => $allAttending ? ($members[0]->registeredAt ?? null) : null,
             ],
             'group_members' => array_map(static fn(Invitee $m): array => [
-                'invitee_id'    => $m->id,
-                'first_name'    => $m->firstName,
-                'last_name'     => $m->lastName,
-                'email'         => $m->email,
-                'rsvp_status'   => $m->rsvpStatus ?: InvitationGroup::RSVP_PENDING,
-                'is_registered' => $m->rsvpStatus === InvitationGroup::RSVP_ATTENDING,
-                'registered_at' => $m->registeredAt,
+                'invitee_id'         => $m->id,
+                'first_name'         => $m->firstName,
+                'last_name'          => $m->lastName,
+                'email'              => $m->email,
+                'rsvp_status'        => $m->rsvpStatus ?: InvitationGroup::RSVP_PENDING,
+                'registered_at'      => $m->registeredAt,
+                'food_option_id'     => $m->foodOptionId,
+                'beverage_option_id' => $m->beverageOptionId,
+                'dietary_notes'      => $m->dietaryNotes,
             ], $members),
             'lodging' => array_map(static fn(EventLodging $l): array => [
                 'name'        => $l->name,
@@ -204,8 +224,19 @@ class RestController
                 $inviteeId  = (int) ($entry['invitee_id']  ?? 0);
                 $rsvpStatus = (string) ($entry['rsvp_status'] ?? InvitationGroup::RSVP_ATTENDING);
 
+                $extras = [];
+                if (array_key_exists('food_option_id', $entry)) {
+                    $extras['food_option_id'] = (int) $entry['food_option_id'] > 0 ? (int) $entry['food_option_id'] : null;
+                }
+                if (array_key_exists('beverage_option_id', $entry)) {
+                    $extras['beverage_option_id'] = (int) $entry['beverage_option_id'] > 0 ? (int) $entry['beverage_option_id'] : null;
+                }
+                if (array_key_exists('dietary_notes', $entry)) {
+                    $extras['dietary_notes'] = sanitize_textarea_field((string) $entry['dietary_notes']);
+                }
+
                 if ($inviteeId > 0) {
-                    InvitationGroup::updateMemberRsvp($group->id, $inviteeId, $rsvpStatus);
+                    InvitationGroup::updateMemberRsvp($group->id, $inviteeId, $rsvpStatus, $extras);
                 }
             }
         } else {

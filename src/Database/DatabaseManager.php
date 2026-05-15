@@ -8,7 +8,7 @@ if (!defined('ABSPATH')) exit;
 
 final class DatabaseManager
 {
-    private const SCHEMA_VERSION = '10';
+    private const SCHEMA_VERSION = '11';
 
     private const EVENTS_TABLE                          = 'eim_events';
     private const INVITEES_TABLE                        = 'eim_invitees';
@@ -20,6 +20,7 @@ final class DatabaseManager
     private const INVITEE_CONNECTION_GROUP_MEMBERS_TABLE = 'eim_invitee_connection_group_members';
     private const INVITATION_GROUPS_TABLE               = 'eim_event_invitation_groups';
     private const INVITATION_GROUP_MEMBERS_TABLE        = 'eim_event_invitation_group_members';
+    private const EVENT_RSVP_OPTIONS_TABLE              = 'eim_event_rsvp_options';
 
     public static function createTables(): void
     {
@@ -38,6 +39,7 @@ final class DatabaseManager
         $cgMembersTable     = $wpdb->prefix . self::INVITEE_CONNECTION_GROUP_MEMBERS_TABLE;
         $invGroupsTable     = $wpdb->prefix . self::INVITATION_GROUPS_TABLE;
         $invMembersTable    = $wpdb->prefix . self::INVITATION_GROUP_MEMBERS_TABLE;
+        $rsvpOptionsTable   = $wpdb->prefix . self::EVENT_RSVP_OPTIONS_TABLE;
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
@@ -54,9 +56,11 @@ final class DatabaseManager
                 start_datetime         DATETIME,
                 end_datetime           DATETIME,
                 timezone               VARCHAR(64)         NOT NULL DEFAULT '',
-                lodging_enabled        TINYINT(1)          NOT NULL DEFAULT 0,
-                max_invitees           SMALLINT UNSIGNED   NULL DEFAULT NULL,
-                created_at             DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                lodging_enabled           TINYINT(1)          NOT NULL DEFAULT 0,
+                food_options_enabled      TINYINT(1)          NOT NULL DEFAULT 0,
+                beverage_options_enabled  TINYINT(1)          NOT NULL DEFAULT 0,
+                max_invitees              SMALLINT UNSIGNED   NULL DEFAULT NULL,
+                created_at                DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at             DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (id)
             ) ENGINE=InnoDB {$charset};
@@ -159,20 +163,38 @@ final class DatabaseManager
                 id            BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
                 group_id      BIGINT(20) UNSIGNED NOT NULL,
                 invitee_id    BIGINT(20) UNSIGNED NOT NULL,
-                rsvp_status   VARCHAR(10)         NOT NULL DEFAULT 'pending',
-                registered_at DATETIME,
-                created_at    DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at    DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                rsvp_status        VARCHAR(10)         NOT NULL DEFAULT 'pending',
+                registered_at      DATETIME,
+                food_option_id     BIGINT(20) UNSIGNED NULL DEFAULT NULL,
+                beverage_option_id BIGINT(20) UNSIGNED NULL DEFAULT NULL,
+                dietary_notes      VARCHAR(500)        NOT NULL DEFAULT '',
+                created_at         DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at         DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (id),
                 UNIQUE KEY group_member (group_id, invitee_id),
                 KEY group_id (group_id),
                 KEY invitee_id (invitee_id),
                 KEY rsvp_status (rsvp_status)
+            ) ENGINE=InnoDB {$charset};
+            CREATE TABLE {$rsvpOptionsTable} (
+                id          BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                event_id    BIGINT(20) UNSIGNED NOT NULL,
+                type        VARCHAR(10)         NOT NULL DEFAULT 'food',
+                label       VARCHAR(255)        NOT NULL DEFAULT '',
+                description TEXT,
+                sort_order  INT                 NOT NULL DEFAULT 0,
+                is_active   TINYINT(1)          NOT NULL DEFAULT 1,
+                created_at  DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at  DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY event_id (event_id),
+                KEY event_type (event_id, type)
             ) ENGINE=InnoDB {$charset};";
 
         dbDelta($sql);
 
         self::migrateToV10($storedVersion);
+        self::migrateToV11($storedVersion);
         update_option('eim_db_version', self::SCHEMA_VERSION, false);
     }
 
@@ -186,9 +208,7 @@ final class DatabaseManager
     }
 
     /**
-     * Migrates v9 → v10:
-     *  1. Adds rsvp_status to eim_event_invitation_group_members from is_registered, then drops it.
-     *  2. Migrates pairwise eim_invitee_connections rows into named connection groups.
+     * Migrates v9 → v10: migrates pairwise eim_invitee_connections rows into named connection groups.
      */
     private static function migrateToV10(string $storedVersion): void
     {
@@ -198,41 +218,12 @@ final class DatabaseManager
 
         global $wpdb;
 
-        $invMembersTable = self::invitationGroupMembersTable();
-        $inviteesTable   = self::inviteesTable();
-        $cgroupsTable    = self::inviteeConnectionGroupsTable();
-        $cgMembersTable  = self::inviteeConnectionGroupMembersTable();
-        $oldPairsTable   = $wpdb->prefix . 'eim_invitee_connections';
+        $inviteesTable  = self::inviteesTable();
+        $cgroupsTable   = self::inviteeConnectionGroupsTable();
+        $cgMembersTable = self::inviteeConnectionGroupMembersTable();
+        $oldPairsTable  = $wpdb->prefix . 'eim_invitee_connections';
 
-        // 1. Migrate is_registered → rsvp_status on event invitation group members.
-        $hasIsRegistered = $wpdb->get_var(
-            $wpdb->prepare("SHOW COLUMNS FROM `{$invMembersTable}` LIKE %s", 'is_registered')
-        );
-
-        if ($hasIsRegistered) {
-            // Add rsvp_status if not present yet (dbDelta may have already done this).
-            $hasRsvp = $wpdb->get_var(
-                $wpdb->prepare("SHOW COLUMNS FROM `{$invMembersTable}` LIKE %s", 'rsvp_status')
-            );
-            if (!$hasRsvp) {
-                $wpdb->query(
-                    "ALTER TABLE `{$invMembersTable}`
-                     ADD COLUMN rsvp_status VARCHAR(10) NOT NULL DEFAULT 'pending' AFTER invitee_id"
-                );
-            }
-
-            // Copy data: is_registered=1 → attending, 0 → pending.
-            $wpdb->query(
-                "UPDATE `{$invMembersTable}`
-                 SET rsvp_status = CASE WHEN is_registered = 1 THEN 'attending' ELSE 'pending' END
-                 WHERE rsvp_status = 'pending'"
-            );
-
-            // Drop the old column.
-            $wpdb->query("ALTER TABLE `{$invMembersTable}` DROP COLUMN `is_registered`");
-        }
-
-        // 2. Migrate pairwise eim_invitee_connections → named connection groups.
+        // Migrate pairwise eim_invitee_connections → named connection groups.
         $pairsTableExists = $wpdb->get_var(
             $wpdb->prepare('SHOW TABLES LIKE %s', $oldPairsTable)
         );
@@ -283,6 +274,38 @@ final class DatabaseManager
             }
 
             $wpdb->query("DROP TABLE IF EXISTS `{$oldPairsTable}`");
+        }
+    }
+
+    /**
+     * Migrates v10 → v11: adds food/beverage columns to events and group members tables.
+     */
+    private static function migrateToV11(string $storedVersion): void
+    {
+        if (version_compare($storedVersion, '11', '>=')) {
+            return;
+        }
+
+        global $wpdb;
+
+        $eventsTable     = self::eventsTable();
+        $invMembersTable = self::invitationGroupMembersTable();
+
+        foreach (['food_options_enabled', 'beverage_options_enabled'] as $col) {
+            if (!$wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM `{$eventsTable}` LIKE %s", $col))) {
+                $wpdb->query("ALTER TABLE `{$eventsTable}` ADD COLUMN `{$col}` TINYINT(1) NOT NULL DEFAULT 0");
+            }
+        }
+
+        $memberCols = [
+            'food_option_id'     => 'BIGINT(20) UNSIGNED NULL DEFAULT NULL',
+            'beverage_option_id' => 'BIGINT(20) UNSIGNED NULL DEFAULT NULL',
+            'dietary_notes'      => "VARCHAR(500) NOT NULL DEFAULT ''",
+        ];
+        foreach ($memberCols as $col => $def) {
+            if (!$wpdb->get_var($wpdb->prepare("SHOW COLUMNS FROM `{$invMembersTable}` LIKE %s", $col))) {
+                $wpdb->query("ALTER TABLE `{$invMembersTable}` ADD COLUMN `{$col}` {$def}");
+            }
         }
     }
 
@@ -354,5 +377,12 @@ final class DatabaseManager
     {
         global $wpdb;
         return $wpdb->prefix . self::INVITATION_GROUP_MEMBERS_TABLE;
+    }
+
+    /** @return string Fully-qualified event RSVP options table name. */
+    public static function eventRsvpOptionsTable(): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . self::EVENT_RSVP_OPTIONS_TABLE;
     }
 }

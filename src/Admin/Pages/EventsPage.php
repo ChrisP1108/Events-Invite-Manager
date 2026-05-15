@@ -12,6 +12,7 @@ use EventsInviteManager\Email\EmailService;
 use EventsInviteManager\Models\ConnectionGroup;
 use EventsInviteManager\Models\Event;
 use EventsInviteManager\Models\EventLodging;
+use EventsInviteManager\Models\EventRsvpOption;
 use EventsInviteManager\Models\InvitationGroup;
 use EventsInviteManager\Models\Invitee;
 use EventsInviteManager\Models\Location;
@@ -45,6 +46,8 @@ final class EventsPage extends AbstractAdminPage
             'remove_group_from_event'   => $this->handleRemoveGroupFromEvent(),
             'send_event_invite'         => $this->handleSendEventInvite(),
             'send_all_event_invites'    => $this->handleSendAllEventInvites(),
+            'save_rsvp_option'          => $this->handleSaveRsvpOption(),
+            'delete_rsvp_option'        => $this->handleDeleteRsvpOption(),
             default                     => null,
         };
     }
@@ -80,8 +83,10 @@ final class EventsPage extends AbstractAdminPage
             'start_datetime'        => $this->sanitizeDatetimeLocal($_POST['start_datetime'] ?? '', $timezone),
             'end_datetime'          => $this->sanitizeDatetimeLocal($_POST['end_datetime']   ?? '', $timezone),
             'timezone'              => $timezone,
-            'lodging_enabled'       => !empty($_POST['lodging_enabled']) ? 1 : 0,
-            'max_invitees'          => (int) ($_POST['max_invitees'] ?? 0),
+            'lodging_enabled'          => !empty($_POST['lodging_enabled']) ? 1 : 0,
+            'food_options_enabled'     => !empty($_POST['food_options_enabled']) ? 1 : 0,
+            'beverage_options_enabled' => !empty($_POST['beverage_options_enabled']) ? 1 : 0,
+            'max_invitees'             => (int) ($_POST['max_invitees'] ?? 0),
         ];
 
         if (empty($data['name'])) {
@@ -516,6 +521,67 @@ final class EventsPage extends AbstractAdminPage
             'id'          => $eventId,
             'eim_message' => 'event_invitee_removed',
         ], admin_url('admin.php')) . '#eim-event-invitees');
+        exit;
+    }
+
+    private function handleSaveRsvpOption(): void
+    {
+        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_save_rsvp_option')) {
+            wp_die('Security check failed.');
+        }
+
+        $eventId = (int) ($_POST['event_id']    ?? 0);
+        $type    = sanitize_key($_POST['option_type'] ?? '');
+        $label   = sanitize_text_field(wp_unslash($_POST['option_label'] ?? ''));
+        $desc    = sanitize_textarea_field(wp_unslash($_POST['option_description'] ?? ''));
+        $sort    = (int) ($_POST['option_sort_order'] ?? 0);
+
+        if ($eventId === 0 || $label === '' || !in_array($type, ['food', 'beverage'], true)) {
+            wp_redirect(add_query_arg([
+                'page'      => AdminMenu::PAGE_EVENTS,
+                'action'    => 'edit',
+                'id'        => $eventId ?: null,
+                'eim_error' => 'rsvp_option_invalid',
+            ], admin_url('admin.php')) . '#eim-rsvp-options');
+            exit;
+        }
+
+        EventRsvpOption::create([
+            'event_id'    => $eventId,
+            'type'        => $type,
+            'label'       => $label,
+            'description' => $desc,
+            'sort_order'  => $sort,
+            'is_active'   => 1,
+        ]);
+
+        wp_redirect(add_query_arg([
+            'page'        => AdminMenu::PAGE_EVENTS,
+            'action'      => 'edit',
+            'id'          => $eventId,
+            'eim_message' => 'rsvp_option_saved',
+        ], admin_url('admin.php')) . '#eim-rsvp-options');
+        exit;
+    }
+
+    private function handleDeleteRsvpOption(): void
+    {
+        $optionId = (int) ($_GET['option_id'] ?? 0);
+        $eventId  = (int) ($_GET['event_id']  ?? 0);
+        $nonce    = (string) ($_GET['_wpnonce'] ?? '');
+
+        if (!wp_verify_nonce($nonce, 'eim_delete_rsvp_option_' . $optionId)) {
+            wp_die('Security check failed.');
+        }
+
+        EventRsvpOption::delete($optionId);
+
+        wp_redirect(add_query_arg([
+            'page'        => AdminMenu::PAGE_EVENTS,
+            'action'      => 'edit',
+            'id'          => $eventId,
+            'eim_message' => 'rsvp_option_deleted',
+        ], admin_url('admin.php')) . '#eim-rsvp-options');
         exit;
     }
 
@@ -1282,15 +1348,156 @@ final class EventsPage extends AbstractAdminPage
                             </td>
                         </tr>
                     <?php endif; ?>
+                    <tr><td colspan="2" class="sub-heading"><h2 class="title" style="margin-top:0;">Food &amp; Beverage</h2></td></tr>
+                    <tr>
+                        <th scope="row">Menu Options</th>
+                        <td>
+                            <label>
+                                <input type="checkbox" name="food_options_enabled" value="1"
+                                       <?php checked(!$isNew && $event->foodOptionsEnabled); ?>>
+                                Enable food options for this event
+                            </label>
+                            <br>
+                            <label style="margin-top:6px;display:block;">
+                                <input type="checkbox" name="beverage_options_enabled" value="1"
+                                       <?php checked(!$isNew && $event->beverageOptionsEnabled); ?>>
+                                Enable beverage options for this event
+                            </label>
+                            <p class="description">When enabled, options appear below and are returned by the RSVP API so invitees can choose when registering.</p>
+                        </td>
+                    </tr>
                 </table>
 
                 <?php submit_button($isNew ? 'Create Event' : 'Update Event'); ?>
             </form>
 
             <?php if (!$isNew): ?>
+                <?php $this->renderRsvpOptionsSection($event); ?>
                 <?php $this->renderEventInviteesSection($event); ?>
             <?php endif; ?>
         </div>
+        <?php
+    }
+
+    private function renderRsvpOptionsSection(Event $event): void
+    {
+        if (!$event->foodOptionsEnabled && !$event->beverageOptionsEnabled) {
+            return;
+        }
+
+        $addFoodFormId = 'eim-add-food-option-form';
+        $addBevFormId  = 'eim-add-bev-option-form';
+        $allOptions    = EventRsvpOption::forEvent($event->id);
+        $foodOptions   = array_values(array_filter($allOptions, static fn(EventRsvpOption $o) => $o->type === EventRsvpOption::TYPE_FOOD));
+        $bevOptions    = array_values(array_filter($allOptions, static fn(EventRsvpOption $o) => $o->type === EventRsvpOption::TYPE_BEVERAGE));
+        ?>
+        <hr id="eim-rsvp-options" style="margin:32px 0 20px;">
+        <h2>Food &amp; Beverage Options</h2>
+        <p class="description">These options are returned by the RSVP API and can be selected by invitees when registering. Selections are stored per person in the invited invitees list.</p>
+
+        <?php if ($event->foodOptionsEnabled): ?>
+            <form id="<?= esc_attr($addFoodFormId); ?>" method="post"
+                  action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS)); ?>">
+                <input type="hidden" name="_wpnonce"    value="<?= esc_attr(wp_create_nonce('eim_save_rsvp_option')); ?>">
+                <input type="hidden" name="eim_action"  value="save_rsvp_option">
+                <input type="hidden" name="event_id"    value="<?= esc_attr($event->id); ?>">
+                <input type="hidden" name="option_type" value="food">
+            </form>
+
+            <h3>Food Options</h3>
+            <?php if (!empty($foodOptions)): ?>
+                <table class="wp-list-table widefat fixed striped" style="margin-bottom:12px;">
+                    <thead>
+                        <tr>
+                            <th style="width:7%;">Order</th>
+                            <th>Label</th>
+                            <th>Description</th>
+                            <th style="width:10%;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($foodOptions as $opt): ?>
+                            <?php
+                            $delUrl = wp_nonce_url(
+                                admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=delete_rsvp_option&option_id=' . $opt->id . '&event_id=' . $event->id),
+                                'eim_delete_rsvp_option_' . $opt->id
+                            );
+                            ?>
+                            <tr>
+                                <td><?= esc_html($opt->sortOrder); ?></td>
+                                <td><strong><?= esc_html($opt->label); ?></strong></td>
+                                <td><?= esc_html($opt->description); ?></td>
+                                <td><a href="<?= esc_url($delUrl); ?>"
+                                       onclick="return confirm('Delete &ldquo;<?= esc_js($opt->label); ?>&rdquo;?');">Delete</a></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php else: ?>
+                <p style="margin:0 0 8px;">No food options added yet.</p>
+            <?php endif; ?>
+
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+                <input form="<?= esc_attr($addFoodFormId); ?>" type="text"   name="option_label"       class="regular-text" placeholder="Label (e.g. Chicken)" required>
+                <input form="<?= esc_attr($addFoodFormId); ?>" type="text"   name="option_description" class="regular-text" placeholder="Description (optional)">
+                <label style="white-space:nowrap;">Order:
+                    <input form="<?= esc_attr($addFoodFormId); ?>" type="number" name="option_sort_order" value="0" min="0" style="width:58px;">
+                </label>
+                <button form="<?= esc_attr($addFoodFormId); ?>" type="submit" class="button">Add Food Option</button>
+            </div>
+        <?php endif; ?>
+
+        <?php if ($event->beverageOptionsEnabled): ?>
+            <form id="<?= esc_attr($addBevFormId); ?>" method="post"
+                  action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS)); ?>">
+                <input type="hidden" name="_wpnonce"    value="<?= esc_attr(wp_create_nonce('eim_save_rsvp_option')); ?>">
+                <input type="hidden" name="eim_action"  value="save_rsvp_option">
+                <input type="hidden" name="event_id"    value="<?= esc_attr($event->id); ?>">
+                <input type="hidden" name="option_type" value="beverage">
+            </form>
+
+            <h3 style="margin-top:20px;">Beverage Options</h3>
+            <?php if (!empty($bevOptions)): ?>
+                <table class="wp-list-table widefat fixed striped" style="margin-bottom:12px;">
+                    <thead>
+                        <tr>
+                            <th style="width:7%;">Order</th>
+                            <th>Label</th>
+                            <th>Description</th>
+                            <th style="width:10%;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($bevOptions as $opt): ?>
+                            <?php
+                            $delUrl = wp_nonce_url(
+                                admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=delete_rsvp_option&option_id=' . $opt->id . '&event_id=' . $event->id),
+                                'eim_delete_rsvp_option_' . $opt->id
+                            );
+                            ?>
+                            <tr>
+                                <td><?= esc_html($opt->sortOrder); ?></td>
+                                <td><strong><?= esc_html($opt->label); ?></strong></td>
+                                <td><?= esc_html($opt->description); ?></td>
+                                <td><a href="<?= esc_url($delUrl); ?>"
+                                       onclick="return confirm('Delete &ldquo;<?= esc_js($opt->label); ?>&rdquo;?');">Delete</a></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php else: ?>
+                <p style="margin:0 0 8px;">No beverage options added yet.</p>
+            <?php endif; ?>
+
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+                <input form="<?= esc_attr($addBevFormId); ?>" type="text"   name="option_label"       class="regular-text" placeholder="Label (e.g. Red Wine)" required>
+                <input form="<?= esc_attr($addBevFormId); ?>" type="text"   name="option_description" class="regular-text" placeholder="Description (optional)">
+                <label style="white-space:nowrap;">Order:
+                    <input form="<?= esc_attr($addBevFormId); ?>" type="number" name="option_sort_order" value="0" min="0" style="width:58px;">
+                </label>
+                <button form="<?= esc_attr($addBevFormId); ?>" type="submit" class="button">Add Beverage Option</button>
+            </div>
+        <?php endif; ?>
         <?php
     }
 
@@ -1382,6 +1589,13 @@ final class EventsPage extends AbstractAdminPage
             return;
         }
 
+        $rsvpOptionMap = [];
+        if ($event->foodOptionsEnabled || $event->beverageOptionsEnabled) {
+            foreach (EventRsvpOption::forEvent($event->id) as $opt) {
+                $rsvpOptionMap[$opt->id] = $opt;
+            }
+        }
+
         foreach ($groups as $group) {
             $members              = $group->getMembers();
             $primaryInvitee       = Invitee::find($group->primaryInviteeId);
@@ -1416,6 +1630,12 @@ final class EventsPage extends AbstractAdminPage
                             );
                             $isPrimary      = $member->id === $group->primaryInviteeId;
                             ?>
+                            <?php
+                            $foodLabel = ($member->foodOptionId && isset($rsvpOptionMap[$member->foodOptionId]))
+                                ? $rsvpOptionMap[$member->foodOptionId]->label : null;
+                            $bevLabel  = ($member->beverageOptionId && isset($rsvpOptionMap[$member->beverageOptionId]))
+                                ? $rsvpOptionMap[$member->beverageOptionId]->label : null;
+                            ?>
                             <span class="eim-group-member-tag<?= $isPrimary ? ' eim-group-member-primary' : ''; ?>">
                                 <span class="eim-member-dropdown">
                                     <button type="button"
@@ -1431,6 +1651,14 @@ final class EventsPage extends AbstractAdminPage
                                         <?php endif; ?>
                                     </div>
                                 </span>
+                                <?php if ($foodLabel || $bevLabel || $member->dietaryNotes): ?>
+                                <span style="display:block;font-size:10px;color:#666;line-height:1.5;padding:1px 2px 2px;">
+                                    <?php if ($foodLabel): ?><span>Food: <?= esc_html($foodLabel); ?></span><?php endif; ?>
+                                    <?php if ($foodLabel && $bevLabel): ?> &middot; <?php endif; ?>
+                                    <?php if ($bevLabel): ?><span>Drink: <?= esc_html($bevLabel); ?></span><?php endif; ?>
+                                    <?php if ($member->dietaryNotes): ?><span style="display:block;font-style:italic;"><?= esc_html($member->dietaryNotes); ?></span><?php endif; ?>
+                                </span>
+                                <?php endif; ?>
                                 <a href="<?= esc_url($removeUrl); ?>"
                                    class="eim-member-remove-link"
                                    onclick="return confirm('Remove <?= esc_js($member->fullName()); ?> from this event? Their profile will remain.');"

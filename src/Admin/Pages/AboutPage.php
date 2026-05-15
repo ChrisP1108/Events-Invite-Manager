@@ -372,7 +372,7 @@ final class AboutPage extends AbstractAdminPage
                             <tr><td><code>confirmation_code</code></td><td>string</td><td>Yes</td><td>16-character code from the QR code URL</td></tr>
                         </tbody>
                     </table>
-                    <p>A successful response contains <code>event</code> (name, description, date, venue), <code>invitee</code> (the primary recipient, kept for compatibility), <code>group_members</code> (invitee_id, name, email, rsvp_status, is_registered, registered_at), and <code>lodging</code> (array of name, address, booking_url, is_other).</p>
+                    <p>A successful response contains <code>event</code> (name, description, date, venue), <code>invitee</code> (the primary recipient, kept for compatibility), <code>group_members</code> (invitee_id, name, email, rsvp_status, registered_at), and <code>lodging</code> (array of name, address, booking_url, is_other).</p>
                 </div>
             </div>
 

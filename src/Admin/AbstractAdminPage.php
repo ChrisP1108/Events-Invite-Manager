@@ -160,6 +160,8 @@ abstract class AbstractAdminPage
             'cg_deleted'            => 'Connection group deleted.',
             'cg_member_added'       => 'Member added to connection group.',
             'cg_member_removed'     => 'Member removed from connection group.',
+            'rsvp_option_saved'     => 'Menu option added.',
+            'rsvp_option_deleted'   => 'Menu option deleted.',
         ];
 
         $errors = [
@@ -178,6 +180,7 @@ abstract class AbstractAdminPage
             'group_not_found'            => 'Invitation group not found.',
             'lodging_create_failed'      => 'Could not add that lodging location. It may already be assigned to this event.',
             'not_found'                  => 'Invitee or event not found.',
+            'rsvp_option_invalid'        => 'Menu option requires a label and a valid type (food or beverage).',
         ];
 
         if (isset($successes[$messageKey])) {

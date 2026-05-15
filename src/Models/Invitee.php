@@ -31,11 +31,14 @@ final class Invitee
         public readonly string  $zipCode,
         /** RSVP status for event context: 'pending' | 'attending' | 'declined' | '' for global. */
         public readonly string  $rsvpStatus,
-        /** True when rsvpStatus === 'attending'. Kept for template/backward-compat reads. */
+        /** True when rsvpStatus === 'attending'. */
         public readonly bool    $isRegistered,
         public readonly ?string $registeredAt,
         public readonly ?string $inviteSentAt,
         public readonly ?int    $groupId,
+        public readonly ?int    $foodOptionId,
+        public readonly ?int    $beverageOptionId,
+        public readonly string  $dietaryNotes,
         public readonly string  $createdAt,
         public readonly string  $updatedAt,
     ) {}
@@ -66,12 +69,16 @@ final class Invitee
                         gd.group_id            AS invitation_group_id,
                         gd.invite_sent_at      AS invitation_invite_sent_at,
                         COALESCE(gd.rsvp_status, 'pending') AS invitation_rsvp_status,
-                        gd.registered_at       AS invitation_registered_at
+                        gd.registered_at       AS invitation_registered_at,
+                        gd.food_option_id      AS invitation_food_option_id,
+                        gd.beverage_option_id  AS invitation_beverage_option_id,
+                        gd.dietary_notes       AS invitation_dietary_notes
                  FROM {$eiTable} ei
                  INNER JOIN {$inviteesTable} i ON i.id = ei.invitee_id
                  LEFT JOIN (
                      SELECT egm.invitee_id, egm.group_id, egm.rsvp_status,
-                            egm.registered_at, eig.invite_sent_at
+                            egm.registered_at, eig.invite_sent_at,
+                            egm.food_option_id, egm.beverage_option_id, egm.dietary_notes
                      FROM {$membersTable} egm
                      INNER JOIN {$groupsTable} eig ON eig.id = egm.group_id
                      WHERE eig.event_id = %d
@@ -125,12 +132,16 @@ final class Invitee
                         gd.group_id            AS invitation_group_id,
                         gd.invite_sent_at      AS invitation_invite_sent_at,
                         COALESCE(gd.rsvp_status, 'pending') AS invitation_rsvp_status,
-                        gd.registered_at       AS invitation_registered_at
+                        gd.registered_at       AS invitation_registered_at,
+                        gd.food_option_id      AS invitation_food_option_id,
+                        gd.beverage_option_id  AS invitation_beverage_option_id,
+                        gd.dietary_notes       AS invitation_dietary_notes
                  FROM {$eiTable} ei
                  INNER JOIN {$inviteesTable} i ON i.id = ei.invitee_id
                  LEFT JOIN (
                      SELECT egm.invitee_id, egm.group_id, egm.rsvp_status,
-                            egm.registered_at, eig.invite_sent_at
+                            egm.registered_at, eig.invite_sent_at,
+                            egm.food_option_id, egm.beverage_option_id, egm.dietary_notes
                      FROM {$membersTable} egm
                      INNER JOIN {$groupsTable} eig ON eig.id = egm.group_id
                      WHERE eig.event_id = %d
@@ -169,12 +180,16 @@ final class Invitee
                         gd.group_id            AS invitation_group_id,
                         gd.invite_sent_at      AS invitation_invite_sent_at,
                         COALESCE(gd.rsvp_status, 'pending') AS invitation_rsvp_status,
-                        gd.registered_at       AS invitation_registered_at
+                        gd.registered_at       AS invitation_registered_at,
+                        gd.food_option_id      AS invitation_food_option_id,
+                        gd.beverage_option_id  AS invitation_beverage_option_id,
+                        gd.dietary_notes       AS invitation_dietary_notes
                  FROM {$eiTable} ei
                  INNER JOIN {$inviteesTable} i ON i.id = ei.invitee_id
                  LEFT JOIN (
                      SELECT egm.invitee_id, egm.group_id, egm.rsvp_status,
-                            egm.registered_at, eig.invite_sent_at
+                            egm.registered_at, eig.invite_sent_at,
+                            egm.food_option_id, egm.beverage_option_id, egm.dietary_notes
                      FROM {$membersTable} egm
                      INNER JOIN {$groupsTable} eig ON eig.id = egm.group_id
                      WHERE eig.event_id = %d
@@ -507,13 +522,16 @@ final class Invitee
             city:                $row->city            ?? '',
             state:               $row->state           ?? '',
             zipCode:             $row->zip_code        ?? '',
-            rsvpStatus:          $rsvpStatus,
-            isRegistered:        $rsvpStatus === InvitationGroup::RSVP_ATTENDING,
-            registeredAt:        $row->invitation_registered_at  ?? $row->registered_at  ?? null,
-            inviteSentAt:        $row->invitation_invite_sent_at ?? null,
-            groupId:      isset($row->invitation_group_id) ? (int) $row->invitation_group_id : null,
-            createdAt:           $row->created_at      ?? '',
-            updatedAt:           $row->updated_at      ?? '',
+            rsvpStatus:       $rsvpStatus,
+            isRegistered:     $rsvpStatus === InvitationGroup::RSVP_ATTENDING,
+            registeredAt:     $row->invitation_registered_at  ?? $row->registered_at  ?? null,
+            inviteSentAt:     $row->invitation_invite_sent_at ?? null,
+            groupId:          isset($row->invitation_group_id) ? (int) $row->invitation_group_id : null,
+            foodOptionId:     isset($row->invitation_food_option_id)     && $row->invitation_food_option_id     !== null ? (int) $row->invitation_food_option_id     : null,
+            beverageOptionId: isset($row->invitation_beverage_option_id) && $row->invitation_beverage_option_id !== null ? (int) $row->invitation_beverage_option_id : null,
+            dietaryNotes:     $row->invitation_dietary_notes ?? '',
+            createdAt:        $row->created_at ?? '',
+            updatedAt:        $row->updated_at ?? '',
         );
     }
 
@@ -583,13 +601,16 @@ final class Invitee
             city:                $row->city            ?? '',
             state:               $row->state           ?? '',
             zipCode:             $row->zip_code        ?? '',
-            rsvpStatus:          $rsvpStatus,
-            isRegistered:        $rsvpStatus === InvitationGroup::RSVP_ATTENDING,
-            registeredAt:        $row->invitation_registered_at ?? null,
-            inviteSentAt:        $row->invitation_invite_sent_at ?? null,
-            groupId:      isset($row->invitation_group_id) ? (int) $row->invitation_group_id : null,
-            createdAt:           $row->created_at ?? '',
-            updatedAt:           $row->updated_at ?? '',
+            rsvpStatus:       $rsvpStatus,
+            isRegistered:     $rsvpStatus === InvitationGroup::RSVP_ATTENDING,
+            registeredAt:     $row->invitation_registered_at  ?? null,
+            inviteSentAt:     $row->invitation_invite_sent_at ?? null,
+            groupId:          isset($row->invitation_group_id) ? (int) $row->invitation_group_id : null,
+            foodOptionId:     isset($row->invitation_food_option_id)     && $row->invitation_food_option_id     !== null ? (int) $row->invitation_food_option_id     : null,
+            beverageOptionId: isset($row->invitation_beverage_option_id) && $row->invitation_beverage_option_id !== null ? (int) $row->invitation_beverage_option_id : null,
+            dietaryNotes:     $row->invitation_dietary_notes ?? '',
+            createdAt:        $row->created_at ?? '',
+            updatedAt:        $row->updated_at ?? '',
         );
     }
 }
