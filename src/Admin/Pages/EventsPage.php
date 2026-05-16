@@ -1510,6 +1510,97 @@ final class EventsPage extends AbstractAdminPage
         return in_array($key, ['name', 'email', 'members', 'invite_sent', 'attending'], true) ? $key : 'name';
     }
 
+    private function sanitizeEventGroupFieldKey(string $field): string
+    {
+        $field = sanitize_key($field);
+        return in_array($field, ['name', 'email', 'invite_sent', 'attending'], true) ? $field : '';
+    }
+
+    /**
+     * Filters invitation groups by a search string, optionally restricted to one column.
+     *
+     * Matching is done against the values as rendered in the table so that users can type
+     * exactly what they see (e.g. "Not sent", a date, "pending").
+     *
+     * @param InvitationGroup[] $groups
+     * @param string            $search
+     * @param string            $field      Column key, or '' for Any.
+     * @param string            $dateFormat WordPress date format for invite-sent display.
+     * @return InvitationGroup[]
+     */
+    private function filterEventGroups(array $groups, string $search, string $field, string $dateFormat = ''): array
+    {
+        if ($search === '') {
+            return $groups;
+        }
+
+        $needle = strtolower($search);
+
+        return array_values(array_filter(
+            $groups,
+            function (InvitationGroup $group) use ($needle, $field, $dateFormat): bool {
+                $members = $group->getMembers();
+
+                switch ($field) {
+                    case 'name':
+                        foreach ($members as $m) {
+                            if (str_contains(strtolower($m->firstName . ' ' . $m->lastName), $needle)) {
+                                return true;
+                            }
+                        }
+                        return false;
+
+                    case 'email':
+                        foreach ($members as $m) {
+                            if (str_contains(strtolower($m->email), $needle)) {
+                                return true;
+                            }
+                        }
+                        return false;
+
+                    case 'invite_sent':
+                        $label = $group->inviteSentAt
+                            ? strtolower(date_i18n($dateFormat, strtotime($group->inviteSentAt)))
+                            : 'not sent';
+                        return str_contains($label, $needle);
+
+                    case 'attending':
+                        $attendingCount = $group->attendingCount();
+                        $memberCount    = $group->memberCount();
+                        $pending        = count(array_filter(
+                            $members,
+                            static fn(Invitee $m) => $m->rsvpStatus === InvitationGroup::RSVP_PENDING
+                        ));
+                        $declined       = count(array_filter(
+                            $members,
+                            static fn(Invitee $m) => $m->rsvpStatus === InvitationGroup::RSVP_DECLINED
+                        ));
+                        if ($memberCount === 0) {
+                            $label = '—';
+                        } elseif ($attendingCount === $memberCount) {
+                            $label = 'all attending' . ($memberCount > 1 ? ' ' . $memberCount : '');
+                        } else {
+                            $parts = [$attendingCount . ' attending'];
+                            if ($declined > 0) $parts[] = $declined . ' declined';
+                            if ($pending  > 0) $parts[] = $pending  . ' pending';
+                            $label = strtolower(implode(', ', $parts));
+                        }
+                        return str_contains($label, $needle);
+
+                    default:
+                        // Any: search member names + emails
+                        foreach ($members as $m) {
+                            if (str_contains(strtolower($m->firstName . ' ' . $m->lastName), $needle)
+                                || str_contains(strtolower($m->email), $needle)) {
+                                return true;
+                            }
+                        }
+                        return false;
+                }
+            }
+        ));
+    }
+
     private function sortEventGroups(array $groups, string $sort, string $order): array
     {
         $primaryInviteeMap = [];
@@ -1566,26 +1657,33 @@ final class EventsPage extends AbstractAdminPage
         $eventId = (int) ($_GET['event_id'] ?? 0);
         $sort    = $this->sanitizeEventGroupSortKey((string) ($_GET['sort']  ?? 'name'));
         $order   = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
+        $query   = sanitize_text_field(wp_unslash($_GET['query'] ?? ''));
+        $field   = $this->sanitizeEventGroupFieldKey((string) ($_GET['field'] ?? ''));
 
         $event = $eventId > 0 ? Event::find($eventId) : null;
         if (!$event) {
             wp_send_json_error('Event not found.', 404);
         }
 
-        $groups     = $this->sortEventGroups(InvitationGroup::forEvent($eventId), $sort, $order);
         $dateFormat = get_option('date_format');
+        $groups     = $this->sortEventGroups(
+            $this->filterEventGroups(InvitationGroup::forEvent($eventId), $query, $field, $dateFormat),
+            $sort,
+            $order
+        );
 
         ob_start();
-        $this->renderEventGroupRows($event, $groups, $dateFormat);
+        $this->renderEventGroupRows($event, $groups, $dateFormat, $query);
         $html = (string) ob_get_clean();
 
-        wp_send_json_success(['html' => $html]);
+        wp_send_json_success(['html' => $html, 'count' => count($groups)]);
     }
 
-    private function renderEventGroupRows(Event $event, array $groups, string $dateFormat): void
+    private function renderEventGroupRows(Event $event, array $groups, string $dateFormat, string $search = ''): void
     {
         if (empty($groups)) {
-            echo '<tr><td colspan="5">No invitees have been added to this event yet.</td></tr>';
+            $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No invitees have been added to this event yet.';
+            echo '<tr><td colspan="5">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -1842,6 +1940,21 @@ final class EventsPage extends AbstractAdminPage
                 </a>
             </p>
         <?php endif; ?>
+
+        <?php $this->renderSearchBar(
+            'eim-event-groups-search',
+            'eim-event-groups-count',
+            'eim-event-groups-loading',
+            'Search group members, email...',
+            count($groups),
+            '',
+            [
+                ['value' => 'name',        'label' => 'Group Members'],
+                ['value' => 'email',       'label' => 'Email'],
+                ['value' => 'invite_sent', 'label' => 'Invite Sent'],
+                ['value' => 'attending',   'label' => 'Registered'],
+            ]
+        ); ?>
 
         <?php $sortArgs = ['action' => 'edit', 'id' => $event->id]; ?>
         <table id="eim-event-groups-table"

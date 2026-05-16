@@ -28,7 +28,7 @@ final class InviteesPage extends AbstractAdminPage
     /**
      * AJAX: searches the global invitee list table.
      *
-     * Expected GET params: nonce, query, sort, order.
+     * Expected GET params: nonce, query, sort, order, field.
      */
     public function handleAjaxSearchInvitees(): void
     {
@@ -41,10 +41,11 @@ final class InviteesPage extends AbstractAdminPage
         $query = sanitize_text_field(wp_unslash($_GET['query'] ?? ''));
         $sort  = $this->sanitizeSortKey((string) ($_GET['sort'] ?? 'last_name'));
         $order = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
-        $rows  = Invitee::listForAdmin($query, $sort, $order);
+        $field = $this->sanitizeInviteeFieldKey((string) ($_GET['field'] ?? ''));
+        $rows  = Invitee::listForAdmin($query, $sort, $order, $field);
 
         ob_start();
-        $this->renderInviteeRows($rows);
+        $this->renderInviteeRows($rows, [], $query);
         $html = (string) ob_get_clean();
 
         wp_send_json_success(['html' => $html, 'count' => count($rows)]);
@@ -186,7 +187,8 @@ final class InviteesPage extends AbstractAdminPage
         $search  = sanitize_text_field(wp_unslash($_GET['s'] ?? ''));
         $sort    = $this->sanitizeSortKey((string) ($_GET['sort'] ?? 'last_name'));
         $order   = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
-        $rows    = Invitee::listForAdmin($search, $sort, $order);
+        $field   = $this->sanitizeInviteeFieldKey((string) ($_GET['field'] ?? ''));
+        $rows    = Invitee::listForAdmin($search, $sort, $order, $field);
         $addUrl  = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&action=add');
 
         $inviteeIds      = array_map(static fn($r) => $r['invitee']->id, $rows);
@@ -205,7 +207,23 @@ final class InviteesPage extends AbstractAdminPage
                 to define relationships like couples or families.
             </p>
 
-            <?php $this->renderSearchBar('eim-invitee-search', 'eim-invitee-count', 'eim-invitee-loading', 'Search invitees, events, or connected people...', count($rows), $search); ?>
+            <?php $this->renderSearchBar(
+                'eim-invitee-search',
+                'eim-invitee-count',
+                'eim-invitee-loading',
+                'Search invitees, events, or connected people...',
+                count($rows),
+                $search,
+                [
+                    ['value' => 'first_name',        'label' => 'First Name'],
+                    ['value' => 'last_name',         'label' => 'Last Name'],
+                    ['value' => 'email',             'label' => 'Email'],
+                    ['value' => 'phone',             'label' => 'Phone'],
+                    ['value' => 'events',            'label' => 'Invited Events'],
+                    ['value' => 'connection_groups', 'label' => 'Connection Groups'],
+                ],
+                $field
+            ); ?>
 
             <table id="eim-invitees-table"
                    class="wp-list-table widefat fixed striped"
@@ -223,7 +241,7 @@ final class InviteesPage extends AbstractAdminPage
                     </tr>
                 </thead>
                 <tbody id="eim-invitees-table-body">
-                    <?php $this->renderInviteeRows($rows, $groupsByInvitee); ?>
+                    <?php $this->renderInviteeRows($rows, $groupsByInvitee, $search); ?>
                 </tbody>
             </table>
         </div>
@@ -234,12 +252,11 @@ final class InviteesPage extends AbstractAdminPage
      * @param array<int, array{invitee: Invitee, events: array}>  $rows
      * @param array<int, ConnectionGroup[]>                        $groupsByInvitee
      */
-    private function renderInviteeRows(array $rows, array $groupsByInvitee = []): void
+    private function renderInviteeRows(array $rows, array $groupsByInvitee = [], string $search = ''): void
     {
         if (empty($rows)) {
-            ?>
-            <tr class="eim-no-results"><td colspan="7">No invitees found.</td></tr>
-            <?php
+            $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No invitees found.';
+            echo '<tr class="eim-no-results"><td colspan="7">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -432,5 +449,13 @@ final class InviteesPage extends AbstractAdminPage
         return in_array($key, ['first_name', 'last_name', 'email', 'phone', 'events'], true)
             ? $key
             : 'last_name';
+    }
+
+    private function sanitizeInviteeFieldKey(string $field): string
+    {
+        $field = sanitize_key($field);
+        return in_array($field, ['first_name', 'last_name', 'email', 'phone', 'events', 'connection_groups'], true)
+            ? $field
+            : '';
     }
 }

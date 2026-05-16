@@ -59,6 +59,9 @@
         /** @type {HTMLInputElement|null} */
         #search;
 
+        /** @type {HTMLSelectElement|null} */
+        #field;
+
         /** @type {HTMLElement|null} */
         #count;
 
@@ -75,6 +78,7 @@
             this.#table   = document.getElementById('eim-locations-table');
             this.#tbody   = document.getElementById('eim-locations-table-body');
             this.#search  = document.getElementById('eim-location-search');
+            this.#field   = document.getElementById('eim-location-search-field');
             this.#count   = document.getElementById('eim-location-count');
             this.#spinner = document.getElementById('eim-location-loading');
 
@@ -86,6 +90,7 @@
             this.#order = this.#table.dataset.order || config.table?.order || 'asc';
 
             this.#search.addEventListener('input', debounce(() => this.#refresh()));
+            this.#field?.addEventListener('change', () => this.#refresh());
 
             for (const link of this.#table.querySelectorAll('.eim-sort-link')) {
                 link.addEventListener('click', (event) => {
@@ -111,6 +116,7 @@
                     query: this.#search?.value || '',
                     sort:  this.#sort,
                     order: this.#order,
+                    field: this.#field?.value || '',
                 });
                 const response = await fetch(url, { credentials: 'same-origin' });
                 const { success, data } = await response.json();

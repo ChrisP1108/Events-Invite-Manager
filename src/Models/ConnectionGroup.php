@@ -18,7 +18,7 @@ use EventsInviteManager\Database\DatabaseManager;
 final class ConnectionGroup
 {
     /** @var string[] Allowed type values. */
-    public const TYPES = ['couple', 'family', 'household', 'custom'];
+    public const TYPES = ['single', 'couple', 'family', 'household', 'friends', 'custom'];
 
     /** @var Invitee[]|null Lazy-loaded members. */
     private ?array $members = null;
@@ -51,9 +51,10 @@ final class ConnectionGroup
      * Each group has its members pre-loaded.
      *
      * @param string $search
+     * @param string $field  Restrict search to a single column; empty string searches all.
      * @return self[]
      */
-    public static function listForAdmin(string $search = '', string $sort = 'name', string $order = 'asc'): array
+    public static function listForAdmin(string $search = '', string $sort = 'name', string $order = 'asc', string $field = ''): array
     {
         global $wpdb;
 
@@ -65,15 +66,36 @@ final class ConnectionGroup
         $params = [];
 
         if ($search !== '') {
-            $like   = '%' . $wpdb->esc_like($search) . '%';
-            $where  = "WHERE cg.name LIKE %s
-                       OR EXISTS (
-                           SELECT 1 FROM {$membersTable} cgm
-                           INNER JOIN {$inviteesTable} i ON i.id = cgm.invitee_id
-                           WHERE cgm.group_id = cg.id
-                             AND (i.first_name LIKE %s OR i.last_name LIKE %s OR i.email LIKE %s)
-                       )";
-            $params = [$like, $like, $like, $like];
+            $like = '%' . $wpdb->esc_like($search) . '%';
+
+            switch ($field) {
+                case 'name':
+                    $where  = "WHERE cg.name LIKE %s";
+                    $params = [$like];
+                    break;
+                case 'type':
+                    $where  = "WHERE cg.type LIKE %s";
+                    $params = [$like];
+                    break;
+                case 'members':
+                    $where  = "WHERE EXISTS (
+                        SELECT 1 FROM {$membersTable} cgm
+                        INNER JOIN {$inviteesTable} i ON i.id = cgm.invitee_id
+                        WHERE cgm.group_id = cg.id
+                          AND (i.first_name LIKE %s OR i.last_name LIKE %s OR i.email LIKE %s)
+                    )";
+                    $params = [$like, $like, $like];
+                    break;
+                default:
+                    $where  = "WHERE cg.name LIKE %s
+                               OR EXISTS (
+                                   SELECT 1 FROM {$membersTable} cgm
+                                   INNER JOIN {$inviteesTable} i ON i.id = cgm.invitee_id
+                                   WHERE cgm.group_id = cg.id
+                                     AND (i.first_name LIKE %s OR i.last_name LIKE %s OR i.email LIKE %s)
+                               )";
+                    $params = [$like, $like, $like, $like];
+            }
         }
 
         $dir         = $order === 'desc' ? 'DESC' : 'ASC';

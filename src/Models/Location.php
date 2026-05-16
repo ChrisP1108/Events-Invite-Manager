@@ -36,16 +36,18 @@ final class Location
     /**
      * Returns locations for the admin list table, optionally filtered by a search string.
      *
-     * Searches the name, city, and state columns. Sort column is validated against
-     * an allowlist before being interpolated into the query; order is clamped to
-     * 'ASC' or 'DESC'. Returns fully-hydrated Location objects ready for rendering.
+     * Searches the name, city, and state columns by default, or a single column
+     * when $field is specified. Sort column is validated against an allowlist
+     * before being interpolated into the query; order is clamped to 'ASC'/'DESC'.
+     * Returns fully-hydrated Location objects ready for rendering.
      *
      * @param string $query  Optional search string; empty string returns all rows.
      * @param string $sort   Column to sort by ('name', 'is_other', 'has_lodging').
      * @param string $order  Sort direction ('asc' or 'desc').
+     * @param string $field  Restrict search to a single column; empty string searches all.
      * @return self[]
      */
-    public static function listForAdmin(string $query, string $sort = 'name', string $order = 'asc'): array
+    public static function listForAdmin(string $query, string $sort = 'name', string $order = 'asc', string $field = ''): array
     {
         global $wpdb;
 
@@ -53,22 +55,89 @@ final class Location
         $allowed  = ['name', 'is_other', 'has_lodging'];
         $sortCol  = in_array($sort, $allowed, true) ? $sort : 'name';
         $orderSql = strtolower($order) === 'desc' ? 'DESC' : 'ASC';
+        $orderBy  = "ORDER BY {$sortCol} {$orderSql}, name ASC";
 
-        if ($query !== '') {
-            $like = '%' . $wpdb->esc_like($query) . '%';
-            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-            $sql = $wpdb->prepare(
-                "SELECT * FROM {$table} WHERE name LIKE %s OR city LIKE %s OR state LIKE %s ORDER BY {$sortCol} {$orderSql}, name ASC",
-                $like,
-                $like,
-                $like
-            );
-        } else {
-            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
-            $sql = "SELECT * FROM {$table} ORDER BY {$sortCol} {$orderSql}, name ASC";
+        if ($query === '') {
+            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+            $rows = $wpdb->get_results("SELECT * FROM {$table} {$orderBy}");
+            return array_map(static fn(object $row) => self::fromRow($row), $rows ?? []);
         }
 
-        $rows = $wpdb->get_results($sql);
+        // Lowercase both the search term and the column values so matching is
+        // case-insensitive regardless of table collation.
+        $like              = '%' . $wpdb->esc_like(strtolower($query)) . '%';
+        $eventsTable       = DatabaseManager::eventsTable();
+        $eventLodgingTable = DatabaseManager::eventLodgingTable();
+
+        switch ($field) {
+            case 'name':
+                // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+                $sql = $wpdb->prepare(
+                    "SELECT * FROM {$table} WHERE LOWER(name) LIKE %s {$orderBy}",
+                    $like
+                );
+                break;
+            case 'is_other':
+                $isOther = stripos('other', $query) !== false ? 1 : 0;
+                // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+                $sql = $wpdb->prepare("SELECT * FROM {$table} WHERE is_other = %d {$orderBy}", $isOther);
+                break;
+            case 'has_lodging':
+                $hasLodging = stripos('yes', $query) !== false ? 1 : 0;
+                // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+                $sql = $wpdb->prepare("SELECT * FROM {$table} WHERE has_lodging = %d {$orderBy}", $hasLodging);
+                break;
+            case 'address':
+                // Match individual address components OR the full comma-separated
+                // formatted address so users can type what is displayed in the table.
+                // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+                $sql = $wpdb->prepare(
+                    "SELECT * FROM {$table}
+                     WHERE LOWER(street_address) LIKE %s
+                        OR LOWER(city) LIKE %s
+                        OR LOWER(state) LIKE %s
+                        OR LOWER(zip_code) LIKE %s
+                        OR LOWER(CONCAT_WS(', ',
+                               COALESCE(street_address, ''),
+                               COALESCE(city, ''),
+                               COALESCE(state, ''),
+                               COALESCE(zip_code, '')
+                           )) LIKE %s
+                     {$orderBy}",
+                    $like, $like, $like, $like, $like
+                );
+                break;
+            case 'used_in':
+                // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+                $sql = $wpdb->prepare(
+                    "SELECT * FROM {$table}
+                     WHERE EXISTS (SELECT 1 FROM {$eventsTable} WHERE venue_id = {$table}.id AND LOWER(name) LIKE %s)
+                        OR EXISTS (
+                            SELECT 1 FROM {$eventLodgingTable} el
+                            INNER JOIN {$eventsTable} e ON e.id = el.event_id
+                            WHERE el.location_id = {$table}.id AND LOWER(e.name) LIKE %s
+                        )
+                     {$orderBy}",
+                    $like, $like
+                );
+                break;
+            default:
+                // Any: search name + all address fields so typing a street or zip
+                // while "Any" is selected still returns results.
+                // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+                $sql = $wpdb->prepare(
+                    "SELECT * FROM {$table}
+                     WHERE LOWER(name) LIKE %s
+                        OR LOWER(street_address) LIKE %s
+                        OR LOWER(city) LIKE %s
+                        OR LOWER(state) LIKE %s
+                        OR LOWER(zip_code) LIKE %s
+                     {$orderBy}",
+                    $like, $like, $like, $like, $like
+                );
+        }
+
+        $rows = $wpdb->get_results($sql); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 
         return array_map(static fn(object $row) => self::fromRow($row), $rows ?? []);
     }

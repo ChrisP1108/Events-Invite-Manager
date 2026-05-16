@@ -219,9 +219,10 @@ final class Invitee
      * @param string $search
      * @param string $orderBy  first_name | last_name | email | phone | events
      * @param string $order    asc | desc
+     * @param string $field    Restrict search to a single column; empty string searches all.
      * @return array<int, array{invitee: self, events: array<int, array{id: int, name: string}>}>
      */
-    public static function listForAdmin(string $search = '', string $orderBy = 'last_name', string $order = 'asc'): array
+    public static function listForAdmin(string $search = '', string $orderBy = 'last_name', string $order = 'asc', string $field = ''): array
     {
         global $wpdb;
 
@@ -229,6 +230,7 @@ final class Invitee
         $eventsTable        = DatabaseManager::eventsTable();
         $eventInviteesTable = DatabaseManager::eventInviteesTable();
         $cgMembersTable     = DatabaseManager::inviteeConnectionGroupMembersTable();
+        $cgGroupsTable      = DatabaseManager::inviteeConnectionGroupsTable();
 
         $eventSortSql = "(SELECT GROUP_CONCAT(e_sort.name ORDER BY e_sort.name ASC SEPARATOR ', ')
                           FROM {$eventInviteesTable} ei_sort
@@ -250,29 +252,67 @@ final class Invitee
         $search  = trim($search);
 
         if ($search !== '') {
-            $like  = '%' . $wpdb->esc_like($search) . '%';
-            $where = "WHERE (
-                i.first_name LIKE %s
-                OR i.last_name LIKE %s
-                OR i.email LIKE %s
-                OR i.phone LIKE %s
-                OR EXISTS (
-                    SELECT 1
-                    FROM {$eventInviteesTable} ei_s
-                    INNER JOIN {$eventsTable} e_s ON e_s.id = ei_s.event_id
-                    WHERE ei_s.invitee_id = i.id AND e_s.name LIKE %s
-                )
-                OR EXISTS (
-                    SELECT 1
-                    FROM {$cgMembersTable} cgm1
-                    INNER JOIN {$cgMembersTable} cgm2 ON cgm2.group_id = cgm1.group_id
-                    INNER JOIN {$inviteesTable} ci ON ci.id = cgm1.invitee_id
-                    WHERE cgm2.invitee_id = i.id
-                      AND cgm1.invitee_id != i.id
-                      AND (ci.first_name LIKE %s OR ci.last_name LIKE %s)
-                )
-            )";
-            $params = [$like, $like, $like, $like, $like, $like, $like];
+            $like = '%' . $wpdb->esc_like($search) . '%';
+
+            switch ($field) {
+                case 'first_name':
+                    $where  = "WHERE i.first_name LIKE %s";
+                    $params = [$like];
+                    break;
+                case 'last_name':
+                    $where  = "WHERE i.last_name LIKE %s";
+                    $params = [$like];
+                    break;
+                case 'email':
+                    $where  = "WHERE i.email LIKE %s";
+                    $params = [$like];
+                    break;
+                case 'phone':
+                    $where  = "WHERE i.phone LIKE %s";
+                    $params = [$like];
+                    break;
+                case 'events':
+                    $where  = "WHERE EXISTS (
+                        SELECT 1
+                        FROM {$eventInviteesTable} ei_s
+                        INNER JOIN {$eventsTable} e_s ON e_s.id = ei_s.event_id
+                        WHERE ei_s.invitee_id = i.id AND e_s.name LIKE %s
+                    )";
+                    $params = [$like];
+                    break;
+                case 'connection_groups':
+                    $where  = "WHERE EXISTS (
+                        SELECT 1
+                        FROM {$cgMembersTable} cgm
+                        INNER JOIN {$cgGroupsTable} cg ON cg.id = cgm.group_id
+                        WHERE cgm.invitee_id = i.id AND cg.name LIKE %s
+                    )";
+                    $params = [$like];
+                    break;
+                default:
+                    $where  = "WHERE (
+                        i.first_name LIKE %s
+                        OR i.last_name LIKE %s
+                        OR i.email LIKE %s
+                        OR i.phone LIKE %s
+                        OR EXISTS (
+                            SELECT 1
+                            FROM {$eventInviteesTable} ei_s
+                            INNER JOIN {$eventsTable} e_s ON e_s.id = ei_s.event_id
+                            WHERE ei_s.invitee_id = i.id AND e_s.name LIKE %s
+                        )
+                        OR EXISTS (
+                            SELECT 1
+                            FROM {$cgMembersTable} cgm1
+                            INNER JOIN {$cgMembersTable} cgm2 ON cgm2.group_id = cgm1.group_id
+                            INNER JOIN {$inviteesTable} ci ON ci.id = cgm1.invitee_id
+                            WHERE cgm2.invitee_id = i.id
+                              AND cgm1.invitee_id != i.id
+                              AND (ci.first_name LIKE %s OR ci.last_name LIKE %s)
+                        )
+                    )";
+                    $params = [$like, $like, $like, $like, $like, $like, $like];
+            }
         }
 
         $sql = "SELECT i.*

@@ -41,12 +41,13 @@
     // InviteeTable — global Invitees list search/sort
     // -----------------------------------------------------------------------
     class InviteeTable {
-        #table; #tbody; #search; #count; #spinner; #sort; #order;
+        #table; #tbody; #search; #field; #count; #spinner; #sort; #order;
 
         constructor() {
             this.#table   = document.getElementById('eim-invitees-table');
             this.#tbody   = document.getElementById('eim-invitees-table-body');
             this.#search  = document.getElementById('eim-invitee-search');
+            this.#field   = document.getElementById('eim-invitee-search-field');
             this.#count   = document.getElementById('eim-invitee-count');
             this.#spinner = document.getElementById('eim-invitee-loading');
 
@@ -56,6 +57,7 @@
             this.#order = this.#table.dataset.order || config.table?.order || 'asc';
 
             this.#search.addEventListener('input', debounce(() => this.#refresh()));
+            this.#field?.addEventListener('change', () => this.#refresh());
 
             for (const link of this.#table.querySelectorAll('.eim-sort-link')) {
                 link.addEventListener('click', (e) => {
@@ -75,6 +77,7 @@
                     query: this.#search?.value || '',
                     sort:  this.#sort,
                     order: this.#order,
+                    field: this.#field?.value || '',
                 });
                 const { success, data } = await (await fetch(url, { credentials: 'same-origin' })).json();
                 if (!success) return;
@@ -105,12 +108,13 @@
     // ConnectionGroupTable — Connection Groups list live search
     // -----------------------------------------------------------------------
     class ConnectionGroupTable {
-        #table; #tbody; #search; #count; #spinner; #sort; #order;
+        #table; #tbody; #search; #field; #count; #spinner; #sort; #order;
 
         constructor() {
             this.#table   = document.getElementById('eim-connection-groups-table');
             this.#tbody   = document.getElementById('eim-connection-groups-table-body');
             this.#search  = document.getElementById('eim-connection-group-search');
+            this.#field   = document.getElementById('eim-connection-group-search-field');
             this.#count   = document.getElementById('eim-connection-group-count');
             this.#spinner = document.getElementById('eim-connection-group-loading');
 
@@ -120,6 +124,7 @@
             this.#order = this.#table?.dataset.order || config.connectionGroupTable?.order || 'asc';
 
             this.#search.addEventListener('input', debounce(() => this.#refresh()));
+            this.#field?.addEventListener('change', () => this.#refresh());
 
             for (const link of (this.#table?.querySelectorAll('.eim-sort-link') ?? [])) {
                 link.addEventListener('click', (e) => {
@@ -141,6 +146,7 @@
                     query: this.#search?.value || '',
                     sort:  this.#sort,
                     order: this.#order,
+                    field: this.#field?.value || '',
                 });
                 const { success, data } = await (await fetch(url, { credentials: 'same-origin' })).json();
 
@@ -561,19 +567,26 @@
     }
 
     // -----------------------------------------------------------------------
-    // EventGroupsTable — AJAX column sort for the Invited Invitees table
+    // EventGroupsTable — AJAX search/filter + column sort for the Invited Invitees table
     // -----------------------------------------------------------------------
     class EventGroupsTable {
-        #table; #tbody; #sort; #order;
+        #table; #tbody; #search; #field; #count; #spinner; #sort; #order;
 
         constructor() {
-            this.#table = document.getElementById('eim-event-groups-table');
-            this.#tbody = document.getElementById('eim-event-groups-table-body');
+            this.#table   = document.getElementById('eim-event-groups-table');
+            this.#tbody   = document.getElementById('eim-event-groups-table-body');
+            this.#search  = document.getElementById('eim-event-groups-search');
+            this.#field   = document.getElementById('eim-event-groups-search-field');
+            this.#count   = document.getElementById('eim-event-groups-count');
+            this.#spinner = document.getElementById('eim-event-groups-loading');
 
             if (!this.#table || !this.#tbody || !config.event?.groupsSortNonce) return;
 
             this.#sort  = this.#table.dataset.sort  || 'name';
             this.#order = this.#table.dataset.order || 'asc';
+
+            this.#search?.addEventListener('input', debounce(() => this.#refresh()));
+            this.#field?.addEventListener('change', () => this.#refresh());
 
             for (const link of this.#table.querySelectorAll('.eim-sort-link')) {
                 link.addEventListener('click', (e) => {
@@ -587,18 +600,24 @@
         }
 
         async #refresh() {
+            if (this.#spinner) this.#spinner.classList.add('is-active');
             try {
                 const url = ajaxUrl('eim_sort_event_groups', {
                     nonce:    config.event.groupsSortNonce,
                     event_id: config.event.id || 0,
                     sort:     this.#sort,
                     order:    this.#order,
+                    query:    this.#search?.value || '',
+                    field:    this.#field?.value  || '',
                 });
                 const { success, data } = await (await fetch(url, { credentials: 'same-origin' })).json();
                 if (!success) return;
                 this.#tbody.innerHTML = data.html || '';
+                if (this.#count) this.#count.textContent = `${data.count} result${data.count === 1 ? '' : 's'}`;
             } catch (e) {
-                console.error('[EIM] Event groups sort failed:', e);
+                console.error('[EIM] Event groups sort/search failed:', e);
+            } finally {
+                if (this.#spinner) this.#spinner.classList.remove('is-active');
             }
         }
 

@@ -29,6 +29,10 @@ h1 {
     margin: 0;
 }
 
+.eim-search-field-select {
+    min-width: 140px;
+}
+
 .eim-sort-link {
     align-items: center;
     display: inline-flex;

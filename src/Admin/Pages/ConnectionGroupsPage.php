@@ -45,7 +45,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
     /**
      * AJAX: searches the connection groups list table.
      *
-     * Expected GET params: nonce, query.
+     * Expected GET params: nonce, query, sort, order, field.
      * Returns JSON: { success: true, data: { html, count } }
      */
     public function handleAjaxSearchGroups(): void
@@ -59,7 +59,8 @@ final class ConnectionGroupsPage extends AbstractAdminPage
         $query  = sanitize_text_field(wp_unslash($_GET['query'] ?? ''));
         $sort   = $this->sanitizeGroupSortKey((string) ($_GET['sort']  ?? 'name'));
         $order  = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
-        $groups = ConnectionGroup::listForAdmin($query, $sort, $order);
+        $field  = $this->sanitizeGroupFieldKey((string) ($_GET['field'] ?? ''));
+        $groups = ConnectionGroup::listForAdmin($query, $sort, $order, $field);
 
         ob_start();
         $this->renderGroupRows($groups, $query);
@@ -75,6 +76,12 @@ final class ConnectionGroupsPage extends AbstractAdminPage
     {
         $key = sanitize_key($key);
         return in_array($key, ['name', 'type', 'members'], true) ? $key : 'name';
+    }
+
+    private function sanitizeGroupFieldKey(string $field): string
+    {
+        $field = sanitize_key($field);
+        return in_array($field, ['name', 'type', 'members'], true) ? $field : '';
     }
 
     /**
@@ -223,7 +230,8 @@ final class ConnectionGroupsPage extends AbstractAdminPage
         $search  = sanitize_text_field(wp_unslash($_GET['s'] ?? ''));
         $sort    = $this->sanitizeGroupSortKey((string) ($_GET['sort']  ?? 'name'));
         $order   = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
-        $groups  = ConnectionGroup::listForAdmin($search, $sort, $order);
+        $field   = $this->sanitizeGroupFieldKey((string) ($_GET['field'] ?? ''));
+        $groups  = ConnectionGroup::listForAdmin($search, $sort, $order, $field);
         $addUrl  = admin_url('admin.php?page=' . AdminMenu::PAGE_CONNECTION_GROUPS . '&action=add');
         ?>
         <div class="wrap">
@@ -239,7 +247,20 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                 you can include them in the same invitation.
             </p>
 
-            <?php $this->renderSearchBar('eim-connection-group-search', 'eim-connection-group-count', 'eim-connection-group-loading', 'Search groups or members...', count($groups), $search); ?>
+            <?php $this->renderSearchBar(
+                'eim-connection-group-search',
+                'eim-connection-group-count',
+                'eim-connection-group-loading',
+                'Search groups or members...',
+                count($groups),
+                $search,
+                [
+                    ['value' => 'name',    'label' => 'Name'],
+                    ['value' => 'type',    'label' => 'Type'],
+                    ['value' => 'members', 'label' => 'Members'],
+                ],
+                $field
+            ); ?>
 
             <table id="eim-connection-groups-table"
                    class="wp-list-table widefat fixed striped"
@@ -277,7 +298,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
             <tr>
                 <td colspan="4">
                     <?= $search
-                        ? 'No groups match that search.'
+                        ? 'No results found based upon search criteria.'
                         : 'No connection groups yet. <a href="' . esc_url($addUrl) . '">Add the first one.</a>'; ?>
                 </td>
             </tr>

@@ -54,10 +54,11 @@ final class LocationsPage extends AbstractAdminPage
         $query     = sanitize_text_field(wp_unslash($_GET['query'] ?? ''));
         $sort      = $this->sanitizeLocationSortKey((string) ($_GET['sort'] ?? 'name'));
         $order     = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
-        $locations = Location::listForAdmin($query, $sort, $order);
+        $field     = $this->sanitizeLocationFieldKey((string) ($_GET['field'] ?? ''));
+        $locations = Location::listForAdmin($query, $sort, $order, $field);
 
         ob_start();
-        $this->renderLocationRows($locations);
+        $this->renderLocationRows($locations, $query);
         $html = (string) ob_get_clean();
 
         wp_send_json_success([
@@ -198,7 +199,8 @@ final class LocationsPage extends AbstractAdminPage
         $search    = sanitize_text_field(wp_unslash($_GET['s'] ?? ''));
         $sort      = $this->sanitizeLocationSortKey((string) ($_GET['sort'] ?? 'name'));
         $order     = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
-        $locations = Location::listForAdmin($search, $sort, $order);
+        $field     = $this->sanitizeLocationFieldKey((string) ($_GET['field'] ?? ''));
+        $locations = Location::listForAdmin($search, $sort, $order, $field);
         $addUrl    = admin_url('admin.php?page=' . AdminMenu::PAGE_LOCATIONS . '&action=add');
         ?>
         <div class="wrap">
@@ -212,7 +214,22 @@ final class LocationsPage extends AbstractAdminPage
                 Manage your location library here. These locations are available when setting venue and lodging details on events.
             </p>
 
-            <?php $this->renderSearchBar('eim-location-search', 'eim-location-count', 'eim-location-loading', 'Search by name, city, or state…', count($locations), $search); ?>
+            <?php $this->renderSearchBar(
+                'eim-location-search',
+                'eim-location-count',
+                'eim-location-loading',
+                'Search by name, city, or state…',
+                count($locations),
+                $search,
+                [
+                    ['value' => 'name',        'label' => 'Name'],
+                    ['value' => 'is_other',    'label' => 'Type'],
+                    ['value' => 'has_lodging', 'label' => 'Lodging'],
+                    ['value' => 'address',     'label' => 'Address'],
+                    ['value' => 'used_in',     'label' => 'Used In'],
+                ],
+                $field
+            ); ?>
 
             <table id="eim-locations-table"
                    class="wp-list-table widefat fixed striped"
@@ -229,7 +246,7 @@ final class LocationsPage extends AbstractAdminPage
                     </tr>
                 </thead>
                 <tbody id="eim-locations-table-body">
-                    <?php $this->renderLocationRows($locations); ?>
+                    <?php $this->renderLocationRows($locations, $search); ?>
                 </tbody>
             </table>
 
@@ -246,14 +263,11 @@ final class LocationsPage extends AbstractAdminPage
      * @param Location[] $locations
      * @return void
      */
-    private function renderLocationRows(array $locations): void
+    private function renderLocationRows(array $locations, string $search = ''): void
     {
         if (empty($locations)) {
-            ?>
-            <tr class="eim-no-results">
-                <td colspan="6">No locations found.</td>
-            </tr>
-            <?php
+            $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No locations found.';
+            echo '<tr class="eim-no-results"><td colspan="6">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -329,8 +343,13 @@ final class LocationsPage extends AbstractAdminPage
     private function sanitizeLocationSortKey(string $key): string
     {
         $key = sanitize_key($key);
-
         return in_array($key, ['name', 'is_other', 'has_lodging'], true) ? $key : 'name';
+    }
+
+    private function sanitizeLocationFieldKey(string $field): string
+    {
+        $field = sanitize_key($field);
+        return in_array($field, ['name', 'is_other', 'has_lodging', 'address', 'used_in'], true) ? $field : '';
     }
 
     /**

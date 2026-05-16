@@ -15,16 +15,19 @@ abstract class AbstractAdminPage
      * Renders the search/filter bar used above list tables.
      *
      * Outputs a shared .eim-list-table-controls wrapper containing a search
-     * input, a live result-count label, and a WordPress spinner element.
-     * JavaScript on each page drives the AJAX refresh; this method is
-     * purely responsible for the initial server-rendered markup.
+     * input, an optional column-filter dropdown, a live result-count label,
+     * and a WordPress spinner element. JavaScript on each page drives the
+     * AJAX refresh; this method is purely responsible for the initial
+     * server-rendered markup.
      *
-     * @param string $inputId       HTML id for the <input type="search">.
-     * @param string $countId       HTML id for the result-count <span>.
-     * @param string $spinnerId     HTML id for the spinner <span>.
-     * @param string $placeholder   Visible placeholder and accessible label text.
-     * @param int    $count         Initial row count shown before any search.
-     * @param string $currentSearch Current search value pre-filled into the input.
+     * @param string                              $inputId        HTML id for the <input type="search">.
+     * @param string                              $countId        HTML id for the result-count <span>.
+     * @param string                              $spinnerId      HTML id for the spinner <span>.
+     * @param string                              $placeholder    Visible placeholder and accessible label text.
+     * @param int                                 $count          Initial row count shown before any search.
+     * @param string                              $currentSearch  Current search value pre-filled into the input.
+     * @param array<int,array{value:string,label:string}> $filterOptions Column options for the field dropdown.
+     * @param string                              $currentField   Currently selected field option value.
      * @return void
      */
     protected function renderSearchBar(
@@ -33,7 +36,9 @@ abstract class AbstractAdminPage
         string $spinnerId,
         string $placeholder,
         int    $count,
-        string $currentSearch = ''
+        string $currentSearch  = '',
+        array  $filterOptions  = [],
+        string $currentField   = ''
     ): void {
         ?>
         <div class="eim-list-table-controls">
@@ -44,6 +49,18 @@ abstract class AbstractAdminPage
                    value="<?= esc_attr($currentSearch); ?>"
                    placeholder="<?= esc_attr($placeholder); ?>"
                    autocomplete="off">
+            <?php if (!empty($filterOptions)): ?>
+                <label class="screen-reader-text" for="<?= esc_attr($inputId); ?>-field">Search in column</label>
+                <select id="<?= esc_attr($inputId); ?>-field" class="eim-search-field-select">
+                    <option value="">Any</option>
+                    <?php foreach ($filterOptions as $option): ?>
+                        <option value="<?= esc_attr($option['value']); ?>"
+                                <?= selected($currentField, $option['value'], false); ?>>
+                            <?= esc_html($option['label']); ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            <?php endif; ?>
             <span id="<?= esc_attr($countId); ?>" class="description">
                 <?= esc_html($count); ?> result<?= $count === 1 ? '' : 's'; ?>
             </span>
