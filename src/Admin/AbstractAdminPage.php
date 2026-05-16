@@ -40,8 +40,8 @@ abstract class AbstractAdminPage
         array  $filterOptions  = [],
         string $currentField   = ''
     ): void {
-        // No items and no active filter — searching an empty list is pointless.
-        if ($count === 0 && $currentSearch === '' && $currentField === '') {
+        // Fewer than two items and no active filter — a search bar is redundant.
+        if ($count < 2 && $currentSearch === '' && $currentField === '') {
             return;
         }
         ?>

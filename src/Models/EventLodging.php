@@ -112,10 +112,64 @@ final class EventLodging
         $result = $wpdb->insert(DatabaseManager::eventLodgingTable(), [
             'event_id'    => $eventId,
             'location_id' => $locationId,
-            'sort_order'  => $sortOrder,
+            'sort_order'  => $sortOrder > 0 ? $sortOrder : self::nextSortOrder($eventId),
         ]);
 
         return $result !== false;
+    }
+
+    /**
+     * Updates event-specific lodging ordering.
+     *
+     * @param int   $eventId
+     * @param int[] $assignmentIds
+     * @return bool
+     */
+    public static function updateSortOrder(int $eventId, array $assignmentIds): bool
+    {
+        global $wpdb;
+
+        $assignmentIds = array_values(array_unique(array_filter(array_map('intval', $assignmentIds))));
+
+        if (empty($assignmentIds)) {
+            return true;
+        }
+
+        $table        = DatabaseManager::eventLodgingTable();
+        $placeholders = implode(', ', array_fill(0, count($assignmentIds), '%d'));
+
+        $validIds = $wpdb->get_col(
+            $wpdb->prepare(
+                "SELECT id FROM {$table} WHERE event_id = %d AND id IN ({$placeholders})",
+                $eventId,
+                ...$assignmentIds
+            )
+        );
+
+        $validLookup = array_flip(array_map('intval', $validIds ?? []));
+        $position    = 1;
+
+        foreach ($assignmentIds as $assignmentId) {
+            if (!isset($validLookup[$assignmentId])) {
+                continue;
+            }
+
+            $updated = $wpdb->update(
+                $table,
+                ['sort_order' => $position],
+                ['id' => $assignmentId, 'event_id' => $eventId],
+                ['%d'],
+                ['%d', '%d']
+            );
+
+            if ($updated === false) {
+                return false;
+            }
+
+            $position++;
+        }
+
+        return true;
     }
 
     /**
@@ -143,6 +197,18 @@ final class EventLodging
     {
         global $wpdb;
         $wpdb->delete(DatabaseManager::eventLodgingTable(), ['event_id' => $eventId]);
+    }
+
+    private static function nextSortOrder(int $eventId): int
+    {
+        global $wpdb;
+
+        return (int) $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM " . DatabaseManager::eventLodgingTable() . " WHERE event_id = %d",
+                $eventId
+            )
+        );
     }
 
     /**

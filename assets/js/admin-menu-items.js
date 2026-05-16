@@ -29,20 +29,34 @@
     // MenuItemTable — live search for one type (food or beverage)
     // -----------------------------------------------------------------------
     class MenuItemTable {
-        #type; #tbody; #search; #field; #count; #spinner;
+        #type; #table; #tbody; #search; #field; #count; #spinner; #sort; #order;
 
         constructor(type) {
             this.#type    = type;
+            this.#table   = document.getElementById(`eim-menu-${type}-table`);
             this.#tbody   = document.getElementById(`eim-menu-${type}-table-body`);
             this.#search  = document.getElementById(`eim-menu-${type}-search`);
             this.#field   = document.getElementById(`eim-menu-${type}-search-field`);
             this.#count   = document.getElementById(`eim-menu-${type}-count`);
             this.#spinner = document.getElementById(`eim-menu-${type}-loading`);
 
-            if (!this.#tbody || !this.#search || !config.searchNonce) return;
+            if (!this.#table || !this.#tbody || !config.searchNonce) return;
 
-            this.#search.addEventListener('input', debounce(() => this.#refresh()));
+            this.#sort  = this.#table.dataset.sort  || 'label';
+            this.#order = this.#table.dataset.order || 'asc';
+
+            this.#search?.addEventListener('input', debounce(() => this.#refresh()));
             this.#field?.addEventListener('change', () => this.#refresh());
+
+            for (const link of this.#table.querySelectorAll('.eim-sort-link')) {
+                link.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    this.#sort  = link.dataset.sort  || 'label';
+                    this.#order = link.dataset.order || 'asc';
+                    this.#updateSortLinks();
+                    this.#refresh();
+                });
+            }
         }
 
         async #refresh() {
@@ -52,6 +66,8 @@
                     nonce: config.searchNonce,
                     type:  this.#type,
                     query: this.#search?.value || '',
+                    sort:  this.#sort,
+                    order: this.#order,
                     field: this.#field?.value  || '',
                 });
                 const { success, data } = await (await fetch(url, { credentials: 'same-origin' })).json();
@@ -62,6 +78,21 @@
                 console.error('[EIM] Menu item search failed:', e);
             } finally {
                 if (this.#spinner) this.#spinner.classList.remove('is-active');
+            }
+        }
+
+        #updateSortLinks() {
+            if (!this.#table) return;
+
+            this.#table.dataset.sort  = this.#sort;
+            this.#table.dataset.order = this.#order;
+
+            for (const link of this.#table.querySelectorAll('.eim-sort-link')) {
+                const isCurrent = (link.dataset.sort || '') === this.#sort;
+                link.dataset.order = isCurrent && this.#order === 'asc' ? 'desc' : 'asc';
+
+                const indicator = link.querySelector('span[aria-hidden]');
+                if (indicator) indicator.textContent = isCurrent ? (this.#order === 'asc' ? '^' : 'v') : '';
             }
         }
     }

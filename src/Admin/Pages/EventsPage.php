@@ -168,7 +168,8 @@ final class EventsPage extends AbstractAdminPage
         }
 
         $seenLocationIds = [];
-        foreach ($locationIds as $i => $rawId) {
+        $sortOrder = 1;
+        foreach ($locationIds as $rawId) {
             $locationId = (int) $rawId;
             if ($locationId <= 0 || isset($seenLocationIds[$locationId])) {
                 continue;
@@ -178,8 +179,9 @@ final class EventsPage extends AbstractAdminPage
             EventLodging::create(
                 $eventId,
                 $locationId,
-                (int) ($_POST['lodging_init_sort'][$i] ?? 0)
+                $sortOrder
             );
+            $sortOrder++;
         }
     }
 
@@ -284,7 +286,7 @@ final class EventsPage extends AbstractAdminPage
             exit;
         }
 
-        $created = EventLodging::create($eventId, $locationId, (int) ($_POST['sort_order'] ?? 0));
+        $created = EventLodging::create($eventId, $locationId);
         $args    = ['page' => AdminMenu::PAGE_EVENTS, 'action' => 'edit', 'id' => $eventId];
 
         if ($created) {
@@ -574,6 +576,51 @@ final class EventsPage extends AbstractAdminPage
             'eim_message' => 'menu_item_removed_from_event',
         ], admin_url('admin.php')) . '#eim-rsvp-options');
         exit;
+    }
+
+    public function handleAjaxSortLodging(): void
+    {
+        check_ajax_referer('eim_event_assignment_sort_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions.', 403);
+        }
+
+        $eventId = (int) ($_POST['event_id'] ?? 0);
+        $ids     = wp_unslash($_POST['ids'] ?? []);
+
+        if ($eventId <= 0 || !is_array($ids) || Event::find($eventId) === null) {
+            wp_send_json_error('Invalid request.', 400);
+        }
+
+        if (!EventLodging::updateSortOrder($eventId, $ids)) {
+            wp_send_json_error('Unable to save lodging order.', 500);
+        }
+
+        wp_send_json_success(['message' => 'Lodging order saved.']);
+    }
+
+    public function handleAjaxSortMenuItems(): void
+    {
+        check_ajax_referer('eim_event_assignment_sort_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions.', 403);
+        }
+
+        $eventId = (int) ($_POST['event_id'] ?? 0);
+        $type    = sanitize_key($_POST['type'] ?? MenuItem::TYPE_FOOD);
+        $ids     = wp_unslash($_POST['ids'] ?? []);
+
+        if ($eventId <= 0 || !is_array($ids) || Event::find($eventId) === null) {
+            wp_send_json_error('Invalid request.', 400);
+        }
+
+        if (!MenuItem::updateEventSortOrder($eventId, $type, $ids)) {
+            wp_send_json_error('Unable to save menu item order.', 500);
+        }
+
+        wp_send_json_success(['message' => 'Menu item order saved.']);
     }
 
     /**
@@ -1237,14 +1284,11 @@ final class EventsPage extends AbstractAdminPage
                                         <input type="hidden" class="eim-lodging-init-state"      name="lodging_init_state[]">
                                         <input type="hidden" class="eim-lodging-init-zip"        name="lodging_init_zip[]">
                                         <input type="hidden" class="eim-lodging-init-is-other"   name="lodging_init_is_other[]" value="">
-                                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">
-                                            <input type="text" class="eim-lodging-init-name regular-text"
-                                                   name="lodging_init_name[]" placeholder="Search locations library…" autocomplete="off">
-                                            <label style="white-space:nowrap;">Order:
-                                                <input type="number" class="eim-lodging-init-sort" name="lodging_init_sort[]" value="0" min="0" style="width:58px;">
-                                            </label>
-                                            <button type="button" class="button eim-remove-lodging-row">Remove</button>
-                                        </div>
+	                                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">
+	                                            <input type="text" class="eim-lodging-init-name regular-text"
+	                                                   name="lodging_init_name[]" placeholder="Search locations library…" autocomplete="off">
+	                                            <button type="button" class="button eim-remove-lodging-row">Remove</button>
+	                                        </div>
                                         <p class="eim-lodging-init-display" style="margin:0;color:#3c434a;font-size:13px;display:none;"></p>
                                     </div>
                                 </div>
@@ -1259,14 +1303,11 @@ final class EventsPage extends AbstractAdminPage
                                         <input type="hidden" class="eim-lodging-init-state"      name="lodging_init_state[]">
                                         <input type="hidden" class="eim-lodging-init-zip"        name="lodging_init_zip[]">
                                         <input type="hidden" class="eim-lodging-init-is-other"   name="lodging_init_is_other[]" value="">
-                                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">
-                                            <input type="text" class="eim-lodging-init-name regular-text"
-                                                   name="lodging_init_name[]" placeholder="Search locations library…" autocomplete="off">
-                                            <label style="white-space:nowrap;">Order:
-                                                <input type="number" class="eim-lodging-init-sort" name="lodging_init_sort[]" value="0" min="0" style="width:58px;">
-                                            </label>
-                                            <button type="button" class="button eim-remove-lodging-row">Remove</button>
-                                        </div>
+	                                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">
+	                                            <input type="text" class="eim-lodging-init-name regular-text"
+	                                                   name="lodging_init_name[]" placeholder="Search locations library…" autocomplete="off">
+	                                            <button type="button" class="button eim-remove-lodging-row">Remove</button>
+	                                        </div>
                                         <p class="eim-lodging-init-display" style="margin:0;color:#3c434a;font-size:13px;display:none;"></p>
                                     </div>
                                 </template>
@@ -1276,29 +1317,54 @@ final class EventsPage extends AbstractAdminPage
                         <tr>
                             <th scope="row">Lodging Locations</th>
                             <td>
-                                <?php $lodgingLocations = EventLodging::forEvent($event->id); ?>
-                                <?php if (!empty($lodgingLocations)): ?>
-                                    <table class="wp-list-table widefat fixed striped" style="margin-bottom:12px;">
-                                        <thead>
-                                            <tr>
-                                                <th style="width:8%;">Order</th>
-                                                <th>Name / Address</th>
-                                                <th style="width:12%;">Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <?php foreach ($lodgingLocations as $loc): ?>
-                                                <?php
-                                                $removeUrl = wp_nonce_url(
-                                                    admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=remove_lodging_from_event&id=' . $loc->id . '&event_id=' . $event->id),
-                                                    'eim_remove_lodging_' . $loc->id
-                                                );
-                                                ?>
-                                                <tr>
-                                                    <td><?= esc_html($loc->sortOrder); ?></td>
-                                                    <td>
-                                                        <strong><?= esc_html($loc->name); ?></strong>
-                                                        <?php if ($loc->isOther): ?>
+	                                <?php $lodgingLocations = EventLodging::forEvent($event->id); ?>
+	                                <?php if (!empty($lodgingLocations)): ?>
+	                                    <?php $canSortLodging = count($lodgingLocations) > 1; ?>
+	                                    <?php if ($canSortLodging): ?>
+	                                        <p class="description eim-sortable-hint">Drag rows by the handle to set their order. Order numbers update automatically.</p>
+	                                        <p class="description eim-sort-status" aria-live="polite"></p>
+	                                    <?php endif; ?>
+	                                    <table id="eim-event-lodging-table"
+                                               class="wp-list-table widefat fixed striped eim-sortable-assignment-list"
+                                               data-kind="lodging"
+                                               data-sort="order"
+                                               data-order="asc"
+                                               style="margin-bottom:12px;">
+	                                        <thead>
+	                                            <tr>
+	                                                <?php if ($canSortLodging): ?>
+	                                                    <th class="eim-drag-column"><span class="screen-reader-text">Move</span></th>
+	                                                <?php endif; ?>
+	                                                <th style="width:8%;"><?= $this->clientSortLink('Order', 'order', 'order', 'asc'); ?></th>
+	                                                <th><?= $this->clientSortLink('Name / Address', 'name', 'order', 'asc'); ?></th>
+	                                                <th style="width:12%;">Actions</th>
+	                                            </tr>
+	                                        </thead>
+	                                        <tbody>
+	                                            <?php foreach ($lodgingLocations as $position => $loc): ?>
+	                                                <?php
+	                                                $removeUrl = wp_nonce_url(
+	                                                    admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=remove_lodging_from_event&id=' . $loc->id . '&event_id=' . $event->id),
+	                                                    'eim_remove_lodging_' . $loc->id
+	                                                );
+	                                                $displayOrder = $position + 1;
+	                                                ?>
+	                                                <tr class="eim-sortable-row"
+                                                        data-id="<?= esc_attr($loc->id); ?>"
+                                                        data-order="<?= esc_attr($displayOrder); ?>"
+                                                        data-name="<?= esc_attr(strtolower($loc->name)); ?>"
+                                                        data-address="<?= esc_attr(strtolower($loc->formattedAddress())); ?>">
+	                                                    <?php if ($canSortLodging): ?>
+	                                                        <td class="eim-drag-column">
+	                                                            <button type="button" class="button-link eim-drag-handle" aria-label="Drag to reorder <?= esc_attr($loc->name); ?>">
+	                                                                <span class="dashicons dashicons-menu" aria-hidden="true"></span>
+	                                                            </button>
+	                                                        </td>
+	                                                    <?php endif; ?>
+	                                                    <td class="eim-order-cell"><?= esc_html($displayOrder); ?></td>
+	                                                    <td>
+	                                                        <strong><?= esc_html($loc->name); ?></strong>
+	                                                        <?php if ($loc->isOther): ?>
                                                             <span style="background:#f0f0f1;padding:1px 6px;border-radius:3px;font-size:11px;margin-left:4px;">Other</span>
                                                         <?php elseif ($loc->formattedAddress()): ?>
                                                             <br><span style="color:#666;font-size:12px;"><?= esc_html($loc->formattedAddress()); ?></span>
@@ -1316,8 +1382,8 @@ final class EventsPage extends AbstractAdminPage
                                     <p style="margin:0 0 8px;">No lodging locations added yet.</p>
                                 <?php endif; ?>
 
-                                <div>
-                                    <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" name="_wpnonce"          value="<?= esc_attr(wp_create_nonce('eim_add_lodging_to_event')); ?>">
+	                                    <div>
+	                                    <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" name="_wpnonce"          value="<?= esc_attr(wp_create_nonce('eim_add_lodging_to_event')); ?>">
                                     <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" name="eim_action"        value="add_lodging_to_event">
                                     <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" name="event_id"          value="<?= esc_attr($event->id); ?>">
                                     <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" id="eim_lodging_add_library_id" name="lodging_add_library_id" value="">
@@ -1326,14 +1392,11 @@ final class EventsPage extends AbstractAdminPage
                                     <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" id="eim_lodging_add_state"      name="state">
                                     <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" id="eim_lodging_add_zip"        name="zip_code">
                                     <input form="<?= esc_attr($addLodgingFormId); ?>" type="hidden" id="eim_lodging_add_is_other"   name="is_other" value="">
-                                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">
-                                        <input form="<?= esc_attr($addLodgingFormId); ?>" type="text" id="eim_lodging_add_name" name="name" class="regular-text"
-                                               placeholder="Search locations library…" autocomplete="off">
-                                        <label style="white-space:nowrap;">Order:
-                                            <input form="<?= esc_attr($addLodgingFormId); ?>" type="number" name="sort_order" value="0" min="0" style="width:58px;">
-                                        </label>
-                                        <button form="<?= esc_attr($addLodgingFormId); ?>" type="submit" class="button">Add Location</button>
-                                    </div>
+	                                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">
+	                                        <input form="<?= esc_attr($addLodgingFormId); ?>" type="text" id="eim_lodging_add_name" name="name" class="regular-text"
+	                                               placeholder="Search locations library…" autocomplete="off">
+	                                        <button form="<?= esc_attr($addLodgingFormId); ?>" type="submit" class="button">Add Location</button>
+	                                    </div>
                                     <p id="eim_lodging_add_display" style="margin:4px 0 0;color:#3c434a;font-size:13px;display:none;"></p>
                                 </div>
                             </td>
@@ -1406,44 +1469,91 @@ final class EventsPage extends AbstractAdminPage
      */
     private function renderEventMenuItemsSubsection(Event $event, string $type, string $heading, array $assignedItems): void
     {
-        $label = $type === MenuItem::TYPE_BEVERAGE ? 'beverage' : 'food';
-        ?>
-        <h3><?= esc_html($heading); ?></h3>
+	        $label    = $type === MenuItem::TYPE_BEVERAGE ? 'beverage' : 'food';
+	        $searchId = 'eim-event-' . $type . '-item-search';
+	        $countId  = 'eim-event-' . $type . '-item-count';
+	        $tbodyId  = 'eim-event-' . $type . '-items-body';
+	        $canReorder = count($assignedItems) > 1;
+	        $columnCount = $canReorder ? 5 : 4;
+	        ?>
+	        <h3><?= esc_html($heading); ?></h3>
 
-        <?php if (!empty($assignedItems)): ?>
-            <table class="wp-list-table widefat fixed striped" style="margin-bottom:12px;max-width:680px;">
-                <thead>
-                    <tr>
-                        <th>Label</th>
-                        <th style="width:40%;">Description</th>
-                        <th style="width:10%;">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($assignedItems as $item): ?>
-                        <?php
-                        $removeUrl = wp_nonce_url(
-                            admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS
-                                . '&action=remove_menu_item_from_event'
-                                . '&event_id=' . $event->id
-                                . '&menu_item_id=' . $item->id),
-                            'eim_remove_menu_item_' . $event->id . '_' . $item->id
-                        );
-                        ?>
-                        <tr>
-                            <td><strong><?= esc_html($item->label); ?></strong></td>
-                            <td><?= esc_html($item->description ?: '—'); ?></td>
-                            <td>
-                                <a href="<?= esc_url($removeUrl); ?>"
-                                   onclick="return confirm('Remove &ldquo;<?= esc_js($item->label); ?>&rdquo; from this event?');">Remove</a>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
+	        <div style="max-width:680px;">
+            <?php $this->renderSearchBar(
+                $searchId,
+                $countId,
+                'eim-event-' . $type . '-item-loading',
+                'Search ' . $label . ' items…',
+                count($assignedItems),
+                '',
+                [
+                    ['value' => 'label',       'label' => 'Label'],
+                    ['value' => 'description', 'label' => 'Description'],
+	                ]
+	            ); ?>
+
+	            <?php if ($canReorder): ?>
+	                <p class="description eim-sortable-hint">Drag rows by the handle to set their order. Order numbers update automatically.</p>
+	                <p class="description eim-sort-status" aria-live="polite"></p>
+	            <?php endif; ?>
+
+	            <table class="wp-list-table widefat fixed striped eim-sortable-assignment-list"
+                       data-kind="menu"
+                       data-type="<?= esc_attr($type); ?>"
+                       data-sort="order"
+                       data-order="asc"
+                       style="margin-bottom:12px;">
+	                <thead>
+	                    <tr>
+	                        <?php if ($canReorder): ?>
+	                            <th class="eim-drag-column"><span class="screen-reader-text">Move</span></th>
+	                        <?php endif; ?>
+	                        <th style="width:10%;"><?= $this->clientSortLink('Order', 'order', 'order', 'asc'); ?></th>
+	                        <th><?= $this->clientSortLink('Label', 'label', 'order', 'asc'); ?></th>
+	                        <th style="width:40%;"><?= $this->clientSortLink('Description', 'description', 'order', 'asc'); ?></th>
+	                        <th style="width:10%;">Actions</th>
+	                    </tr>
+	                </thead>
+	                <tbody id="<?= esc_attr($tbodyId); ?>">
+	                    <?php if (empty($assignedItems)): ?>
+	                        <tr class="eim-no-results"><td colspan="<?= esc_attr($columnCount); ?>">No <?= esc_html($label); ?> items added yet.</td></tr>
+	                    <?php else: ?>
+	                        <?php foreach ($assignedItems as $position => $item): ?>
+	                            <?php
+	                            $removeUrl = wp_nonce_url(
+	                                admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS
+	                                    . '&action=remove_menu_item_from_event'
+                                    . '&event_id=' . $event->id
+	                                    . '&menu_item_id=' . $item->id),
+	                                'eim_remove_menu_item_' . $event->id . '_' . $item->id
+	                            );
+	                            $displayOrder = $position + 1;
+	                            ?>
+	                            <tr class="eim-sortable-row"
+                                    data-id="<?= esc_attr($item->id); ?>"
+                                    data-order="<?= esc_attr($displayOrder); ?>"
+                                    data-label="<?= esc_attr(strtolower($item->label)); ?>"
+	                                data-description="<?= esc_attr(strtolower($item->description)); ?>">
+	                                <?php if ($canReorder): ?>
+	                                    <td class="eim-drag-column">
+	                                        <button type="button" class="button-link eim-drag-handle" aria-label="Drag to reorder <?= esc_attr($item->label); ?>">
+	                                            <span class="dashicons dashicons-menu" aria-hidden="true"></span>
+	                                        </button>
+	                                    </td>
+	                                <?php endif; ?>
+	                                <td class="eim-order-cell"><?= esc_html($displayOrder); ?></td>
+	                                <td><strong><?= esc_html($item->label); ?></strong></td>
+	                                <td><?= esc_html($item->description ?: '—'); ?></td>
+	                                <td>
+	                                    <a href="<?= esc_url($removeUrl); ?>"
+                                       onclick="return confirm('Remove &ldquo;<?= esc_js($item->label); ?>&rdquo; from this event?');">Remove</a>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
                 </tbody>
             </table>
-        <?php else: ?>
-            <p style="margin:0 0 10px;color:#646970;">No <?= esc_html($label); ?> items added yet.</p>
-        <?php endif; ?>
+        </div>
 
         <div style="border:1px solid #dcdcde;border-radius:4px;padding:14px;background:#f6f7f7;max-width:680px;">
             <h4 style="margin:0 0 8px;">Add <?= esc_html(ucfirst($label)); ?> Item</h4>
@@ -1468,13 +1578,28 @@ final class EventsPage extends AbstractAdminPage
                 </div>
                 <p id="eim_<?= esc_attr($type); ?>_item_selected" class="description"></p>
             </form>
-        </div>
-        <?php
+	        </div>
+	        <?php
+	    }
+
+    private function clientSortLink(string $label, string $key, string $currentSort, string $currentOrder): string
+    {
+        $isCurrent = $currentSort === $key;
+        $nextOrder = $isCurrent && $currentOrder === 'asc' ? 'desc' : 'asc';
+        $indicator = $isCurrent ? ($currentOrder === 'asc' ? '^' : 'v') : '';
+
+        return sprintf(
+            '<a href="#" class="eim-sort-link" data-sort="%s" data-order="%s">%s <span aria-hidden="true">%s</span></a>',
+            esc_attr($key),
+            esc_attr($nextOrder),
+            esc_html($label),
+            esc_html($indicator)
+        );
     }
 
-    /**
-     * Renders the event-specific invitee section, grouped by invitation group.
-     */
+	    /**
+	     * Renders the event-specific invitee section, grouped by invitation group.
+	     */
     private function sanitizeEventGroupSortKey(string $key): string
     {
         $key = sanitize_key($key);

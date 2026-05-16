@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Events Invite Manager
  * Description: Manages the inviting and registration of attendees for events, with custom email templates, QR code generating functionality, and a front-end registration API.
- * Version:     1.5.2
+ * Version:     1.5.3
  * Requires PHP: 8.1
  * Author:      Chris Paschall
  * License:     GPL-2.0-or-later
@@ -30,7 +30,7 @@ if (version_compare(PHP_VERSION, '8.1', '<')) {
     });
 } else {
 
-    define('EIM_VERSION', '1.5.2');
+    define('EIM_VERSION', '1.5.3');
     define('EIM_PLUGIN_FILE', __FILE__);
     define('EIM_PLUGIN_DIR', plugin_dir_path(__FILE__));
     define('EIM_PLUGIN_URL', plugin_dir_url(__FILE__));

@@ -68,6 +68,8 @@ final class AdminMenu
         // Connection group member picker (on ConnectionGroupsPage).
         add_action('wp_ajax_eim_search_connection_groups', [$this->connectionGroupsPage, 'handleAjaxSearchGroups']);
         add_action('wp_ajax_eim_sort_event_groups',       [$this->eventsPage,            'handleAjaxSortGroups']);
+        add_action('wp_ajax_eim_sort_event_lodging',      [$this->eventsPage,            'handleAjaxSortLodging']);
+        add_action('wp_ajax_eim_sort_event_menu_items',   [$this->eventsPage,            'handleAjaxSortMenuItems']);
         add_action('wp_ajax_eim_suggest_cg_members', [$this->connectionGroupsPage, 'handleAjaxSuggestMembers']);
 
         add_filter('script_loader_tag', [$this, 'addModuleTypeToScript'], 10, 2);
@@ -146,6 +148,7 @@ final class AdminMenu
                     'enabled'         => $page === self::PAGE_EVENTS && $action === 'edit',
                     'id'              => (int) ($_GET['id'] ?? 0),
                     'groupsSortNonce' => wp_create_nonce('eim_event_groups_sort_nonce'),
+                    'assignmentSortNonce' => wp_create_nonce('eim_event_assignment_sort_nonce'),
                 ],
                 'connectionGroup' => [
                     'enabled' => $page === self::PAGE_CONNECTION_GROUPS && in_array($action, ['add', 'edit'], true),

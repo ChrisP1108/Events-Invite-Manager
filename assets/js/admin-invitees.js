@@ -636,6 +636,254 @@
     }
 
     // -----------------------------------------------------------------------
+    // EventMenuItemFilter — client-side search for the event's assigned food/beverage tables
+    // -----------------------------------------------------------------------
+    class EventMenuItemFilter {
+        constructor() {
+            this.#initType('food');
+            this.#initType('beverage');
+        }
+
+        #initType(type) {
+            const search  = document.getElementById(`eim-event-${type}-item-search`);
+            const field   = document.getElementById(`eim-event-${type}-item-search-field`);
+            const count   = document.getElementById(`eim-event-${type}-item-count`);
+            const tbody   = document.getElementById(`eim-event-${type}-items-body`);
+
+            if (!search || !tbody) return;
+
+            const run = () => this.#filter(search, field, count, tbody);
+            search.addEventListener('input', debounce(run));
+            field?.addEventListener('change', run);
+        }
+
+        #filter(search, field, count, tbody) {
+            const query = search.value.toLowerCase().trim();
+            const col   = field?.value || '';
+
+            const dataRows = [...tbody.querySelectorAll('tr[data-label]')];
+            let visible    = 0;
+
+            for (const row of dataRows) {
+                let matches;
+                if (query === '') {
+                    matches = true;
+                } else if (col === 'label') {
+                    matches = row.dataset.label.includes(query);
+                } else if (col === 'description') {
+                    matches = row.dataset.description.includes(query);
+                } else {
+                    matches = row.dataset.label.includes(query) || row.dataset.description.includes(query);
+                }
+                row.style.display = matches ? '' : 'none';
+                if (matches) visible++;
+            }
+
+            if (count) count.textContent = `${visible} result${visible === 1 ? '' : 's'}`;
+
+            let emptyRow = tbody.querySelector('.eim-filter-empty');
+            if (dataRows.length > 0 && visible === 0 && query !== '') {
+                if (!emptyRow) {
+                    emptyRow = document.createElement('tr');
+                    emptyRow.className = 'eim-filter-empty';
+                    const td = document.createElement('td');
+                    td.colSpan = tbody.closest('table')?.tHead?.rows[0]?.cells.length || 3;
+                    td.textContent = 'No results found based upon search criteria.';
+                    emptyRow.appendChild(td);
+                    tbody.appendChild(emptyRow);
+                }
+                emptyRow.style.display = '';
+            } else if (emptyRow) {
+                emptyRow.style.display = 'none';
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // EventAssignmentSorter — drag/order + column sort for event lodging/menu tables
+    // -----------------------------------------------------------------------
+    class EventAssignmentSorter {
+        constructor() {
+            if (!config.event?.assignmentSortNonce) return;
+
+            for (const table of document.querySelectorAll('.eim-sortable-assignment-list')) {
+                this.#initTable(table);
+            }
+        }
+
+        #initTable(table) {
+            const tbody = table.tBodies?.[0];
+            if (!tbody) return;
+
+            for (const link of table.querySelectorAll('.eim-sort-link')) {
+                link.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    const sort  = link.dataset.sort || 'order';
+                    const order = link.dataset.order || 'asc';
+                    this.#sortRows(table, sort, order);
+                    this.#updateSortLinks(table, sort, order);
+                });
+            }
+
+            let dragging = null;
+
+            for (const row of tbody.querySelectorAll('.eim-sortable-row')) {
+                const handle = row.querySelector('.eim-drag-handle');
+                if (!handle) continue;
+
+                row.draggable = false;
+
+                handle.addEventListener('mousedown', () => {
+                    row.draggable = true;
+                });
+
+                handle.addEventListener('mouseup', () => {
+                    if (!row.classList.contains('is-dragging')) row.draggable = false;
+                });
+
+                handle.addEventListener('touchstart', () => {
+                    row.draggable = true;
+                }, { passive: true });
+
+                row.addEventListener('dragstart', (event) => {
+                    dragging = row;
+                    row.classList.add('is-dragging');
+                    event.dataTransfer.effectAllowed = 'move';
+                    event.dataTransfer.setData('text/plain', row.dataset.id || '');
+                });
+
+                row.addEventListener('dragend', () => {
+                    row.classList.remove('is-dragging');
+                    row.draggable = false;
+
+                    if (!dragging) return;
+                    dragging = null;
+                    this.#renumberRows(tbody);
+                    this.#saveOrder(table);
+                });
+            }
+
+            tbody.addEventListener('dragover', (event) => {
+                if (!dragging) return;
+
+                event.preventDefault();
+                const after = this.#dragAfterElement(tbody, event.clientY);
+
+                if (after === null) {
+                    tbody.appendChild(dragging);
+                } else {
+                    tbody.insertBefore(dragging, after);
+                }
+            });
+        }
+
+        #dragAfterElement(tbody, y) {
+            const rows = [...tbody.querySelectorAll('.eim-sortable-row:not(.is-dragging)')]
+                .filter((row) => row.style.display !== 'none');
+
+            return rows.reduce((closest, row) => {
+                const box    = row.getBoundingClientRect();
+                const offset = y - box.top - box.height / 2;
+
+                if (offset < 0 && offset > closest.offset) {
+                    return { offset, row };
+                }
+
+                return closest;
+            }, { offset: Number.NEGATIVE_INFINITY, row: null }).row;
+        }
+
+        #renumberRows(tbody) {
+            const rows = [...tbody.querySelectorAll('.eim-sortable-row')];
+
+            rows.forEach((row, index) => {
+                const order = String(index + 1);
+                row.dataset.order = order;
+
+                const cell = row.querySelector('.eim-order-cell');
+                if (cell) cell.textContent = order;
+            });
+        }
+
+        #sortRows(table, sort, order) {
+            const tbody = table.tBodies?.[0];
+            if (!tbody) return;
+
+            const multiplier = order === 'desc' ? -1 : 1;
+            const rows = [...tbody.querySelectorAll('.eim-sortable-row')];
+
+            rows.sort((a, b) => {
+                const aVal = a.dataset[sort] || '';
+                const bVal = b.dataset[sort] || '';
+
+                if (sort === 'order') {
+                    return multiplier * ((Number(aVal) || 0) - (Number(bVal) || 0));
+                }
+
+                return multiplier * aVal.localeCompare(bVal, undefined, { sensitivity: 'base' });
+            });
+
+            for (const row of rows) {
+                tbody.appendChild(row);
+            }
+        }
+
+        #updateSortLinks(table, sort, order) {
+            table.dataset.sort  = sort;
+            table.dataset.order = order;
+
+            for (const link of table.querySelectorAll('.eim-sort-link')) {
+                const isCurrent = (link.dataset.sort || '') === sort;
+                link.dataset.order = isCurrent && order === 'asc' ? 'desc' : 'asc';
+
+                const indicator = link.querySelector('span[aria-hidden]');
+                if (indicator) indicator.textContent = isCurrent ? (order === 'asc' ? '^' : 'v') : '';
+            }
+        }
+
+        async #saveOrder(table) {
+            const rows = [...(table.tBodies?.[0]?.querySelectorAll('.eim-sortable-row') ?? [])];
+            const ids  = rows.map((row) => row.dataset.id).filter(Boolean);
+
+            if (ids.length < 2) return;
+
+            const body = new URLSearchParams();
+            body.set('nonce', config.event.assignmentSortNonce);
+            body.set('event_id', config.event.id || 0);
+
+            if (table.dataset.kind === 'lodging') {
+                body.set('action', 'eim_sort_event_lodging');
+            } else {
+                body.set('action', 'eim_sort_event_menu_items');
+                body.set('type', table.dataset.type || 'food');
+            }
+
+            ids.forEach((id) => body.append('ids[]', id));
+
+            const status = table.parentElement?.querySelector('.eim-sort-status');
+            if (status) status.textContent = 'Saving order...';
+
+            try {
+                const response = await fetch(ajaxurl, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body,
+                });
+                const { success } = await response.json();
+
+                if (status) {
+                    status.textContent = success ? 'Order saved.' : 'Could not save order.';
+                    window.setTimeout(() => { status.textContent = ''; }, 2400);
+                }
+            } catch (error) {
+                console.error('[EIM] Assignment order save failed:', error);
+                if (status) status.textContent = 'Could not save order.';
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // MenuItemPicker — autocomplete for food/beverage pickers on the event edit page
     // -----------------------------------------------------------------------
     class MenuItemPicker {
@@ -740,6 +988,8 @@
         if (config.event?.enabled) {
             new EventGroupsTable();
             new MenuItemPicker();
+            new EventMenuItemFilter();
+            new EventAssignmentSorter();
         }
     });
 })();

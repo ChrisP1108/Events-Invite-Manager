@@ -123,7 +123,6 @@ final class MenuItemsPage extends AbstractAdminPage
         $type  = $type === MenuItem::TYPE_BEVERAGE ? MenuItem::TYPE_BEVERAGE : MenuItem::TYPE_FOOD;
         $label = sanitize_text_field(wp_unslash($_POST['label'] ?? ''));
         $desc  = sanitize_textarea_field(wp_unslash($_POST['description'] ?? ''));
-        $order = (int) ($_POST['sort_order'] ?? 0);
 
         if ($label === '') {
             wp_redirect(add_query_arg([
@@ -137,7 +136,6 @@ final class MenuItemsPage extends AbstractAdminPage
             'type'        => $type,
             'label'       => $label,
             'description' => $desc,
-            'sort_order'  => $order,
         ]);
 
         wp_redirect(add_query_arg([
@@ -176,6 +174,8 @@ final class MenuItemsPage extends AbstractAdminPage
         $spinnerId = 'eim-menu-' . $type . '-loading';
         $tableId  = 'eim-menu-' . $type . '-table';
         $tbodyId  = 'eim-menu-' . $type . '-table-body';
+        $sort     = 'label';
+        $order    = 'asc';
         $items    = MenuItem::listByType($type);
         ?>
         <div class="eim-menu-section">
@@ -197,12 +197,13 @@ final class MenuItemsPage extends AbstractAdminPage
             <div class="eim-menu-table-wrapper">
                 <table id="<?= esc_attr($tableId); ?>"
                        class="wp-list-table widefat fixed striped"
-                       data-type="<?= esc_attr($type); ?>">
+                       data-type="<?= esc_attr($type); ?>"
+                       data-sort="<?= esc_attr($sort); ?>"
+                       data-order="<?= esc_attr($order); ?>">
                     <thead>
                         <tr>
-                            <th style="width:35%;">Label</th>
-                            <th>Description</th>
-                            <th style="width:10%;">Order</th>
+                            <th style="width:35%;"><?= $this->clientSortLink('Label', 'label', $sort, $order); ?></th>
+                            <th><?= $this->clientSortLink('Description', 'description', $sort, $order); ?></th>
                             <th style="width:10%;">Actions</th>
                         </tr>
                     </thead>
@@ -223,7 +224,7 @@ final class MenuItemsPage extends AbstractAdminPage
             $msg = $search !== ''
                 ? 'No results found based upon search criteria.'
                 : 'No ' . ($type === MenuItem::TYPE_BEVERAGE ? 'beverage' : 'food') . ' items yet.';
-            echo '<tr class="eim-no-results"><td colspan="4">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="3">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -236,7 +237,6 @@ final class MenuItemsPage extends AbstractAdminPage
             <tr>
                 <td><strong><?= esc_html($item->label); ?></strong></td>
                 <td><?= esc_html($item->description ?: '—'); ?></td>
-                <td><?= esc_html($item->sortOrder); ?></td>
                 <td>
                     <a href="<?= esc_url($deleteUrl); ?>"
                        onclick="return confirm('Delete &ldquo;<?= esc_js($item->label); ?>&rdquo;?');">Delete</a>
@@ -262,9 +262,6 @@ final class MenuItemsPage extends AbstractAdminPage
                            required>
                     <input type="text" name="description" class="regular-text"
                            placeholder="Description (optional)">
-                    <label style="white-space:nowrap;">
-                        Order: <input type="number" name="sort_order" value="0" min="0" style="width:58px;">
-                    </label>
                     <button type="submit" class="button button-primary">Add <?= esc_html($label); ?> Item</button>
                 </div>
             </form>
@@ -279,12 +276,27 @@ final class MenuItemsPage extends AbstractAdminPage
     private function sanitizeMenuItemSortKey(string $key): string
     {
         $key = sanitize_key($key);
-        return in_array($key, ['label', 'sort_order'], true) ? $key : 'label';
+        return in_array($key, ['label', 'description'], true) ? $key : 'label';
     }
 
     private function sanitizeMenuItemFieldKey(string $field): string
     {
         $field = sanitize_key($field);
         return in_array($field, ['label', 'description'], true) ? $field : '';
+    }
+
+    private function clientSortLink(string $label, string $key, string $currentSort, string $currentOrder): string
+    {
+        $isCurrent = $currentSort === $key;
+        $nextOrder = $isCurrent && $currentOrder === 'asc' ? 'desc' : 'asc';
+        $indicator = $isCurrent ? ($currentOrder === 'asc' ? '^' : 'v') : '';
+
+        return sprintf(
+            '<a href="#" class="eim-sort-link" data-sort="%s" data-order="%s">%s <span aria-hidden="true">%s</span></a>',
+            esc_attr($key),
+            esc_attr($nextOrder),
+            esc_html($label),
+            esc_html($indicator)
+        );
     }
 }

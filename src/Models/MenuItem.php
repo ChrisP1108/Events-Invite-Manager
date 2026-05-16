@@ -61,9 +61,9 @@ class MenuItem
 
         $table    = DatabaseManager::menuItemsTable();
         $type     = $type === self::TYPE_BEVERAGE ? self::TYPE_BEVERAGE : self::TYPE_FOOD;
-        $sortCol  = $sort === 'sort_order' ? 'sort_order' : 'label';
+        $sortCol  = $sort === 'description' ? 'description' : 'label';
         $orderSql = strtolower($order) === 'desc' ? 'DESC' : 'ASC';
-        $orderBy  = "ORDER BY {$sortCol} {$orderSql}, id ASC";
+        $orderBy  = "ORDER BY {$sortCol} {$orderSql}, label ASC, id ASC";
 
         if ($search === '') {
             // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared
@@ -129,7 +129,7 @@ class MenuItem
                 "SELECT * FROM {$table}
                  WHERE type = %s AND is_active = 1
                    AND (LOWER(label) LIKE %s OR LOWER(description) LIKE %s)
-                 ORDER BY sort_order ASC, label ASC
+                 ORDER BY label ASC
                  LIMIT %d",
                 $type, $like, $like, $limit
             )
@@ -150,7 +150,6 @@ class MenuItem
             'type'        => $type,
             'label'       => (string) ($data['label']       ?? ''),
             'description' => (string) ($data['description'] ?? ''),
-            'sort_order'  => (int)    ($data['sort_order']  ?? 0),
             'is_active'   => isset($data['is_active']) ? (int) $data['is_active'] : 1,
         ]);
 
@@ -164,7 +163,6 @@ class MenuItem
         $fields = [];
         if (isset($data['label']))       $fields['label']       = (string) $data['label'];
         if (isset($data['description'])) $fields['description'] = (string) $data['description'];
-        if (isset($data['sort_order']))  $fields['sort_order']  = (int)    $data['sort_order'];
         if (isset($data['is_active']))   $fields['is_active']   = (int)    $data['is_active'];
 
         if (empty($fields)) {
@@ -201,7 +199,9 @@ class MenuItem
             $type = $type === self::TYPE_BEVERAGE ? self::TYPE_BEVERAGE : self::TYPE_FOOD;
             $rows = $wpdb->get_results(
                 $wpdb->prepare(
-                    "SELECT mi.* FROM {$itemsTable} mi
+                    "SELECT mi.id, mi.type, mi.label, mi.description,
+                            emi.sort_order, mi.is_active, mi.created_at, mi.updated_at
+                     FROM {$itemsTable} mi
                      INNER JOIN {$pivotTable} emi ON emi.menu_item_id = mi.id
                      WHERE emi.event_id = %d AND mi.type = %s
                      ORDER BY emi.sort_order ASC, mi.label ASC",
@@ -212,7 +212,9 @@ class MenuItem
         } else {
             $rows = $wpdb->get_results(
                 $wpdb->prepare(
-                    "SELECT mi.* FROM {$itemsTable} mi
+                    "SELECT mi.id, mi.type, mi.label, mi.description,
+                            emi.sort_order, mi.is_active, mi.created_at, mi.updated_at
+                     FROM {$itemsTable} mi
                      INNER JOIN {$pivotTable} emi ON emi.menu_item_id = mi.id
                      WHERE emi.event_id = %d
                      ORDER BY mi.type ASC, emi.sort_order ASC, mi.label ASC",
@@ -254,7 +256,71 @@ class MenuItem
         return $wpdb->insert(DatabaseManager::eventMenuItemsTable(), [
             'event_id'     => $eventId,
             'menu_item_id' => $menuItemId,
+            'sort_order'   => self::nextEventSortOrder($eventId, $menuItemId),
         ]) !== false;
+    }
+
+    /**
+     * Updates event-specific ordering for one menu item type.
+     *
+     * @param int   $eventId
+     * @param string $type
+     * @param int[] $menuItemIds
+     * @return bool
+     */
+    public static function updateEventSortOrder(int $eventId, string $type, array $menuItemIds): bool
+    {
+        global $wpdb;
+
+        $type        = $type === self::TYPE_BEVERAGE ? self::TYPE_BEVERAGE : self::TYPE_FOOD;
+        $menuItemIds = array_values(array_unique(array_filter(array_map('intval', $menuItemIds))));
+
+        if (empty($menuItemIds)) {
+            return true;
+        }
+
+        $itemsTable = DatabaseManager::menuItemsTable();
+        $pivotTable = DatabaseManager::eventMenuItemsTable();
+        $placeholders = implode(', ', array_fill(0, count($menuItemIds), '%d'));
+
+        $validIds = $wpdb->get_col(
+            $wpdb->prepare(
+                "SELECT emi.menu_item_id
+                 FROM {$pivotTable} emi
+                 INNER JOIN {$itemsTable} mi ON mi.id = emi.menu_item_id
+                 WHERE emi.event_id = %d
+                   AND mi.type = %s
+                   AND emi.menu_item_id IN ({$placeholders})",
+                $eventId,
+                $type,
+                ...$menuItemIds
+            )
+        );
+
+        $validLookup = array_flip(array_map('intval', $validIds ?? []));
+        $position    = 1;
+
+        foreach ($menuItemIds as $menuItemId) {
+            if (!isset($validLookup[$menuItemId])) {
+                continue;
+            }
+
+            $updated = $wpdb->update(
+                $pivotTable,
+                ['sort_order' => $position],
+                ['event_id' => $eventId, 'menu_item_id' => $menuItemId],
+                ['%d'],
+                ['%d', '%d']
+            );
+
+            if ($updated === false) {
+                return false;
+            }
+
+            $position++;
+        }
+
+        return true;
     }
 
     public static function removeFromEvent(int $eventId, int $menuItemId): bool
@@ -270,6 +336,27 @@ class MenuItem
     {
         global $wpdb;
         $wpdb->delete(DatabaseManager::eventMenuItemsTable(), ['event_id' => $eventId]);
+    }
+
+    private static function nextEventSortOrder(int $eventId, int $menuItemId): int
+    {
+        global $wpdb;
+
+        $itemsTable = DatabaseManager::menuItemsTable();
+        $pivotTable = DatabaseManager::eventMenuItemsTable();
+
+        return (int) $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT COALESCE(MAX(emi.sort_order), 0) + 1
+                 FROM {$pivotTable} emi
+                 INNER JOIN {$itemsTable} assigned ON assigned.id = emi.menu_item_id
+                 INNER JOIN {$itemsTable} added ON added.id = %d
+                 WHERE emi.event_id = %d
+                   AND assigned.type = added.type",
+                $menuItemId,
+                $eventId
+            )
+        );
     }
 
     // -------------------------------------------------------------------------
