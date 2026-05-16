@@ -8,7 +8,7 @@ if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Database\DatabaseManager;
 use EventsInviteManager\Models\EventLodging;
-use EventsInviteManager\Models\EventRsvpOption;
+use EventsInviteManager\Models\MenuItem;
 use EventsInviteManager\Models\InvitationGroup;
 use EventsInviteManager\Models\QrCode;
 
@@ -174,7 +174,7 @@ final class Event
         InvitationGroup::deleteForEvent($id);
         $wpdb->delete(DatabaseManager::eventInviteesTable(), ['event_id' => $id]);
         EventLodging::deleteForEvent($id);
-        EventRsvpOption::deleteForEvent($id);
+        MenuItem::deleteForEvent($id);
         $result = $wpdb->delete(DatabaseManager::eventsTable(), ['id' => $id]);
 
         return $result !== false;

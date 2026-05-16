@@ -11,6 +11,7 @@ use EventsInviteManager\Admin\Pages\ConnectionGroupsPage;
 use EventsInviteManager\Admin\Pages\EventsPage;
 use EventsInviteManager\Admin\Pages\InviteesPage;
 use EventsInviteManager\Admin\Pages\LocationsPage;
+use EventsInviteManager\Admin\Pages\MenuItemsPage;
 use EventsInviteManager\Email\EmailService;
 use EventsInviteManager\Email\TemplateRenderer;
 use EventsInviteManager\Services\QrCodeService;
@@ -24,6 +25,7 @@ final class AdminMenu
     public const PAGE_INVITEES          = 'eim-invitees';
     public const PAGE_CONNECTION_GROUPS = 'eim-connection-groups';
     public const PAGE_LOCATIONS         = 'eim-locations';
+    public const PAGE_MENU_ITEMS        = 'eim-menu-items';
     public const PAGE_ABOUT             = 'eim-about';
 
     private AboutPage            $aboutPage;
@@ -31,6 +33,7 @@ final class AdminMenu
     private InviteesPage         $inviteesPage;
     private ConnectionGroupsPage $connectionGroupsPage;
     private LocationsPage        $locationsPage;
+    private MenuItemsPage        $menuItemsPage;
 
     public function __construct()
     {
@@ -42,6 +45,7 @@ final class AdminMenu
         $this->inviteesPage         = new InviteesPage();
         $this->connectionGroupsPage = new ConnectionGroupsPage();
         $this->locationsPage        = new LocationsPage();
+        $this->menuItemsPage        = new MenuItemsPage();
     }
 
     public function register(): void
@@ -49,6 +53,10 @@ final class AdminMenu
         add_action('admin_menu',            [$this, 'addMenuPages']);
         add_action('admin_init',            [$this, 'processFormSubmissions']);
         add_action('admin_enqueue_scripts', [$this, 'enqueueScripts']);
+
+        // Menu items library + event-edit autocomplete.
+        add_action('wp_ajax_eim_search_menu_items',         [$this->menuItemsPage, 'handleAjaxSearchMenuItems']);
+        add_action('wp_ajax_eim_suggest_menu_items',        [$this->menuItemsPage, 'handleAjaxSuggestMenuItems']);
 
         // Invitee search / suggest / connections for event flow.
         add_action('wp_ajax_eim_search_locations',          [$this->locationsPage, 'handleAjaxSearchLocations']);
@@ -85,6 +93,7 @@ final class AdminMenu
             self::PAGE_INVITEES,
             self::PAGE_CONNECTION_GROUPS,
             self::PAGE_LOCATIONS,
+            self::PAGE_MENU_ITEMS,
             self::PAGE_ABOUT,
         ];
 
@@ -106,8 +115,17 @@ final class AdminMenu
             ]);
         }
 
+        // Menu items library page.
+        if ($page === self::PAGE_MENU_ITEMS) {
+            wp_enqueue_script('eim-admin-menu-items', EIM_PLUGIN_URL . 'assets/js/admin-menu-items.js', [], EIM_VERSION, true);
+            wp_localize_script('eim-admin-menu-items', 'eimMenuItemsAdmin', [
+                'searchNonce' => wp_create_nonce('eim_search_menu_items_nonce'),
+            ]);
+        }
+
         // admin-invitees.js handles: invitee table search, event invitee picker,
-        // connection group list search, and the connection group member picker.
+        // connection group list search, connection group member picker,
+        // and menu item pickers on the event edit screen.
         $needsInviteeJs = $page === self::PAGE_INVITEES
             || ($page === self::PAGE_EVENTS && $action === 'edit')
             || $page === self::PAGE_CONNECTION_GROUPS;
@@ -115,8 +133,9 @@ final class AdminMenu
         if ($needsInviteeJs) {
             wp_enqueue_script('eim-admin-invitees', EIM_PLUGIN_URL . 'assets/js/admin-invitees.js', [], EIM_VERSION, true);
             wp_localize_script('eim-admin-invitees', 'eimInviteesAdmin', [
-                'searchNonce'  => wp_create_nonce('eim_search_invitees_nonce'),
-                'suggestNonce' => wp_create_nonce('eim_suggest_invitees_nonce'),
+                'searchNonce'             => wp_create_nonce('eim_search_invitees_nonce'),
+                'suggestNonce'            => wp_create_nonce('eim_suggest_invitees_nonce'),
+                'suggestMenuItemsNonce'   => wp_create_nonce('eim_suggest_menu_items_nonce'),
                 'connectionGroupSearchNonce' => wp_create_nonce('eim_search_connection_groups_nonce'),
                 'table'        => [
                     'enabled' => $page === self::PAGE_INVITEES,
@@ -124,9 +143,9 @@ final class AdminMenu
                     'order'   => strtolower((string) ($_GET['order'] ?? 'asc')) === 'desc' ? 'desc' : 'asc',
                 ],
                 'event'        => [
-                    'enabled'              => $page === self::PAGE_EVENTS && $action === 'edit',
-                    'id'                   => (int) ($_GET['id'] ?? 0),
-                    'groupsSortNonce'      => wp_create_nonce('eim_event_groups_sort_nonce'),
+                    'enabled'         => $page === self::PAGE_EVENTS && $action === 'edit',
+                    'id'              => (int) ($_GET['id'] ?? 0),
+                    'groupsSortNonce' => wp_create_nonce('eim_event_groups_sort_nonce'),
                 ],
                 'connectionGroup' => [
                     'enabled' => $page === self::PAGE_CONNECTION_GROUPS && in_array($action, ['add', 'edit'], true),
@@ -178,11 +197,12 @@ final class AdminMenu
             30
         );
 
-        add_submenu_page(self::PAGE_EVENTS, 'Events',            'Events',            'manage_options', self::PAGE_EVENTS,            [$this, 'renderEventsPage']);
-        add_submenu_page(self::PAGE_EVENTS, 'Invitees',          'Invitees',          'manage_options', self::PAGE_INVITEES,          [$this, 'renderInviteesPage']);
-        add_submenu_page(self::PAGE_EVENTS, 'Connection Groups', 'Connection Groups', 'manage_options', self::PAGE_CONNECTION_GROUPS, [$this, 'renderConnectionGroupsPage']);
-        add_submenu_page(self::PAGE_EVENTS, 'Locations',         'Locations',         'manage_options', self::PAGE_LOCATIONS,         [$this, 'renderLocationsPage']);
-        add_submenu_page(self::PAGE_EVENTS, 'About',             'About',             'manage_options', self::PAGE_ABOUT,             [$this, 'renderAboutPage']);
+        add_submenu_page(self::PAGE_EVENTS, 'Events',              'Events',              'manage_options', self::PAGE_EVENTS,            [$this, 'renderEventsPage']);
+        add_submenu_page(self::PAGE_EVENTS, 'Invitees',            'Invitees',            'manage_options', self::PAGE_INVITEES,          [$this, 'renderInviteesPage']);
+        add_submenu_page(self::PAGE_EVENTS, 'Connection Groups',   'Connection Groups',   'manage_options', self::PAGE_CONNECTION_GROUPS, [$this, 'renderConnectionGroupsPage']);
+        add_submenu_page(self::PAGE_EVENTS, 'Locations',           'Locations',           'manage_options', self::PAGE_LOCATIONS,         [$this, 'renderLocationsPage']);
+        add_submenu_page(self::PAGE_EVENTS, 'Food &amp; Beverages', 'Food &amp; Beverages', 'manage_options', self::PAGE_MENU_ITEMS,       [$this, 'renderMenuItemsPage']);
+        add_submenu_page(self::PAGE_EVENTS, 'About',               'About',               'manage_options', self::PAGE_ABOUT,             [$this, 'renderAboutPage']);
     }
 
     public function processFormSubmissions(): void
@@ -209,6 +229,10 @@ final class AdminMenu
         if ($page === self::PAGE_LOCATIONS) {
             $this->locationsPage->handleAction($action);
         }
+
+        if ($page === self::PAGE_MENU_ITEMS) {
+            $this->menuItemsPage->handleAction($action);
+        }
     }
 
     public function renderAboutPage(): void            { $this->aboutPage->renderPage(); }
@@ -216,4 +240,5 @@ final class AdminMenu
     public function renderInviteesPage(): void         { $this->inviteesPage->renderPage(); }
     public function renderConnectionGroupsPage(): void { $this->connectionGroupsPage->renderPage(); }
     public function renderLocationsPage(): void        { $this->locationsPage->renderPage(); }
+    public function renderMenuItemsPage(): void        { $this->menuItemsPage->renderPage(); }
 }

@@ -433,10 +433,10 @@ final class InvitationGroup
             ? $status
             : self::RSVP_PENDING;
 
-        $fields = ['rsvp_status' => $status];
-        if ($status === self::RSVP_ATTENDING) {
-            $fields['registered_at'] = current_time('mysql');
-        }
+        $fields = [
+            'rsvp_status'   => $status,
+            'registered_at' => $status === self::RSVP_ATTENDING ? current_time('mysql') : null,
+        ];
 
         if (array_key_exists('food_option_id', $extras)) {
             $fields['food_option_id'] = $extras['food_option_id'] !== null ? (int) $extras['food_option_id'] : null;

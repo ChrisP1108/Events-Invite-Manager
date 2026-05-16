@@ -33,6 +33,35 @@ h1 {
     min-width: 140px;
 }
 
+/* ---- Food & Beverage page ---- */
+
+.eim-menu-items-layout {
+    display: grid;
+    gap: 32px;
+}
+
+@media (min-width: 1200px) {
+    .eim-menu-items-layout {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+.eim-menu-section h2 {
+    margin-bottom: 8px;
+}
+
+.eim-menu-table-wrapper {
+    max-height: 420px; /* ~10 rows */
+    overflow-y: auto;
+    border: 1px solid #dcdcde;
+    border-radius: 3px;
+}
+
+.eim-menu-table-wrapper .wp-list-table {
+    border: none;
+    margin: 0;
+}
+
 .eim-sort-link {
     align-items: center;
     display: inline-flex;

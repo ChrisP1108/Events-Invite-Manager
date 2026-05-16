@@ -636,6 +636,99 @@
     }
 
     // -----------------------------------------------------------------------
+    // MenuItemPicker — autocomplete for food/beverage pickers on the event edit page
+    // -----------------------------------------------------------------------
+    class MenuItemPicker {
+        #inputs = [];
+
+        constructor() {
+            if (!config.suggestMenuItemsNonce) return;
+
+            for (const input of document.querySelectorAll('.eim-menu-item-search')) {
+                this.#initInput(input);
+            }
+        }
+
+        #initInput(input) {
+            const type     = input.dataset.type || 'food';
+            const hiddenId = `eim_${type}_item_id`;
+            const labelId  = `eim_${type}_item_selected`;
+            const hidden   = document.getElementById(hiddenId);
+            const label    = document.getElementById(labelId);
+
+            const dropdown = document.createElement('ul');
+            dropdown.className = 'eim-invitee-suggestions';
+            dropdown.setAttribute('role', 'listbox');
+            dropdown.style.display = 'none';
+            input.parentElement?.classList.add('eim-invitee-picker-positioner');
+            input.parentElement?.appendChild(dropdown);
+
+            input.addEventListener('input', debounce(() => this.#search(input, type, dropdown, hidden, label)));
+            input.addEventListener('input', () => {
+                if (hidden) hidden.value = '';
+                if (label)  label.textContent = '';
+            });
+            input.addEventListener('blur', () => setTimeout(() => { dropdown.style.display = 'none'; }, 150));
+
+            input.closest('form')?.addEventListener('submit', (e) => {
+                if (!hidden?.value) {
+                    e.preventDefault();
+                    alert('Please select an item from the search results before adding it.');
+                }
+            });
+
+            this.#inputs.push({ input, type, dropdown, hidden, label });
+        }
+
+        async #search(input, type, dropdown, hidden, label) {
+            const query = input.value.trim();
+            if (query.length < 1) { dropdown.style.display = 'none'; return; }
+
+            try {
+                const { success, data } = await (await fetch(ajaxUrl('eim_suggest_menu_items', {
+                    nonce: config.suggestMenuItemsNonce,
+                    type,
+                    query,
+                }), { credentials: 'same-origin' })).json();
+
+                this.#renderDropdown(success ? data : [], dropdown, input, hidden, label);
+            } catch (e) {
+                console.error('[EIM] Menu item suggest failed:', e);
+                dropdown.style.display = 'none';
+            }
+        }
+
+        #renderDropdown(items, dropdown, input, hidden, label) {
+            dropdown.replaceChildren();
+            if (!items.length) {
+                const li = document.createElement('li');
+                li.className = 'eim-invitee-suggestion-empty';
+                li.textContent = 'No matching items found.';
+                dropdown.appendChild(li);
+            } else {
+                for (const item of items) {
+                    const li = document.createElement('li');
+                    li.className = 'eim-invitee-suggestion';
+                    li.setAttribute('role', 'option');
+                    const name = document.createElement('strong');
+                    name.textContent = item.label || '';
+                    li.appendChild(name);
+                    if (item.description) li.appendChild(document.createTextNode(` — ${item.description}`));
+                    li.addEventListener('mousedown', (e) => {
+                        e.preventDefault();
+                        input.value  = item.label || '';
+                        if (hidden) hidden.value = String(item.id || '');
+                        if (label)  label.textContent = `Selected: ${item.label}`;
+                        dropdown.style.display = 'none';
+                    });
+                    dropdown.appendChild(li);
+                }
+            }
+            dropdown.style.display = 'block';
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Boot
     // -----------------------------------------------------------------------
     document.addEventListener('DOMContentLoaded', () => {
@@ -644,6 +737,9 @@
         if (config.event?.enabled)                new EventInviteePicker();
         if (config.connectionGroup?.enabled)      new ConnectionGroupMemberPicker();
         new EventGroupManager();
-        if (config.event?.enabled)                new EventGroupsTable();
+        if (config.event?.enabled) {
+            new EventGroupsTable();
+            new MenuItemPicker();
+        }
     });
 })();

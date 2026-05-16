@@ -358,7 +358,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
         $message    = (string) ($_GET['eim_message'] ?? '');
         $error      = (string) ($_GET['eim_error']   ?? '');
         $backUrl    = admin_url('admin.php?page=' . AdminMenu::PAGE_CONNECTION_GROUPS);
-        $title      = $isNew ? 'Add Connection Group' : 'Edit Connection Group: ' . esc_html($group->name);
+        $title      = $isNew ? 'Add Connection Group' : 'Edit Connection Group: ' . $group->name;
         $addMemberId = 'eim-add-member-form';
         ?>
         <div class="wrap">

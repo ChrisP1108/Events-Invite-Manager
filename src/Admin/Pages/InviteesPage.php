@@ -147,6 +147,16 @@ final class InviteesPage extends AbstractAdminPage
             exit;
         }
 
+        if (!is_email($data['email'])) {
+            wp_redirect(add_query_arg([
+                'page'      => AdminMenu::PAGE_INVITEES,
+                'action'    => $id ? 'edit' : 'add',
+                'id'        => $id ?: null,
+                'eim_error' => 'invalid_email',
+            ], admin_url('admin.php')));
+            exit;
+        }
+
         if ($id > 0) {
             Invitee::update($id, $data);
             $message = 'invitee_updated';

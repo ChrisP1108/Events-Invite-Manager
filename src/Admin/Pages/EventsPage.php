@@ -12,7 +12,7 @@ use EventsInviteManager\Email\EmailService;
 use EventsInviteManager\Models\ConnectionGroup;
 use EventsInviteManager\Models\Event;
 use EventsInviteManager\Models\EventLodging;
-use EventsInviteManager\Models\EventRsvpOption;
+use EventsInviteManager\Models\MenuItem;
 use EventsInviteManager\Models\InvitationGroup;
 use EventsInviteManager\Models\Invitee;
 use EventsInviteManager\Models\Location;
@@ -46,8 +46,8 @@ final class EventsPage extends AbstractAdminPage
             'remove_group_from_event'   => $this->handleRemoveGroupFromEvent(),
             'send_event_invite'         => $this->handleSendEventInvite(),
             'send_all_event_invites'    => $this->handleSendAllEventInvites(),
-            'save_rsvp_option'          => $this->handleSaveRsvpOption(),
-            'delete_rsvp_option'        => $this->handleDeleteRsvpOption(),
+            'add_menu_item_to_event'     => $this->handleAddMenuItemToEvent(),
+            'remove_menu_item_from_event' => $this->handleRemoveMenuItemFromEvent(),
             default                     => null,
         };
     }
@@ -524,63 +524,54 @@ final class EventsPage extends AbstractAdminPage
         exit;
     }
 
-    private function handleSaveRsvpOption(): void
+    private function handleAddMenuItemToEvent(): void
     {
-        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_save_rsvp_option')) {
+        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_add_menu_item_to_event')) {
             wp_die('Security check failed.');
         }
 
-        $eventId = (int) ($_POST['event_id']    ?? 0);
-        $type    = sanitize_key($_POST['option_type'] ?? '');
-        $label   = sanitize_text_field(wp_unslash($_POST['option_label'] ?? ''));
-        $desc    = sanitize_textarea_field(wp_unslash($_POST['option_description'] ?? ''));
-        $sort    = (int) ($_POST['option_sort_order'] ?? 0);
+        $eventId    = (int) ($_POST['event_id']    ?? 0);
+        $menuItemId = (int) ($_POST['menu_item_id'] ?? 0);
 
-        if ($eventId === 0 || $label === '' || !in_array($type, ['food', 'beverage'], true)) {
+        $event    = $eventId > 0    ? Event::find($eventId)       : null;
+        $menuItem = $menuItemId > 0 ? MenuItem::find($menuItemId) : null;
+
+        if ($event && $menuItem) {
+            MenuItem::addToEvent($eventId, $menuItemId);
+            wp_redirect(add_query_arg([
+                'page'        => AdminMenu::PAGE_EVENTS,
+                'action'      => 'edit',
+                'id'          => $eventId,
+                'eim_message' => 'menu_item_added_to_event',
+            ], admin_url('admin.php')) . '#eim-rsvp-options');
+        } else {
             wp_redirect(add_query_arg([
                 'page'      => AdminMenu::PAGE_EVENTS,
                 'action'    => 'edit',
                 'id'        => $eventId ?: null,
-                'eim_error' => 'rsvp_option_invalid',
+                'eim_error' => 'invalid_request',
             ], admin_url('admin.php')) . '#eim-rsvp-options');
-            exit;
         }
-
-        EventRsvpOption::create([
-            'event_id'    => $eventId,
-            'type'        => $type,
-            'label'       => $label,
-            'description' => $desc,
-            'sort_order'  => $sort,
-            'is_active'   => 1,
-        ]);
-
-        wp_redirect(add_query_arg([
-            'page'        => AdminMenu::PAGE_EVENTS,
-            'action'      => 'edit',
-            'id'          => $eventId,
-            'eim_message' => 'rsvp_option_saved',
-        ], admin_url('admin.php')) . '#eim-rsvp-options');
         exit;
     }
 
-    private function handleDeleteRsvpOption(): void
+    private function handleRemoveMenuItemFromEvent(): void
     {
-        $optionId = (int) ($_GET['option_id'] ?? 0);
-        $eventId  = (int) ($_GET['event_id']  ?? 0);
-        $nonce    = (string) ($_GET['_wpnonce'] ?? '');
+        $eventId    = (int) ($_GET['event_id']    ?? 0);
+        $menuItemId = (int) ($_GET['menu_item_id'] ?? 0);
+        $nonce      = (string) ($_GET['_wpnonce']  ?? '');
 
-        if (!wp_verify_nonce($nonce, 'eim_delete_rsvp_option_' . $optionId)) {
+        if (!wp_verify_nonce($nonce, 'eim_remove_menu_item_' . $eventId . '_' . $menuItemId)) {
             wp_die('Security check failed.');
         }
 
-        EventRsvpOption::delete($optionId);
+        MenuItem::removeFromEvent($eventId, $menuItemId);
 
         wp_redirect(add_query_arg([
             'page'        => AdminMenu::PAGE_EVENTS,
             'action'      => 'edit',
             'id'          => $eventId,
-            'eim_message' => 'rsvp_option_deleted',
+            'eim_message' => 'menu_item_removed_from_event',
         ], admin_url('admin.php')) . '#eim-rsvp-options');
         exit;
     }
@@ -1032,7 +1023,7 @@ final class EventsPage extends AbstractAdminPage
 
         $message = (string) ($_GET['eim_message'] ?? '');
         $error   = (string) ($_GET['eim_error'] ?? '');
-        $title   = $isNew ? 'Add New Event' : 'Edit Event: ' . esc_html($event->name);
+        $title   = $isNew ? 'Add New Event' : 'Edit Event: ' . $event->name;
         $addLodgingFormId = 'eim-add-lodging-form';
         ?>
         <div class="wrap">
@@ -1385,119 +1376,99 @@ final class EventsPage extends AbstractAdminPage
             return;
         }
 
-        $addFoodFormId = 'eim-add-food-option-form';
-        $addBevFormId  = 'eim-add-bev-option-form';
-        $allOptions    = EventRsvpOption::forEvent($event->id);
-        $foodOptions   = array_values(array_filter($allOptions, static fn(EventRsvpOption $o) => $o->type === EventRsvpOption::TYPE_FOOD));
-        $bevOptions    = array_values(array_filter($allOptions, static fn(EventRsvpOption $o) => $o->type === EventRsvpOption::TYPE_BEVERAGE));
+        $allItems  = MenuItem::forEvent($event->id);
+        $foodItems = array_values(array_filter($allItems, static fn(MenuItem $i) => $i->type === MenuItem::TYPE_FOOD));
+        $bevItems  = array_values(array_filter($allItems, static fn(MenuItem $i) => $i->type === MenuItem::TYPE_BEVERAGE));
+        $menuItemsUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_MENU_ITEMS);
         ?>
         <hr id="eim-rsvp-options" style="margin:32px 0 20px;">
         <h2>Food &amp; Beverage Options</h2>
-        <p class="description">These options are returned by the RSVP API and can be selected by invitees when registering. Selections are stored per person in the invited invitees list.</p>
+        <p class="description">
+            Select items from the
+            <a href="<?= esc_url($menuItemsUrl); ?>">Food &amp; Beverages library</a>
+            to offer at this event. These options are presented to invitees during RSVP.
+        </p>
 
         <?php if ($event->foodOptionsEnabled): ?>
-            <form id="<?= esc_attr($addFoodFormId); ?>" method="post"
-                  action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS)); ?>">
-                <input type="hidden" name="_wpnonce"    value="<?= esc_attr(wp_create_nonce('eim_save_rsvp_option')); ?>">
-                <input type="hidden" name="eim_action"  value="save_rsvp_option">
-                <input type="hidden" name="event_id"    value="<?= esc_attr($event->id); ?>">
-                <input type="hidden" name="option_type" value="food">
-            </form>
-
-            <h3>Food Options</h3>
-            <?php if (!empty($foodOptions)): ?>
-                <table class="wp-list-table widefat fixed striped" style="margin-bottom:12px;">
-                    <thead>
-                        <tr>
-                            <th style="width:7%;">Order</th>
-                            <th>Label</th>
-                            <th>Description</th>
-                            <th style="width:10%;">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($foodOptions as $opt): ?>
-                            <?php
-                            $delUrl = wp_nonce_url(
-                                admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=delete_rsvp_option&option_id=' . $opt->id . '&event_id=' . $event->id),
-                                'eim_delete_rsvp_option_' . $opt->id
-                            );
-                            ?>
-                            <tr>
-                                <td><?= esc_html($opt->sortOrder); ?></td>
-                                <td><strong><?= esc_html($opt->label); ?></strong></td>
-                                <td><?= esc_html($opt->description); ?></td>
-                                <td><a href="<?= esc_url($delUrl); ?>"
-                                       onclick="return confirm('Delete &ldquo;<?= esc_js($opt->label); ?>&rdquo;?');">Delete</a></td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            <?php else: ?>
-                <p style="margin:0 0 8px;">No food options added yet.</p>
-            <?php endif; ?>
-
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
-                <input form="<?= esc_attr($addFoodFormId); ?>" type="text"   name="option_label"       class="regular-text" placeholder="Label (e.g. Chicken)" required>
-                <input form="<?= esc_attr($addFoodFormId); ?>" type="text"   name="option_description" class="regular-text" placeholder="Description (optional)">
-                <label style="white-space:nowrap;">Order:
-                    <input form="<?= esc_attr($addFoodFormId); ?>" type="number" name="option_sort_order" value="0" min="0" style="width:58px;">
-                </label>
-                <button form="<?= esc_attr($addFoodFormId); ?>" type="submit" class="button">Add Food Option</button>
-            </div>
+            <?php $this->renderEventMenuItemsSubsection($event, MenuItem::TYPE_FOOD, 'Food Options', $foodItems); ?>
         <?php endif; ?>
 
         <?php if ($event->beverageOptionsEnabled): ?>
-            <form id="<?= esc_attr($addBevFormId); ?>" method="post"
-                  action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS)); ?>">
-                <input type="hidden" name="_wpnonce"    value="<?= esc_attr(wp_create_nonce('eim_save_rsvp_option')); ?>">
-                <input type="hidden" name="eim_action"  value="save_rsvp_option">
-                <input type="hidden" name="event_id"    value="<?= esc_attr($event->id); ?>">
-                <input type="hidden" name="option_type" value="beverage">
-            </form>
-
-            <h3 style="margin-top:20px;">Beverage Options</h3>
-            <?php if (!empty($bevOptions)): ?>
-                <table class="wp-list-table widefat fixed striped" style="margin-bottom:12px;">
-                    <thead>
-                        <tr>
-                            <th style="width:7%;">Order</th>
-                            <th>Label</th>
-                            <th>Description</th>
-                            <th style="width:10%;">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($bevOptions as $opt): ?>
-                            <?php
-                            $delUrl = wp_nonce_url(
-                                admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=delete_rsvp_option&option_id=' . $opt->id . '&event_id=' . $event->id),
-                                'eim_delete_rsvp_option_' . $opt->id
-                            );
-                            ?>
-                            <tr>
-                                <td><?= esc_html($opt->sortOrder); ?></td>
-                                <td><strong><?= esc_html($opt->label); ?></strong></td>
-                                <td><?= esc_html($opt->description); ?></td>
-                                <td><a href="<?= esc_url($delUrl); ?>"
-                                       onclick="return confirm('Delete &ldquo;<?= esc_js($opt->label); ?>&rdquo;?');">Delete</a></td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            <?php else: ?>
-                <p style="margin:0 0 8px;">No beverage options added yet.</p>
-            <?php endif; ?>
-
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
-                <input form="<?= esc_attr($addBevFormId); ?>" type="text"   name="option_label"       class="regular-text" placeholder="Label (e.g. Red Wine)" required>
-                <input form="<?= esc_attr($addBevFormId); ?>" type="text"   name="option_description" class="regular-text" placeholder="Description (optional)">
-                <label style="white-space:nowrap;">Order:
-                    <input form="<?= esc_attr($addBevFormId); ?>" type="number" name="option_sort_order" value="0" min="0" style="width:58px;">
-                </label>
-                <button form="<?= esc_attr($addBevFormId); ?>" type="submit" class="button">Add Beverage Option</button>
+            <div style="margin-top:20px;">
+                <?php $this->renderEventMenuItemsSubsection($event, MenuItem::TYPE_BEVERAGE, 'Beverage Options', $bevItems); ?>
             </div>
         <?php endif; ?>
+        <?php
+    }
+
+    /**
+     * @param MenuItem[] $assignedItems Items already linked to this event for the given type.
+     */
+    private function renderEventMenuItemsSubsection(Event $event, string $type, string $heading, array $assignedItems): void
+    {
+        $label = $type === MenuItem::TYPE_BEVERAGE ? 'beverage' : 'food';
+        ?>
+        <h3><?= esc_html($heading); ?></h3>
+
+        <?php if (!empty($assignedItems)): ?>
+            <table class="wp-list-table widefat fixed striped" style="margin-bottom:12px;max-width:680px;">
+                <thead>
+                    <tr>
+                        <th>Label</th>
+                        <th style="width:40%;">Description</th>
+                        <th style="width:10%;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($assignedItems as $item): ?>
+                        <?php
+                        $removeUrl = wp_nonce_url(
+                            admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS
+                                . '&action=remove_menu_item_from_event'
+                                . '&event_id=' . $event->id
+                                . '&menu_item_id=' . $item->id),
+                            'eim_remove_menu_item_' . $event->id . '_' . $item->id
+                        );
+                        ?>
+                        <tr>
+                            <td><strong><?= esc_html($item->label); ?></strong></td>
+                            <td><?= esc_html($item->description ?: '—'); ?></td>
+                            <td>
+                                <a href="<?= esc_url($removeUrl); ?>"
+                                   onclick="return confirm('Remove &ldquo;<?= esc_js($item->label); ?>&rdquo; from this event?');">Remove</a>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php else: ?>
+            <p style="margin:0 0 10px;color:#646970;">No <?= esc_html($label); ?> items added yet.</p>
+        <?php endif; ?>
+
+        <div style="border:1px solid #dcdcde;border-radius:4px;padding:14px;background:#f6f7f7;max-width:680px;">
+            <h4 style="margin:0 0 8px;">Add <?= esc_html(ucfirst($label)); ?> Item</h4>
+            <form method="post" action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS)); ?>">
+                <?php wp_nonce_field('eim_add_menu_item_to_event'); ?>
+                <input type="hidden" name="eim_action" value="add_menu_item_to_event">
+                <input type="hidden" name="event_id"   value="<?= esc_attr($event->id); ?>">
+                <input type="hidden" id="eim_<?= esc_attr($type); ?>_item_id"
+                       name="menu_item_id" value="">
+
+                <div class="eim-invitee-picker-wrap" style="margin-bottom:8px;">
+                    <label class="screen-reader-text" for="eim_<?= esc_attr($type); ?>_item_search">
+                        Search <?= esc_html($label); ?> items
+                    </label>
+                    <input type="text"
+                           id="eim_<?= esc_attr($type); ?>_item_search"
+                           class="regular-text eim-menu-item-search"
+                           placeholder="Search <?= esc_html($label); ?> items…"
+                           autocomplete="off"
+                           data-type="<?= esc_attr($type); ?>">
+                    <button type="submit" class="button">Add to Event</button>
+                </div>
+                <p id="eim_<?= esc_attr($type); ?>_item_selected" class="description"></p>
+            </form>
+        </div>
         <?php
     }
 
@@ -1689,8 +1660,8 @@ final class EventsPage extends AbstractAdminPage
 
         $rsvpOptionMap = [];
         if ($event->foodOptionsEnabled || $event->beverageOptionsEnabled) {
-            foreach (EventRsvpOption::forEvent($event->id) as $opt) {
-                $rsvpOptionMap[$opt->id] = $opt;
+            foreach (MenuItem::forEvent($event->id) as $item) {
+                $rsvpOptionMap[$item->id] = $item;
             }
         }
 

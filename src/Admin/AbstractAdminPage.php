@@ -40,6 +40,10 @@ abstract class AbstractAdminPage
         array  $filterOptions  = [],
         string $currentField   = ''
     ): void {
+        // No items and no active filter — searching an empty list is pointless.
+        if ($count === 0 && $currentSearch === '' && $currentField === '') {
+            return;
+        }
         ?>
         <div class="eim-list-table-controls">
             <label class="screen-reader-text" for="<?= esc_attr($inputId); ?>"><?= esc_html($placeholder); ?></label>
@@ -164,6 +168,7 @@ abstract class AbstractAdminPage
             'invitee_deleted'       => 'Invitee deleted.',
             'event_invitee_added'   => 'Invitee(s) added to event successfully.',
             'event_invitee_removed' => 'Invitee removed from event.',
+            'primary_updated'       => 'Primary recipient updated.',
             'invite_sent'           => 'Invite email sent successfully.',
             'invites_sent'          => "Sent {$count} invite email(s) to unsent groups.",
             'lodging_created'       => 'Lodging location added successfully.',
@@ -177,8 +182,10 @@ abstract class AbstractAdminPage
             'cg_deleted'            => 'Connection group deleted.',
             'cg_member_added'       => 'Member added to connection group.',
             'cg_member_removed'     => 'Member removed from connection group.',
-            'rsvp_option_saved'     => 'Menu option added.',
-            'rsvp_option_deleted'   => 'Menu option deleted.',
+            'menu_item_created'          => 'Menu item added to library.',
+            'menu_item_deleted'          => 'Menu item deleted from library.',
+            'menu_item_added_to_event'   => 'Menu item added to event.',
+            'menu_item_removed_from_event' => 'Menu item removed from event.',
         ];
 
         $errors = [
@@ -190,6 +197,7 @@ abstract class AbstractAdminPage
             'lodging_invalid_location'   => 'Please select each lodging location from the locations library — free-text entries are not allowed.',
             'lodging_duplicate_location' => 'Each lodging location can only be added once per event.',
             'required_fields'            => 'First name, last name, and email address are all required.',
+            'invalid_email'              => 'Please enter a valid email address.',
             'invitee_required'           => 'Please select an existing invitee before adding them to this event.',
             'invitee_already_invited'    => 'That invitee is already assigned to this event.',
             'invitee_limit_reached'      => 'This event has reached its maximum invitee limit. Increase or remove the limit to add more invitees.',
@@ -197,7 +205,8 @@ abstract class AbstractAdminPage
             'group_not_found'            => 'Invitation group not found.',
             'lodging_create_failed'      => 'Could not add that lodging location. It may already be assigned to this event.',
             'not_found'                  => 'Invitee or event not found.',
-            'rsvp_option_invalid'        => 'Menu option requires a label and a valid type (food or beverage).',
+            'invalid_request'            => 'Invalid request — one or more required items could not be found.',
+            'menu_item_label_required'   => 'A label is required to add a menu item.',
         ];
 
         if (isset($successes[$messageKey])) {

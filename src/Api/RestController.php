@@ -8,7 +8,7 @@ if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Models\Event;
 use EventsInviteManager\Models\EventLodging;
-use EventsInviteManager\Models\EventRsvpOption;
+use EventsInviteManager\Models\MenuItem;
 use EventsInviteManager\Models\InvitationGroup;
 use EventsInviteManager\Models\Invitee;
 use EventsInviteManager\Models\Location;
@@ -120,7 +120,18 @@ class RestController
         $allAttending = !empty($members)
             && count(array_filter($members, static fn(Invitee $m) => $m->rsvpStatus === InvitationGroup::RSVP_ATTENDING)) === count($members);
 
-        $mapOption = static fn(EventRsvpOption $o): array => [
+        // Locate the primary invitee's member record so we can return their
+        // registeredAt rather than arbitrarily using the first element, which
+        // is ordered alphabetically and may not be the primary recipient.
+        $primaryMember = null;
+        foreach ($members as $m) {
+            if ($m->id === $group->primaryInviteeId) {
+                $primaryMember = $m;
+                break;
+            }
+        }
+
+        $mapOption = static fn(MenuItem $o): array => [
             'id'          => $o->id,
             'label'       => $o->label,
             'description' => $o->description,
@@ -140,17 +151,17 @@ class RestController
             ],
             'rsvp_options' => [
                 'food'     => $event->foodOptionsEnabled
-                    ? array_map($mapOption, EventRsvpOption::forEventByType($event->id, EventRsvpOption::TYPE_FOOD))
+                    ? array_map($mapOption, MenuItem::forEventByType($event->id, MenuItem::TYPE_FOOD))
                     : [],
                 'beverage' => $event->beverageOptionsEnabled
-                    ? array_map($mapOption, EventRsvpOption::forEventByType($event->id, EventRsvpOption::TYPE_BEVERAGE))
+                    ? array_map($mapOption, MenuItem::forEventByType($event->id, MenuItem::TYPE_BEVERAGE))
                     : [],
             ],
             'invitee' => [
                 'first_name'    => $primaryInvitee->firstName,
                 'last_name'     => $primaryInvitee->lastName,
                 'email'         => $primaryInvitee->email,
-                'registered_at' => $allAttending ? ($members[0]->registeredAt ?? null) : null,
+                'registered_at' => $allAttending ? ($primaryMember?->registeredAt ?? null) : null,
             ],
             'group_members' => array_map(static fn(Invitee $m): array => [
                 'invitee_id'         => $m->id,
@@ -219,25 +230,61 @@ class RestController
         $rawMemberList = $request->get_param('members');
 
         if (!empty($rawMemberList) && is_array($rawMemberList)) {
+            // Build allowlists of active menu item IDs assigned to this event so
+            // submitted IDs can be validated before being stored.
+            $event = Event::find($group->eventId);
+
+            $validFoodIds = $event?->foodOptionsEnabled
+                ? array_column(array_map(
+                    static fn(MenuItem $i): array => ['id' => $i->id],
+                    MenuItem::forEventByType($group->eventId, MenuItem::TYPE_FOOD)
+                ), 'id')
+                : [];
+
+            $validBevIds = $event?->beverageOptionsEnabled
+                ? array_column(array_map(
+                    static fn(MenuItem $i): array => ['id' => $i->id],
+                    MenuItem::forEventByType($group->eventId, MenuItem::TYPE_BEVERAGE)
+                ), 'id')
+                : [];
+
+            // Build an allowlist of invitee IDs that actually belong to this group
+            // so a stale or forged payload cannot update unrelated members.
+            $validMemberIds = array_map(static fn(Invitee $m): int => $m->id, $members);
+
             // Per-member status update.
+            $processedCount = 0;
+
             foreach ($rawMemberList as $entry) {
                 $inviteeId  = (int) ($entry['invitee_id']  ?? 0);
                 $rsvpStatus = (string) ($entry['rsvp_status'] ?? InvitationGroup::RSVP_ATTENDING);
 
+                if ($inviteeId <= 0 || !in_array($inviteeId, $validMemberIds, true)) {
+                    continue;
+                }
+
                 $extras = [];
                 if (array_key_exists('food_option_id', $entry)) {
-                    $extras['food_option_id'] = (int) $entry['food_option_id'] > 0 ? (int) $entry['food_option_id'] : null;
+                    $id = (int) $entry['food_option_id'];
+                    $extras['food_option_id'] = ($id > 0 && in_array($id, $validFoodIds, true)) ? $id : null;
                 }
                 if (array_key_exists('beverage_option_id', $entry)) {
-                    $extras['beverage_option_id'] = (int) $entry['beverage_option_id'] > 0 ? (int) $entry['beverage_option_id'] : null;
+                    $id = (int) $entry['beverage_option_id'];
+                    $extras['beverage_option_id'] = ($id > 0 && in_array($id, $validBevIds, true)) ? $id : null;
                 }
                 if (array_key_exists('dietary_notes', $entry)) {
                     $extras['dietary_notes'] = sanitize_textarea_field((string) $entry['dietary_notes']);
                 }
 
-                if ($inviteeId > 0) {
-                    InvitationGroup::updateMemberRsvp($group->id, $inviteeId, $rsvpStatus, $extras);
-                }
+                InvitationGroup::updateMemberRsvp($group->id, $inviteeId, $rsvpStatus, $extras);
+                $processedCount++;
+            }
+
+            if ($processedCount === 0) {
+                return new WP_REST_Response([
+                    'success' => false,
+                    'message' => 'No valid group members were found in the submitted payload.',
+                ], 400);
             }
         } else {
             // Backward-compatible: mark all pending members attending.
