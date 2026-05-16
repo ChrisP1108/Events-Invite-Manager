@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace EventsInviteManager\Admin\Pages;
+namespace EventsInviteManager\Admin\Pages\EventsManager\SubPages;
 
 if (!defined('ABSPATH')) exit;
 
@@ -90,23 +90,21 @@ final class EventsPage extends AbstractAdminPage
         ];
 
         if (empty($data['name'])) {
-            wp_redirect(add_query_arg([
-                'page'      => AdminMenu::PAGE_EVENTS,
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
                 'action'    => $id ? 'edit' : 'add',
                 'id'        => $id ?: null,
                 'eim_error' => 'name_required',
-            ], admin_url('admin.php')));
+            ]));
             exit;
         }
 
         $venueLocationId = (int) ($_POST['venue_library_id'] ?? 0);
         if ($venueLocationId > 0 && Location::find($venueLocationId) === null) {
-            wp_redirect(add_query_arg([
-                'page'      => AdminMenu::PAGE_EVENTS,
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
                 'action'    => $id ? 'edit' : 'add',
                 'id'        => $id ?: null,
                 'eim_error' => 'venue_invalid_location',
-            ], admin_url('admin.php')));
+            ]));
             exit;
         }
 
@@ -118,21 +116,19 @@ final class EventsPage extends AbstractAdminPage
                     $locId = (int) $rawId;
                     if ($locId <= 0) continue;
                     if (isset($seenLodgingIds[$locId])) {
-                        wp_redirect(add_query_arg([
-                            'page'      => AdminMenu::PAGE_EVENTS,
+                        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
                             'action'    => 'add',
                             'eim_error' => 'lodging_duplicate_location',
-                        ], admin_url('admin.php')));
+                        ]));
                         exit;
                     }
                     $seenLodgingIds[$locId] = true;
                     $loc = Location::find($locId);
                     if ($loc === null || !$loc->hasLodging) {
-                        wp_redirect(add_query_arg([
-                            'page'      => AdminMenu::PAGE_EVENTS,
+                        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
                             'action'    => 'add',
                             'eim_error' => 'lodging_invalid_location',
-                        ], admin_url('admin.php')));
+                        ]));
                         exit;
                     }
                 }
@@ -141,21 +137,19 @@ final class EventsPage extends AbstractAdminPage
 
         if ($id > 0) {
             Event::update($id, $data);
-            wp_redirect(add_query_arg([
-                'page'        => AdminMenu::PAGE_EVENTS,
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
                 'eim_message' => 'event_updated',
-            ], admin_url('admin.php')));
+            ]));
         } else {
             $newId = Event::create($data);
             if ($newId && !empty($data['lodging_enabled'])) {
                 $this->saveInitialLodgingLocation($newId);
             }
-            wp_redirect(add_query_arg([
-                'page'        => AdminMenu::PAGE_EVENTS,
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
                 'action'      => 'edit',
                 'id'          => $newId ?: 0,
                 'eim_message' => 'event_created',
-            ], admin_url('admin.php')));
+            ]));
         }
         exit;
     }
@@ -262,7 +256,7 @@ final class EventsPage extends AbstractAdminPage
 
         Event::delete($id);
 
-        wp_redirect(add_query_arg(['page' => AdminMenu::PAGE_EVENTS, 'eim_message' => 'event_deleted'], admin_url('admin.php')));
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['eim_message' => 'event_deleted']));
         exit;
     }
 
@@ -277,17 +271,16 @@ final class EventsPage extends AbstractAdminPage
         $loc        = $locationId > 0 ? Location::find($locationId) : null;
 
         if ($eventId === 0 || $loc === null || !$loc->hasLodging) {
-            wp_redirect(add_query_arg([
-                'page'      => AdminMenu::PAGE_EVENTS,
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
                 'action'    => 'edit',
                 'id'        => $eventId ?: null,
                 'eim_error' => 'lodging_invalid_location',
-            ], admin_url('admin.php')));
+            ]));
             exit;
         }
 
         $created = EventLodging::create($eventId, $locationId);
-        $args    = ['page' => AdminMenu::PAGE_EVENTS, 'action' => 'edit', 'id' => $eventId];
+        $args    = ['action' => 'edit', 'id' => $eventId];
 
         if ($created) {
             $args['eim_message'] = 'lodging_created';
@@ -295,7 +288,7 @@ final class EventsPage extends AbstractAdminPage
             $args['eim_error'] = 'lodging_create_failed';
         }
 
-        wp_redirect(add_query_arg($args, admin_url('admin.php')));
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, $args));
         exit;
     }
 
@@ -311,12 +304,11 @@ final class EventsPage extends AbstractAdminPage
 
         EventLodging::delete($id);
 
-        wp_redirect(add_query_arg([
-            'page'        => AdminMenu::PAGE_EVENTS,
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
             'action'      => 'edit',
             'id'          => $eventId,
             'eim_message' => 'lodging_deleted',
-        ], admin_url('admin.php')));
+        ]));
         exit;
     }
 
@@ -341,22 +333,20 @@ final class EventsPage extends AbstractAdminPage
         $invitee = $inviteeId > 0 ? Invitee::find($inviteeId) : null;
 
         if ($event === null || $invitee === null) {
-            wp_redirect(add_query_arg([
-                'page'      => AdminMenu::PAGE_EVENTS,
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
                 'action'    => 'edit',
                 'id'        => $eventId ?: null,
                 'eim_error' => 'invitee_required',
-            ], admin_url('admin.php')) . '#eim-event-invitees');
+            ]) . '#eim-event-invitees');
             exit;
         }
 
         if (Invitee::findForEvent($inviteeId, $eventId) !== null) {
-            wp_redirect(add_query_arg([
-                'page'      => AdminMenu::PAGE_EVENTS,
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
                 'action'    => 'edit',
                 'id'        => $eventId,
                 'eim_error' => 'invitee_already_invited',
-            ], admin_url('admin.php')) . '#eim-event-invitees');
+            ]) . '#eim-event-invitees');
             exit;
         }
 
@@ -377,12 +367,11 @@ final class EventsPage extends AbstractAdminPage
         $totalToAdd = 1 + count($filteredConnectedIds);
 
         if ($event->maxInvitees !== null && ($event->inviteeCount() + $totalToAdd) > $event->maxInvitees) {
-            wp_redirect(add_query_arg([
-                'page'      => AdminMenu::PAGE_EVENTS,
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
                 'action'    => 'edit',
                 'id'        => $eventId,
                 'eim_error' => 'invitee_limit_reached',
-            ], admin_url('admin.php')) . '#eim-event-invitees');
+            ]) . '#eim-event-invitees');
             exit;
         }
 
@@ -397,12 +386,11 @@ final class EventsPage extends AbstractAdminPage
         // Create one invitation group for all of them.
         InvitationGroup::create($eventId, $inviteeId, $filteredConnectedIds);
 
-        wp_redirect(add_query_arg([
-            'page'        => AdminMenu::PAGE_EVENTS,
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
             'action'      => 'edit',
             'id'          => $eventId,
             'eim_message' => 'event_invitee_added',
-        ], admin_url('admin.php')) . '#eim-event-invitees');
+        ]) . '#eim-event-invitees');
         exit;
     }
 
@@ -418,12 +406,11 @@ final class EventsPage extends AbstractAdminPage
 
         InvitationGroup::removeMemberFromEvent($inviteeId, $eventId);
 
-        wp_redirect(add_query_arg([
-            'page'        => AdminMenu::PAGE_EVENTS,
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
             'action'      => 'edit',
             'id'          => $eventId,
             'eim_message' => 'event_invitee_removed',
-        ], admin_url('admin.php')) . '#eim-event-invitees');
+        ]) . '#eim-event-invitees');
         exit;
     }
 
@@ -440,12 +427,11 @@ final class EventsPage extends AbstractAdminPage
 
         InvitationGroup::setPrimaryMember($groupId, $inviteeId);
 
-        wp_redirect(add_query_arg([
-            'page'        => AdminMenu::PAGE_EVENTS,
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
             'action'      => 'edit',
             'id'          => $eventId,
             'eim_message' => 'primary_updated',
-        ], admin_url('admin.php')) . '#eim-event-invitees');
+        ]) . '#eim-event-invitees');
         exit;
     }
 
@@ -465,43 +451,39 @@ final class EventsPage extends AbstractAdminPage
         $group   = $groupId > 0 ? InvitationGroup::find($groupId) : null;
 
         if (!$event || !$invitee || !$group || $group->eventId !== $eventId) {
-            wp_redirect(add_query_arg([
-                'page'      => AdminMenu::PAGE_EVENTS,
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
                 'action'    => 'edit',
                 'id'        => $eventId ?: null,
                 'eim_error' => 'invalid_request',
-            ], admin_url('admin.php')) . '#eim-event-invitees');
+            ]) . '#eim-event-invitees');
             exit;
         }
 
         if (Invitee::findForEvent($inviteeId, $eventId) !== null) {
-            wp_redirect(add_query_arg([
-                'page'      => AdminMenu::PAGE_EVENTS,
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
                 'action'    => 'edit',
                 'id'        => $eventId,
                 'eim_error' => 'invitee_already_invited',
-            ], admin_url('admin.php')) . '#eim-event-invitees');
+            ]) . '#eim-event-invitees');
             exit;
         }
 
         if ($event->maxInvitees !== null && ($event->inviteeCount() + 1) > $event->maxInvitees) {
-            wp_redirect(add_query_arg([
-                'page'      => AdminMenu::PAGE_EVENTS,
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
                 'action'    => 'edit',
                 'id'        => $eventId,
                 'eim_error' => 'invitee_limit_reached',
-            ], admin_url('admin.php')) . '#eim-event-invitees');
+            ]) . '#eim-event-invitees');
             exit;
         }
 
         InvitationGroup::addMemberToGroup($groupId, $inviteeId, $eventId);
 
-        wp_redirect(add_query_arg([
-            'page'        => AdminMenu::PAGE_EVENTS,
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
             'action'      => 'edit',
             'id'          => $eventId,
             'eim_message' => 'event_invitee_added',
-        ], admin_url('admin.php')) . '#eim-event-invitees');
+        ]) . '#eim-event-invitees');
         exit;
     }
 
@@ -517,12 +499,11 @@ final class EventsPage extends AbstractAdminPage
 
         InvitationGroup::deleteGroup($groupId, $eventId);
 
-        wp_redirect(add_query_arg([
-            'page'        => AdminMenu::PAGE_EVENTS,
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
             'action'      => 'edit',
             'id'          => $eventId,
             'eim_message' => 'event_invitee_removed',
-        ], admin_url('admin.php')) . '#eim-event-invitees');
+        ]) . '#eim-event-invitees');
         exit;
     }
 
@@ -540,19 +521,17 @@ final class EventsPage extends AbstractAdminPage
 
         if ($event && $menuItem) {
             MenuItem::addToEvent($eventId, $menuItemId);
-            wp_redirect(add_query_arg([
-                'page'        => AdminMenu::PAGE_EVENTS,
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
                 'action'      => 'edit',
                 'id'          => $eventId,
                 'eim_message' => 'menu_item_added_to_event',
-            ], admin_url('admin.php')) . '#eim-rsvp-options');
+            ]) . '#eim-rsvp-options');
         } else {
-            wp_redirect(add_query_arg([
-                'page'      => AdminMenu::PAGE_EVENTS,
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
                 'action'    => 'edit',
                 'id'        => $eventId ?: null,
                 'eim_error' => 'invalid_request',
-            ], admin_url('admin.php')) . '#eim-rsvp-options');
+            ]) . '#eim-rsvp-options');
         }
         exit;
     }
@@ -569,12 +548,11 @@ final class EventsPage extends AbstractAdminPage
 
         MenuItem::removeFromEvent($eventId, $menuItemId);
 
-        wp_redirect(add_query_arg([
-            'page'        => AdminMenu::PAGE_EVENTS,
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
             'action'      => 'edit',
             'id'          => $eventId,
             'eim_message' => 'menu_item_removed_from_event',
-        ], admin_url('admin.php')) . '#eim-rsvp-options');
+        ]) . '#eim-rsvp-options');
         exit;
     }
 
@@ -671,12 +649,11 @@ final class EventsPage extends AbstractAdminPage
             $message = 'not_found';
         }
 
-        wp_redirect(add_query_arg([
-            'page'        => AdminMenu::PAGE_EVENTS,
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
             'action'      => 'edit',
             'id'          => $eventId,
             'eim_message' => $message,
-        ], admin_url('admin.php')) . '#eim-event-invitees');
+        ]) . '#eim-event-invitees');
         exit;
     }
 
@@ -729,13 +706,12 @@ final class EventsPage extends AbstractAdminPage
             }
         }
 
-        wp_redirect(add_query_arg([
-            'page'        => AdminMenu::PAGE_EVENTS,
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
             'action'      => 'edit',
             'id'          => $eventId,
             'eim_message' => 'invites_sent',
             'count'       => $sentCount,
-        ], admin_url('admin.php')) . '#eim-event-invitees');
+        ]) . '#eim-event-invitees');
         exit;
     }
 
@@ -750,9 +726,9 @@ final class EventsPage extends AbstractAdminPage
         $calMonth = max(1,    min(12,   (int) ($_GET['cal_month'] ?? date('n'))));
         ?>
         <div class="wrap">
-            <h1 class="wp-heading-inline">Events Invite Manager</h1>
+            <h1 class="wp-heading-inline">Events</h1>
             <?php if ($hasLocations): ?>
-                <a href="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=add')); ?>" class="page-title-action">Add New Event</a>
+                <a href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'add'])); ?>" class="page-title-action">Add New Event</a>
             <?php endif; ?>
             <hr class="wp-header-end">
 
@@ -763,13 +739,13 @@ final class EventsPage extends AbstractAdminPage
                     <p>
                         <strong>No locations found.</strong>
                         You need at least one location in the library before creating an event.
-                        <a href="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_LOCATIONS . '&action=add')); ?>">Add a location now →</a>
+                        <a href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS, ['action' => 'add'])); ?>">Add a location now →</a>
                     </p>
                 </div>
             <?php endif; ?>
 
             <?php if (empty($events) && $hasLocations): ?>
-                <p>No events yet. <a href="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=add')); ?>">Create your first event.</a></p>
+                <p>No events yet. <a href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'add'])); ?>">Create your first event.</a></p>
             <?php elseif ($hasLocations): ?>
 
                 <?php $this->renderCalendar($calYear, $calMonth); ?>
@@ -790,12 +766,12 @@ final class EventsPage extends AbstractAdminPage
                             $total       = $event->inviteeCount();
                             $registered  = $event->registeredCount();
                             $venue       = $event->venueId !== null ? Location::find($event->venueId) : null;
-                            $editUrl     = admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=edit&id=' . $event->id);
+                            $editUrl     = AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $event->id]);
                             $deleteUrl   = wp_nonce_url(
-                                admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=delete_event&id=' . $event->id),
+                                AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'delete_event', 'id' => $event->id]),
                                 'eim_delete_event_' . $event->id
                             );
-                            $inviteesUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=edit&id=' . $event->id . '#eim-event-invitees');
+                            $inviteesUrl = AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $event->id]) . '#eim-event-invitees';
                             ?>
                             <tr>
                                 <td>
@@ -857,9 +833,9 @@ final class EventsPage extends AbstractAdminPage
         $nextMonth = $month === 12 ? 1 : $month + 1;
         $nextYear  = $month === 12 ? $year + 1 : $year;
 
-        $prevUrl = esc_url(admin_url("admin.php?page=" . AdminMenu::PAGE_EVENTS . "&cal_year={$prevYear}&cal_month={$prevMonth}"));
-        $nextUrl = esc_url(admin_url("admin.php?page=" . AdminMenu::PAGE_EVENTS . "&cal_year={$nextYear}&cal_month={$nextMonth}"));
-        $baseUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS);
+        $prevUrl = esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['cal_year' => $prevYear, 'cal_month' => $prevMonth]));
+        $nextUrl = esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['cal_year' => $nextYear, 'cal_month' => $nextMonth]));
+        $baseUrl = AdminMenu::tabUrl(AdminMenu::TAB_EVENTS);
         $pickerId = 'eim-cal-picker-' . $year . '-' . $month;
 
         $cells = array_merge(array_fill(0, $startDow, null), range(1, $daysInMonth));
@@ -944,7 +920,7 @@ final class EventsPage extends AbstractAdminPage
                         <option value="">— Jump to event —</option>
                         <?php foreach ($allDated as $e): ?>
                             <?php
-                            $jumpUrl = esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=edit&id=' . $e->id));
+                            $jumpUrl = esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $e->id]));
                             $label   = $e->name . ' — ' . $e->formattedDateTimeRange();
                             ?>
                             <option value="<?= $jumpUrl; ?>"><?= esc_html($label); ?></option>
@@ -977,7 +953,7 @@ final class EventsPage extends AbstractAdminPage
                                     <td class="<?= esc_attr($tdClass); ?>">
                                         <span class="eim-cal-daynum"><?= esc_html($day); ?></span>
                                         <?php foreach ($dayEvents as $e): ?>
-                                            <?php $editUrl = esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=edit&id=' . $e->id)); ?>
+                                            <?php $editUrl = esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $e->id])); ?>
                                             <a href="<?= $editUrl; ?>" class="eim-cal-event" title="<?= esc_attr($e->name); ?>">
                                                 <?= esc_html($e->name); ?>
                                                 <?php if ($e->startDatetime): ?>
@@ -1060,7 +1036,7 @@ final class EventsPage extends AbstractAdminPage
                     <p>
                         <strong>No locations found.</strong>
                         You must add at least one location to the library before creating an event.
-                        <a href="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_LOCATIONS . '&action=add')); ?>">Add a location now →</a>
+                        <a href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS, ['action' => 'add'])); ?>">Add a location now →</a>
                     </p>
                 </div>
             </div>
@@ -1075,16 +1051,16 @@ final class EventsPage extends AbstractAdminPage
         ?>
         <div class="wrap">
             <h1><?= esc_html($title); ?></h1>
-            <a href="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS)); ?>" style="margin-top: 12px; display: block;">← Back to Events</a>
+            <a href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS)); ?>" style="margin-top: 12px; display: block;">← Back to Events</a>
             <hr class="wp-header-end">
 
             <?php $this->renderNotice($message, $error, (int) ($_GET['count'] ?? 0)); ?>
 
             <?php if (!$isNew): ?>
-                <form id="<?= esc_attr($addLodgingFormId); ?>" method="post" action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS)); ?>"></form>
+                <form id="<?= esc_attr($addLodgingFormId); ?>" method="post" action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS)); ?>"></form>
             <?php endif; ?>
 
-            <form method="post" action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS)); ?>">
+            <form method="post" action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS)); ?>">
                 <?php wp_nonce_field('eim_save_event'); ?>
                 <input type="hidden" name="eim_action" value="save_event">
                 <input type="hidden" name="event_id" value="<?= esc_attr($isNew ? 0 : $event->id); ?>">
@@ -1344,7 +1320,7 @@ final class EventsPage extends AbstractAdminPage
 	                                            <?php foreach ($lodgingLocations as $position => $loc): ?>
 	                                                <?php
 	                                                $removeUrl = wp_nonce_url(
-	                                                    admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=remove_lodging_from_event&id=' . $loc->id . '&event_id=' . $event->id),
+	                                                    AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'remove_lodging_from_event', 'id' => $loc->id, 'event_id' => $event->id]),
 	                                                    'eim_remove_lodging_' . $loc->id
 	                                                );
 	                                                $displayOrder = $position + 1;
@@ -1442,7 +1418,7 @@ final class EventsPage extends AbstractAdminPage
         $allItems  = MenuItem::forEvent($event->id);
         $foodItems = array_values(array_filter($allItems, static fn(MenuItem $i) => $i->type === MenuItem::TYPE_FOOD));
         $bevItems  = array_values(array_filter($allItems, static fn(MenuItem $i) => $i->type === MenuItem::TYPE_BEVERAGE));
-        $menuItemsUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_MENU_ITEMS);
+        $menuItemsUrl = AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS);
         ?>
         <hr id="eim-rsvp-options" style="margin:32px 0 20px;">
         <h2>Food &amp; Beverage Options</h2>
@@ -1521,10 +1497,7 @@ final class EventsPage extends AbstractAdminPage
 	                        <?php foreach ($assignedItems as $position => $item): ?>
 	                            <?php
 	                            $removeUrl = wp_nonce_url(
-	                                admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS
-	                                    . '&action=remove_menu_item_from_event'
-                                    . '&event_id=' . $event->id
-	                                    . '&menu_item_id=' . $item->id),
+	                                AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'remove_menu_item_from_event', 'event_id' => $event->id, 'menu_item_id' => $item->id]),
 	                                'eim_remove_menu_item_' . $event->id . '_' . $item->id
 	                            );
 	                            $displayOrder = $position + 1;
@@ -1557,7 +1530,7 @@ final class EventsPage extends AbstractAdminPage
 
         <div style="border:1px solid #dcdcde;border-radius:4px;padding:14px;background:#f6f7f7;max-width:680px;">
             <h4 style="margin:0 0 8px;">Add <?= esc_html(ucfirst($label)); ?> Item</h4>
-            <form method="post" action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS)); ?>">
+            <form method="post" action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS)); ?>">
                 <?php wp_nonce_field('eim_add_menu_item_to_event'); ?>
                 <input type="hidden" name="eim_action" value="add_menu_item_to_event">
                 <input type="hidden" name="event_id"   value="<?= esc_attr($event->id); ?>">
@@ -1798,11 +1771,11 @@ final class EventsPage extends AbstractAdminPage
             $pending              = count(array_filter($members, static fn(Invitee $m) => $m->rsvpStatus === InvitationGroup::RSVP_PENDING));
             $declined             = count(array_filter($members, static fn(Invitee $m) => $m->rsvpStatus === InvitationGroup::RSVP_DECLINED));
             $sendUrl              = wp_nonce_url(
-                admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=send_event_invite&event_id=' . $event->id . '&group_id=' . $group->id),
+                AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'send_event_invite', 'event_id' => $event->id, 'group_id' => $group->id]),
                 'eim_send_event_invite_' . $event->id . '_' . $group->id
             );
             $removeGroupUrl       = wp_nonce_url(
-                admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=remove_group_from_event&event_id=' . $event->id . '&group_id=' . $group->id),
+                AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'remove_group_from_event', 'event_id' => $event->id, 'group_id' => $group->id]),
                 'eim_remove_group_' . $event->id . '_' . $group->id
             );
             $allConnections       = ConnectionGroup::connectedInviteesForEvent($group->primaryInviteeId, $event->id);
@@ -1814,12 +1787,12 @@ final class EventsPage extends AbstractAdminPage
                         <?php foreach ($members as $member): ?>
                             <?php
                             $removeUrl      = wp_nonce_url(
-                                admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=remove_invitee_from_event&event_id=' . $event->id . '&invitee_id=' . $member->id),
+                                AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'remove_invitee_from_event', 'event_id' => $event->id, 'invitee_id' => $member->id]),
                                 'eim_remove_invitee_' . $event->id . '_' . $member->id
                             );
-                            $editInvUrl     = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&action=edit&id=' . $member->id);
+                            $editInvUrl     = AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, ['action' => 'edit', 'id' => $member->id]);
                             $makePrimaryUrl = wp_nonce_url(
-                                admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=set_group_primary&event_id=' . $event->id . '&group_id=' . $group->id . '&invitee_id=' . $member->id),
+                                AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'set_group_primary', 'event_id' => $event->id, 'group_id' => $group->id, 'invitee_id' => $member->id]),
                                 'eim_set_primary_' . $event->id . '_' . $group->id . '_' . $member->id
                             );
                             $isPrimary      = $member->id === $group->primaryInviteeId;
@@ -1911,7 +1884,7 @@ final class EventsPage extends AbstractAdminPage
             <tr class="eim-add-member-row" id="eim-add-member-row-<?= esc_attr($group->id); ?>" style="display:none;">
                 <td colspan="5" class="eim-add-member-cell">
                     <form method="post"
-                          action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=add_member_to_group')); ?>"
+                          action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'add_member_to_group'])); ?>"
                           class="eim-add-member-form">
                         <?php wp_nonce_field('eim_add_member_to_group_' . $group->id); ?>
                         <input type="hidden" name="event_id" value="<?= esc_attr($event->id); ?>">
@@ -1941,7 +1914,7 @@ final class EventsPage extends AbstractAdminPage
             <tr class="eim-add-connection-row" id="eim-add-connection-row-<?= esc_attr($group->id); ?>" style="display:none;">
                 <td colspan="5" class="eim-add-member-cell">
                     <form method="post"
-                          action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=add_member_to_group')); ?>"
+                          action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'add_member_to_group'])); ?>"
                           class="eim-add-member-form">
                         <?php wp_nonce_field('eim_add_member_to_group_' . $group->id); ?>
                         <input type="hidden" name="event_id" value="<?= esc_attr($event->id); ?>">
@@ -1974,10 +1947,10 @@ final class EventsPage extends AbstractAdminPage
         $memberCount = $event->inviteeCount();
         $dateFormat  = get_option('date_format');
         $sendAllUrl   = wp_nonce_url(
-            admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=send_all_event_invites&event_id=' . $event->id),
+            AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'send_all_event_invites', 'event_id' => $event->id]),
             'eim_send_all_event_invites_' . $event->id
         );
-        $addInviteeUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&action=add');
+        $addInviteeUrl = AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, ['action' => 'add']);
         $maxInvitees   = $event->maxInvitees;
         $atLimit       = $maxInvitees !== null && $memberCount >= $maxInvitees;
         ?>
@@ -2000,7 +1973,7 @@ final class EventsPage extends AbstractAdminPage
             <div class="notice notice-warning inline" style="margin:8px 0;"><p>This event has reached its maximum of <?= esc_html($maxInvitees); ?> invitees.</p></div>
         <?php endif; ?>
 
-        <form method="post" action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS)); ?>"
+        <form method="post" action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS)); ?>"
               class="eim-event-invitee-add-form"
               id="eim-add-invitee-form">
             <?php wp_nonce_field('eim_add_invitee_to_event'); ?>
@@ -2052,7 +2025,7 @@ final class EventsPage extends AbstractAdminPage
             ]
         ); ?>
 
-        <?php $sortArgs = ['action' => 'edit', 'id' => $event->id]; ?>
+        <?php $sortArgs = ['action' => 'edit', 'id' => $event->id, 'tab' => AdminMenu::TAB_EVENTS]; ?>
         <table id="eim-event-groups-table"
                class="wp-list-table widefat fixed striped"
                style="margin-top:12px;"
@@ -2060,10 +2033,10 @@ final class EventsPage extends AbstractAdminPage
                data-order="<?= esc_attr($order); ?>">
             <thead>
                 <tr>
-                    <th style="width:28%;"><?= $this->sortLink('Group Members',   'name',        AdminMenu::PAGE_EVENTS, $sort, $order, '', $sortArgs); ?></th>
-                    <th style="width:20%;"><?= $this->sortLink('Email (Primary)', 'email',       AdminMenu::PAGE_EVENTS, $sort, $order, '', $sortArgs); ?></th>
-                    <th style="width:13%;"><?= $this->sortLink('Invite Sent',     'invite_sent', AdminMenu::PAGE_EVENTS, $sort, $order, '', $sortArgs); ?></th>
-                    <th style="width:12%;"><?= $this->sortLink('Registered',      'attending',   AdminMenu::PAGE_EVENTS, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:28%;"><?= $this->sortLink('Group Members',   'name',        AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:20%;"><?= $this->sortLink('Email (Primary)', 'email',       AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:13%;"><?= $this->sortLink('Invite Sent',     'invite_sent', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:12%;"><?= $this->sortLink('Registered',      'attending',   AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
                     <th style="width:27%;">Actions</th>
                 </tr>
             </thead>

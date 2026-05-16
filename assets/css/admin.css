@@ -1,3 +1,5 @@
+/* ---- General Styling ---- */
+
 .sub-heading {
     display: block;
     padding: 0px !important;
@@ -31,6 +33,12 @@ h1 {
 
 .eim-search-field-select {
     min-width: 140px;
+}
+
+/* ---- Event Manager page ---- */
+
+.nav-tab-wrapper .nav-tab:first-child {
+    margin-left: 0;
 }
 
 /* ---- Food & Beverage page ---- */

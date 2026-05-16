@@ -172,9 +172,11 @@ final class Event
 
         QrCode::deleteForEvent($id);
         InvitationGroup::deleteForEvent($id);
-        $wpdb->delete(DatabaseManager::eventInviteesTable(), ['event_id' => $id]);
+        $wpdb->delete(DatabaseManager::eventInviteesTable(),    ['event_id' => $id]);
         EventLodging::deleteForEvent($id);
         MenuItem::deleteForEvent($id);
+        $wpdb->delete(DatabaseManager::budgetPlanEventsTable(), ['event_id' => $id]);
+        $wpdb->delete(DatabaseManager::budgetLineItemsTable(),  ['event_id' => $id]);
         $result = $wpdb->delete(DatabaseManager::eventsTable(), ['id' => $id]);
 
         return $result !== false;

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace EventsInviteManager\Admin\Pages;
+namespace EventsInviteManager\Admin\Pages\EventsManager\SubPages;
 
 if (!defined('ABSPATH')) exit;
 
@@ -22,16 +22,28 @@ final class MenuItemsPage extends AbstractAdminPage
     public function handleAction(string $action): void
     {
         match ($action) {
-            'save_menu_item'   => $this->handleSaveMenuItem(),
-            'delete_menu_item' => $this->handleDeleteMenuItem(),
-            default            => null,
+            'save_menu_item'        => $this->handleSaveMenuItem(),
+            'update_menu_item'      => $this->handleUpdateMenuItem(),
+            'delete_menu_item'      => $this->handleDeleteMenuItem(),
+            default                 => null,
         };
     }
 
     public function renderPage(): void
     {
+        $action  = $_GET['action'] ?? 'list';
         $message = (string) ($_GET['eim_message'] ?? '');
         $error   = (string) ($_GET['eim_error']   ?? '');
+
+        if ($action === 'edit') {
+            $item = MenuItem::find((int) ($_GET['id'] ?? 0));
+            if ($item === null) {
+                $this->renderError('Menu item not found.', AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS));
+                return;
+            }
+            $this->renderEditForm($item, $message, $error);
+            return;
+        }
         ?>
         <div class="wrap">
             <h1>Food &amp; Beverages</h1>
@@ -48,6 +60,50 @@ final class MenuItemsPage extends AbstractAdminPage
                 <?php $this->renderTypeSection(MenuItem::TYPE_FOOD,     'Food Items'); ?>
                 <?php $this->renderTypeSection(MenuItem::TYPE_BEVERAGE, 'Beverage Items'); ?>
             </div>
+        </div>
+        <?php
+    }
+
+    private function renderEditForm(MenuItem $item, string $message, string $error): void
+    {
+        $backUrl = AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS);
+        ?>
+        <div class="wrap">
+            <h1>Edit <?= esc_html(ucfirst($item->type)); ?> Item</h1>
+            <a href="<?= esc_url($backUrl); ?>">← Back to Food &amp; Beverages</a>
+            <hr class="wp-header-end">
+
+            <?php $this->renderNotice($message, $error); ?>
+
+            <form method="post" action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS)); ?>" style="max-width:560px;">
+                <?php wp_nonce_field('eim_update_menu_item'); ?>
+                <input type="hidden" name="eim_action"    value="update_menu_item">
+                <input type="hidden" name="menu_item_id"  value="<?= esc_attr($item->id); ?>">
+
+                <table class="form-table" role="presentation">
+                    <tr>
+                        <th scope="row"><label for="eim_mi_label">Label <span aria-hidden="true" style="color:#d63638;">*</span></label></th>
+                        <td><input type="text" id="eim_mi_label" name="label" class="regular-text"
+                                   value="<?= esc_attr($item->label); ?>" required></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="eim_mi_desc">Description</label></th>
+                        <td><input type="text" id="eim_mi_desc" name="description" class="regular-text"
+                                   value="<?= esc_attr($item->description); ?>"></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="eim_mi_price">Price</label></th>
+                        <td>
+                            <input type="text" id="eim_mi_price" name="price" class="regular-text"
+                                   value="<?= esc_attr($item->priceCents > 0 ? number_format($item->priceCents / 100, 2) : ''); ?>"
+                                   placeholder="0.00">
+                            <p class="description">Per-person price used in budget calculations.</p>
+                        </td>
+                    </tr>
+                </table>
+
+                <?php submit_button('Update Item'); ?>
+            </form>
         </div>
         <?php
     }
@@ -113,22 +169,54 @@ final class MenuItemsPage extends AbstractAdminPage
     // Form handlers
     // -------------------------------------------------------------------------
 
+    private function handleUpdateMenuItem(): void
+    {
+        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_update_menu_item')) {
+            wp_die('Security check failed.');
+        }
+
+        $id    = (int) ($_POST['menu_item_id'] ?? 0);
+        $label = sanitize_text_field(wp_unslash($_POST['label'] ?? ''));
+
+        if ($label === '' || $id <= 0) {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS, [
+                'action'    => 'edit',
+                'id'        => $id ?: null,
+                'eim_error' => 'menu_item_label_required',
+            ]));
+            exit;
+        }
+
+        $priceRaw   = str_replace(['$', ',', ' '], '', wp_unslash($_POST['price'] ?? '0'));
+        $priceCents = max(0, (int) round((float) $priceRaw * 100));
+
+        MenuItem::update($id, [
+            'label'       => $label,
+            'description' => sanitize_text_field(wp_unslash($_POST['description'] ?? '')),
+            'price_cents' => $priceCents,
+        ]);
+
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS, ['eim_message' => 'menu_item_updated']));
+        exit;
+    }
+
     private function handleSaveMenuItem(): void
     {
         if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_save_menu_item')) {
             wp_die('Security check failed.');
         }
 
-        $type  = sanitize_key($_POST['type'] ?? 'food');
-        $type  = $type === MenuItem::TYPE_BEVERAGE ? MenuItem::TYPE_BEVERAGE : MenuItem::TYPE_FOOD;
-        $label = sanitize_text_field(wp_unslash($_POST['label'] ?? ''));
-        $desc  = sanitize_textarea_field(wp_unslash($_POST['description'] ?? ''));
+        $type     = sanitize_key($_POST['type'] ?? 'food');
+        $type     = $type === MenuItem::TYPE_BEVERAGE ? MenuItem::TYPE_BEVERAGE : MenuItem::TYPE_FOOD;
+        $label    = sanitize_text_field(wp_unslash($_POST['label'] ?? ''));
+        $desc     = sanitize_textarea_field(wp_unslash($_POST['description'] ?? ''));
+        $priceRaw   = str_replace(['$', ',', ' '], '', wp_unslash($_POST['price'] ?? '0'));
+        $priceCents = max(0, (int) round((float) $priceRaw * 100));
 
         if ($label === '') {
-            wp_redirect(add_query_arg([
-                'page'      => AdminMenu::PAGE_MENU_ITEMS,
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS, [
                 'eim_error' => 'menu_item_label_required',
-            ], admin_url('admin.php')));
+            ]));
             exit;
         }
 
@@ -136,12 +224,12 @@ final class MenuItemsPage extends AbstractAdminPage
             'type'        => $type,
             'label'       => $label,
             'description' => $desc,
+            'price_cents' => $priceCents,
         ]);
 
-        wp_redirect(add_query_arg([
-            'page'        => AdminMenu::PAGE_MENU_ITEMS,
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS, [
             'eim_message' => 'menu_item_created',
-        ], admin_url('admin.php')));
+        ]));
         exit;
     }
 
@@ -156,10 +244,9 @@ final class MenuItemsPage extends AbstractAdminPage
 
         MenuItem::delete($id);
 
-        wp_redirect(add_query_arg([
-            'page'        => AdminMenu::PAGE_MENU_ITEMS,
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS, [
             'eim_message' => 'menu_item_deleted',
-        ], admin_url('admin.php')));
+        ]));
         exit;
     }
 
@@ -202,8 +289,9 @@ final class MenuItemsPage extends AbstractAdminPage
                        data-order="<?= esc_attr($order); ?>">
                     <thead>
                         <tr>
-                            <th style="width:35%;"><?= $this->clientSortLink('Label', 'label', $sort, $order); ?></th>
+                            <th style="width:30%;"><?= $this->clientSortLink('Label', 'label', $sort, $order); ?></th>
                             <th><?= $this->clientSortLink('Description', 'description', $sort, $order); ?></th>
+                            <th style="width:10%;">Price</th>
                             <th style="width:10%;">Actions</th>
                         </tr>
                     </thead>
@@ -224,20 +312,29 @@ final class MenuItemsPage extends AbstractAdminPage
             $msg = $search !== ''
                 ? 'No results found based upon search criteria.'
                 : 'No ' . ($type === MenuItem::TYPE_BEVERAGE ? 'beverage' : 'food') . ' items yet.';
-            echo '<tr class="eim-no-results"><td colspan="3">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="4">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
         foreach ($items as $item) {
+            $editUrl   = AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS, ['action' => 'edit', 'id' => $item->id]);
             $deleteUrl = wp_nonce_url(
-                admin_url('admin.php?page=' . AdminMenu::PAGE_MENU_ITEMS . '&action=delete_menu_item&id=' . $item->id),
+                AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS, ['action' => 'delete_menu_item', 'id' => $item->id]),
                 'eim_delete_menu_item_' . $item->id
             );
             ?>
             <tr>
-                <td><strong><?= esc_html($item->label); ?></strong></td>
+                <td><strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($item->label); ?></a></strong></td>
                 <td><?= esc_html($item->description ?: '—'); ?></td>
                 <td>
+                    <?php if ($item->priceCents > 0): ?>
+                        <span style="font-variant-numeric:tabular-nums;"><?= esc_html($item->formattedPrice()); ?></span>
+                    <?php else: ?>
+                        <span style="color:#999;">—</span>
+                    <?php endif; ?>
+                </td>
+                <td>
+                    <a href="<?= esc_url($editUrl); ?>">Edit</a> |
                     <a href="<?= esc_url($deleteUrl); ?>"
                        onclick="return confirm('Delete &ldquo;<?= esc_js($item->label); ?>&rdquo;?');">Delete</a>
                 </td>
@@ -252,7 +349,7 @@ final class MenuItemsPage extends AbstractAdminPage
         ?>
         <div class="eim-menu-add-form" style="margin-top:14px;padding:14px;background:#f6f7f7;border:1px solid #dcdcde;border-radius:4px;">
             <h3 style="margin:0 0 10px;">Add <?= esc_html($label); ?> Item</h3>
-            <form method="post" action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_MENU_ITEMS)); ?>">
+            <form method="post" action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS)); ?>">
                 <?php wp_nonce_field('eim_save_menu_item'); ?>
                 <input type="hidden" name="eim_action" value="save_menu_item">
                 <input type="hidden" name="type"       value="<?= esc_attr($type); ?>">
@@ -262,8 +359,13 @@ final class MenuItemsPage extends AbstractAdminPage
                            required>
                     <input type="text" name="description" class="regular-text"
                            placeholder="Description (optional)">
+                    <input type="text" name="price" class="small-text"
+                           placeholder="Price (e.g. 12.50)"
+                           style="width:90px;"
+                           title="Per-person price used in budget calculations">
                     <button type="submit" class="button button-primary">Add <?= esc_html($label); ?> Item</button>
                 </div>
+                <p class="description" style="margin-top:6px;">Price is optional — used for budget planning calculations. Leave blank for no price.</p>
             </form>
         </div>
         <?php

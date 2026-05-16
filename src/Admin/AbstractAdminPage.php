@@ -183,9 +183,15 @@ abstract class AbstractAdminPage
             'cg_member_added'       => 'Member added to connection group.',
             'cg_member_removed'     => 'Member removed from connection group.',
             'menu_item_created'          => 'Menu item added to library.',
+            'menu_item_updated'          => 'Menu item updated.',
             'menu_item_deleted'          => 'Menu item deleted from library.',
             'menu_item_added_to_event'   => 'Menu item added to event.',
             'menu_item_removed_from_event' => 'Menu item removed from event.',
+            'budget_plan_created'        => 'Budget plan created.',
+            'budget_plan_updated'        => 'Budget plan updated.',
+            'budget_plan_deleted'        => 'Budget plan deleted.',
+            'line_item_saved'            => 'Line item saved.',
+            'line_item_deleted'          => 'Line item deleted.',
         ];
 
         $errors = [
@@ -207,6 +213,10 @@ abstract class AbstractAdminPage
             'not_found'                  => 'Invitee or event not found.',
             'invalid_request'            => 'Invalid request — one or more required items could not be found.',
             'menu_item_label_required'   => 'A label is required to add a menu item.',
+            'line_item_label_required'   => 'A label is required for each line item.',
+            'budget_name_required'       => 'A plan name is required.',
+            'budget_save_failed'         => 'Could not save the budget plan. Please try again.',
+            'per_attending_needs_event'  => '"Per attending guest" mode requires an event to be selected.',
         ];
 
         if (isset($successes[$messageKey])) {

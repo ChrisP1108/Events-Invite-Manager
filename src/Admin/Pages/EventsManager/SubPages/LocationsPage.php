@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace EventsInviteManager\Admin\Pages;
+namespace EventsInviteManager\Admin\Pages\EventsManager\SubPages;
 
 if (!defined('ABSPATH')) exit;
 
@@ -140,12 +140,11 @@ final class LocationsPage extends AbstractAdminPage
         ];
 
         if (empty($data['name'])) {
-            wp_redirect(add_query_arg([
-                'page'      => AdminMenu::PAGE_LOCATIONS,
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS, [
                 'action'    => $id ? 'edit' : 'add',
                 'id'        => $id ?: null,
                 'eim_error' => 'location_name_required',
-            ], admin_url('admin.php')));
+            ]));
             exit;
         }
 
@@ -157,10 +156,9 @@ final class LocationsPage extends AbstractAdminPage
             $message = 'location_created';
         }
 
-        wp_redirect(add_query_arg([
-            'page'        => AdminMenu::PAGE_LOCATIONS,
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS, [
             'eim_message' => $message,
-        ], admin_url('admin.php')));
+        ]));
         exit;
     }
 
@@ -180,10 +178,9 @@ final class LocationsPage extends AbstractAdminPage
 
         Location::delete($id);
 
-        wp_redirect(add_query_arg([
-            'page'        => AdminMenu::PAGE_LOCATIONS,
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS, [
             'eim_message' => 'location_deleted',
-        ], admin_url('admin.php')));
+        ]));
         exit;
     }
 
@@ -201,7 +198,7 @@ final class LocationsPage extends AbstractAdminPage
         $order     = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
         $field     = $this->sanitizeLocationFieldKey((string) ($_GET['field'] ?? ''));
         $locations = Location::listForAdmin($search, $sort, $order, $field);
-        $addUrl    = admin_url('admin.php?page=' . AdminMenu::PAGE_LOCATIONS . '&action=add');
+        $addUrl    = AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS, ['action' => 'add']);
         ?>
         <div class="wrap">
             <h1 class="wp-heading-inline">Locations</h1>
@@ -237,9 +234,9 @@ final class LocationsPage extends AbstractAdminPage
                    data-order="<?= esc_attr($order); ?>">
                 <thead>
                     <tr>
-                        <th style="width:28%;"><?= $this->sortLink('Name', 'name', AdminMenu::PAGE_LOCATIONS, $sort, $order, $search); ?></th>
-                        <th style="width:14%;"><?= $this->sortLink('Type', 'is_other', AdminMenu::PAGE_LOCATIONS, $sort, $order, $search); ?></th>
-                        <th style="width:12%;"><?= $this->sortLink('Lodging', 'has_lodging', AdminMenu::PAGE_LOCATIONS, $sort, $order, $search); ?></th>
+                        <th style="width:28%;"><?= $this->sortLink('Name', 'name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_LOCATIONS]); ?></th>
+                        <th style="width:14%;"><?= $this->sortLink('Type', 'is_other', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_LOCATIONS]); ?></th>
+                        <th style="width:12%;"><?= $this->sortLink('Lodging', 'has_lodging', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_LOCATIONS]); ?></th>
                         <th style="width:25%;">Address / Booking</th>
                         <th style="width:24%;">Used In</th>
                         <th style="width:18%;">Actions</th>
@@ -251,7 +248,7 @@ final class LocationsPage extends AbstractAdminPage
             </table>
 
             <?php if (empty($locations) && $search === ''): ?>
-                <p style="margin-top:12px;">No locations yet. <a href="<?= esc_url($addUrl); ?>">Add the first location.</a></p>
+                <p style="margin-top:12px;">No locations yet. <a href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS, ['action' => 'add'])); ?>">Add the first location.</a></p>
             <?php endif; ?>
         </div>
         <?php
@@ -274,9 +271,9 @@ final class LocationsPage extends AbstractAdminPage
         $usageByLocation = Location::eventUsageForLocations(array_map(static fn(Location $loc): int => $loc->id, $locations));
 
         foreach ($locations as $loc) {
-            $editUrl   = admin_url('admin.php?page=' . AdminMenu::PAGE_LOCATIONS . '&action=edit&id=' . $loc->id);
+            $editUrl   = AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS, ['action' => 'edit', 'id' => $loc->id]);
             $deleteUrl = wp_nonce_url(
-                admin_url('admin.php?page=' . AdminMenu::PAGE_LOCATIONS . '&action=delete_location&id=' . $loc->id),
+                AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS, ['action' => 'delete_location', 'id' => $loc->id]),
                 'eim_delete_location_' . $loc->id
             );
             ?>
@@ -310,7 +307,7 @@ final class LocationsPage extends AbstractAdminPage
                         <span class="eim-tag-list">
                             <?php foreach ($usage as $eventUsage): ?>
                                 <?php
-                                $eventUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=edit&id=' . $eventUsage['id']);
+                                $eventUrl = AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $eventUsage['id']]);
                                 $roles    = array_map(
                                     static fn(string $role): string => $role === 'venue' ? 'Venue' : 'Lodging',
                                     $eventUsage['roles']
@@ -363,7 +360,7 @@ final class LocationsPage extends AbstractAdminPage
         $isNew   = $location === null;
         $message = (string) ($_GET['eim_message'] ?? '');
         $error   = (string) ($_GET['eim_error'] ?? '');
-        $backUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_LOCATIONS);
+        $backUrl = AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS);
         $title   = $isNew ? 'Add Location' : 'Edit Location';
         $isOther = !$isNew && $location->isOther;
         ?>
@@ -374,7 +371,7 @@ final class LocationsPage extends AbstractAdminPage
 
             <?php $this->renderNotice($message, $error); ?>
 
-            <form method="post" action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_LOCATIONS)); ?>">
+            <form method="post" action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS)); ?>">
                 <?php wp_nonce_field('eim_save_location'); ?>
                 <input type="hidden" name="eim_action" value="save_location">
                 <input type="hidden" name="location_id" value="<?= esc_attr($isNew ? 0 : $location->id); ?>">

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace EventsInviteManager\Admin\Pages;
+namespace EventsInviteManager\Admin\Pages\EventsManager\SubPages;
 
 if (!defined('ABSPATH')) exit;
 
@@ -128,31 +128,28 @@ final class ConnectionGroupsPage extends AbstractAdminPage
         $type = sanitize_key($_POST['type'] ?? 'custom');
 
         if (empty($name)) {
-            wp_redirect(add_query_arg([
-                'page'      => AdminMenu::PAGE_CONNECTION_GROUPS,
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, [
                 'action'    => $id ? 'edit' : 'add',
                 'id'        => $id ?: null,
                 'eim_error' => 'cg_name_required',
-            ], admin_url('admin.php')));
+            ]));
             exit;
         }
 
         if ($id > 0) {
             ConnectionGroup::update($id, $name, $type);
-            wp_redirect(add_query_arg([
-                'page'        => AdminMenu::PAGE_CONNECTION_GROUPS,
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, [
                 'action'      => 'edit',
                 'id'          => $id,
                 'eim_message' => 'cg_updated',
-            ], admin_url('admin.php')));
+            ]));
         } else {
             $group = ConnectionGroup::create($name, $type);
-            wp_redirect(add_query_arg([
-                'page'        => AdminMenu::PAGE_CONNECTION_GROUPS,
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, [
                 'action'      => 'edit',
                 'id'          => $group?->id ?? 0,
                 'eim_message' => 'cg_created',
-            ], admin_url('admin.php')));
+            ]));
         }
         exit;
     }
@@ -168,10 +165,9 @@ final class ConnectionGroupsPage extends AbstractAdminPage
 
         ConnectionGroup::delete($id);
 
-        wp_redirect(add_query_arg([
-            'page'        => AdminMenu::PAGE_CONNECTION_GROUPS,
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, [
             'eim_message' => 'cg_deleted',
-        ], admin_url('admin.php')));
+        ]));
         exit;
     }
 
@@ -189,12 +185,11 @@ final class ConnectionGroupsPage extends AbstractAdminPage
             ConnectionGroup::addMember($groupId, $inviteeId, $role);
         }
 
-        wp_redirect(add_query_arg([
-            'page'        => AdminMenu::PAGE_CONNECTION_GROUPS,
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, [
             'action'      => 'edit',
             'id'          => $groupId,
             'eim_message' => 'cg_member_added',
-        ], admin_url('admin.php')) . '#eim-cg-members');
+        ]) . '#eim-cg-members');
         exit;
     }
 
@@ -210,12 +205,11 @@ final class ConnectionGroupsPage extends AbstractAdminPage
 
         ConnectionGroup::removeMember($groupId, $inviteeId);
 
-        wp_redirect(add_query_arg([
-            'page'        => AdminMenu::PAGE_CONNECTION_GROUPS,
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, [
             'action'      => 'edit',
             'id'          => $groupId,
             'eim_message' => 'cg_member_removed',
-        ], admin_url('admin.php')) . '#eim-cg-members');
+        ]) . '#eim-cg-members');
         exit;
     }
 
@@ -232,7 +226,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
         $order   = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
         $field   = $this->sanitizeGroupFieldKey((string) ($_GET['field'] ?? ''));
         $groups  = ConnectionGroup::listForAdmin($search, $sort, $order, $field);
-        $addUrl  = admin_url('admin.php?page=' . AdminMenu::PAGE_CONNECTION_GROUPS . '&action=add');
+        $addUrl  = AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'add']);
         ?>
         <div class="wrap">
             <h1 class="wp-heading-inline">Connection Groups</h1>
@@ -269,9 +263,9 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                    data-order="<?= esc_attr($order); ?>">
                 <thead>
                     <tr>
-                        <th style="width:28%;"><?= $this->sortLink('Name',    'name',    AdminMenu::PAGE_CONNECTION_GROUPS, $sort, $order, $search); ?></th>
-                        <th style="width:10%;"><?= $this->sortLink('Type',    'type',    AdminMenu::PAGE_CONNECTION_GROUPS, $sort, $order, $search); ?></th>
-                        <th><?= $this->sortLink('Members', 'members', AdminMenu::PAGE_CONNECTION_GROUPS, $sort, $order, $search); ?></th>
+                        <th style="width:28%;"><?= $this->sortLink('Name',    'name',    AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_CONNECTION_GROUPS]); ?></th>
+                        <th style="width:10%;"><?= $this->sortLink('Type',    'type',    AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_CONNECTION_GROUPS]); ?></th>
+                        <th><?= $this->sortLink('Members', 'members', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_CONNECTION_GROUPS]); ?></th>
                         <th style="width:14%;">Actions</th>
                     </tr>
                 </thead>
@@ -293,7 +287,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
     private function renderGroupRows(array $groups, string $search = ''): void
     {
         if (empty($groups)) {
-            $addUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_CONNECTION_GROUPS . '&action=add');
+            $addUrl = AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'add']);
             ?>
             <tr>
                 <td colspan="4">
@@ -307,9 +301,9 @@ final class ConnectionGroupsPage extends AbstractAdminPage
         }
 
         foreach ($groups as $group) {
-            $editUrl   = admin_url('admin.php?page=' . AdminMenu::PAGE_CONNECTION_GROUPS . '&action=edit&id=' . $group->id);
+            $editUrl   = AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'edit', 'id' => $group->id]);
             $deleteUrl = wp_nonce_url(
-                admin_url('admin.php?page=' . AdminMenu::PAGE_CONNECTION_GROUPS . '&action=delete_connection_group&id=' . $group->id),
+                AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'delete_connection_group', 'id' => $group->id]),
                 'eim_delete_connection_group_' . $group->id
             );
             ?>
@@ -329,7 +323,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                     <?php else: ?>
                         <span class="eim-tag-list">
                             <?php foreach ($members as $member): ?>
-                                <?php $memberEditUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&action=edit&id=' . $member->id); ?>
+                                <?php $memberEditUrl = AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, ['action' => 'edit', 'id' => $member->id]); ?>
                                 <a class="eim-connection-tag" href="<?= esc_url($memberEditUrl); ?>">
                                     <?= esc_html($member->fullName()); ?>
                                 </a>
@@ -350,14 +344,14 @@ final class ConnectionGroupsPage extends AbstractAdminPage
     private function renderGroupForm(?ConnectionGroup $group): void
     {
         if (isset($_GET['id']) && $group === null) {
-            $this->renderError('Connection group not found.', admin_url('admin.php?page=' . AdminMenu::PAGE_CONNECTION_GROUPS));
+            $this->renderError('Connection group not found.', AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS));
             return;
         }
 
         $isNew      = $group === null;
         $message    = (string) ($_GET['eim_message'] ?? '');
         $error      = (string) ($_GET['eim_error']   ?? '');
-        $backUrl    = admin_url('admin.php?page=' . AdminMenu::PAGE_CONNECTION_GROUPS);
+        $backUrl    = AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS);
         $title      = $isNew ? 'Add Connection Group' : 'Edit Connection Group: ' . $group->name;
         $addMemberId = 'eim-add-member-form';
         ?>
@@ -371,11 +365,11 @@ final class ConnectionGroupsPage extends AbstractAdminPage
             <?php if (!$isNew): ?>
                 <form id="<?= esc_attr($addMemberId); ?>"
                       method="post"
-                      action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_CONNECTION_GROUPS)); ?>">
+                      action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS)); ?>">
                 </form>
             <?php endif; ?>
 
-            <form method="post" action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_CONNECTION_GROUPS)); ?>">
+            <form method="post" action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS)); ?>">
                 <?php wp_nonce_field('eim_save_connection_group'); ?>
                 <input type="hidden" name="eim_action"            value="save_connection_group">
                 <input type="hidden" name="connection_group_id"   value="<?= esc_attr($isNew ? 0 : $group->id); ?>">
@@ -436,13 +430,10 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                             <?php foreach ($members as $member): ?>
                                 <?php
                                 $removeUrl = wp_nonce_url(
-                                    admin_url('admin.php?page=' . AdminMenu::PAGE_CONNECTION_GROUPS
-                                        . '&action=remove_member_from_connection_group'
-                                        . '&group_id=' . $group->id
-                                        . '&invitee_id=' . $member->id),
+                                    AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'remove_member_from_connection_group', 'group_id' => $group->id, 'invitee_id' => $member->id]),
                                     'eim_remove_cg_member_' . $group->id . '_' . $member->id
                                 );
-                                $editUrl = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&action=edit&id=' . $member->id);
+                                $editUrl = AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, ['action' => 'edit', 'id' => $member->id]);
                                 ?>
                                 <tr>
                                     <td><a href="<?= esc_url($editUrl); ?>"><?= esc_html($member->fullName()); ?></a></td>

@@ -8,7 +8,7 @@ if (!defined('ABSPATH')) exit;
 
 final class DatabaseManager
 {
-    private const SCHEMA_VERSION = '12';
+    private const SCHEMA_VERSION = '13';
 
     private const EVENTS_TABLE                           = 'eim_events';
     private const INVITEES_TABLE                         = 'eim_invitees';
@@ -22,6 +22,9 @@ final class DatabaseManager
     private const INVITATION_GROUP_MEMBERS_TABLE         = 'eim_event_invitation_group_members';
     private const MENU_ITEMS_TABLE                       = 'eim_menu_items';
     private const EVENT_MENU_ITEMS_TABLE                 = 'eim_event_menu_items';
+    private const BUDGET_PLANS_TABLE                     = 'eim_budget_plans';
+    private const BUDGET_PLAN_EVENTS_TABLE               = 'eim_budget_plan_events';
+    private const BUDGET_LINE_ITEMS_TABLE                = 'eim_budget_line_items';
 
     public static function createTables(): void
     {
@@ -39,8 +42,11 @@ final class DatabaseManager
         $cgMembersTable     = $wpdb->prefix . self::INVITEE_CONNECTION_GROUP_MEMBERS_TABLE;
         $invGroupsTable     = $wpdb->prefix . self::INVITATION_GROUPS_TABLE;
         $invMembersTable    = $wpdb->prefix . self::INVITATION_GROUP_MEMBERS_TABLE;
-        $menuItemsTable     = $wpdb->prefix . self::MENU_ITEMS_TABLE;
+        $menuItemsTable      = $wpdb->prefix . self::MENU_ITEMS_TABLE;
         $eventMenuItemsTable = $wpdb->prefix . self::EVENT_MENU_ITEMS_TABLE;
+        $budgetPlansTable    = $wpdb->prefix . self::BUDGET_PLANS_TABLE;
+        $budgetPlanEventsTable = $wpdb->prefix . self::BUDGET_PLAN_EVENTS_TABLE;
+        $budgetLineItemsTable  = $wpdb->prefix . self::BUDGET_LINE_ITEMS_TABLE;
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
@@ -182,6 +188,7 @@ final class DatabaseManager
                 type        VARCHAR(10)         NOT NULL DEFAULT 'food',
                 label       VARCHAR(255)        NOT NULL DEFAULT '',
                 description TEXT,
+                price_cents INT UNSIGNED        NOT NULL DEFAULT 0,
                 sort_order  INT                 NOT NULL DEFAULT 0,
                 is_active   TINYINT(1)          NOT NULL DEFAULT 1,
                 created_at  DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -199,6 +206,49 @@ final class DatabaseManager
                 UNIQUE KEY event_menu_item (event_id, menu_item_id),
                 KEY event_id (event_id),
                 KEY menu_item_id (menu_item_id)
+            ) ENGINE=InnoDB {$charset};
+            CREATE TABLE {$budgetPlansTable} (
+                id                  BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                name                VARCHAR(255)        NOT NULL DEFAULT '',
+                description         TEXT,
+                target_amount_cents INT UNSIGNED        NOT NULL DEFAULT 0,
+                currency            VARCHAR(3)          NOT NULL DEFAULT 'USD',
+                created_at          DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at          DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id)
+            ) ENGINE=InnoDB {$charset};
+            CREATE TABLE {$budgetPlanEventsTable} (
+                id         BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                plan_id    BIGINT(20) UNSIGNED NOT NULL,
+                event_id   BIGINT(20) UNSIGNED NOT NULL,
+                created_at DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY plan_event (plan_id, event_id),
+                KEY plan_id (plan_id),
+                KEY event_id (event_id)
+            ) ENGINE=InnoDB {$charset};
+            CREATE TABLE {$budgetLineItemsTable} (
+                id                   BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                plan_id              BIGINT(20) UNSIGNED NOT NULL,
+                event_id             BIGINT(20) UNSIGNED NULL DEFAULT NULL,
+                category             VARCHAR(30)         NOT NULL DEFAULT 'other',
+                label                VARCHAR(255)        NOT NULL DEFAULT '',
+                source_type          VARCHAR(20)         NULL DEFAULT NULL,
+                source_id            BIGINT(20) UNSIGNED NULL DEFAULT NULL,
+                quantity             DECIMAL(10,2)       NOT NULL DEFAULT 1,
+                quantity_mode        VARCHAR(15)         NOT NULL DEFAULT 'fixed',
+                unit_cost_cents      INT UNSIGNED        NOT NULL DEFAULT 0,
+                total_override_cents INT UNSIGNED        NULL DEFAULT NULL,
+                paid_amount_cents    INT UNSIGNED        NOT NULL DEFAULT 0,
+                vendor_name          VARCHAR(255)        NOT NULL DEFAULT '',
+                notes                TEXT,
+                sort_order           INT                 NOT NULL DEFAULT 0,
+                created_at           DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at           DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY plan_id (plan_id),
+                KEY event_id (event_id),
+                KEY category (category)
             ) ENGINE=InnoDB {$charset};";
 
         dbDelta($sql);
@@ -297,5 +347,100 @@ final class DatabaseManager
     {
         global $wpdb;
         return $wpdb->prefix . self::EVENT_MENU_ITEMS_TABLE;
+    }
+
+    /** @return string Fully-qualified budget plans table name. */
+    public static function budgetPlansTable(): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . self::BUDGET_PLANS_TABLE;
+    }
+
+    /** @return string Fully-qualified budget plan events pivot table name. */
+    public static function budgetPlanEventsTable(): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . self::BUDGET_PLAN_EVENTS_TABLE;
+    }
+
+    /** @return string Fully-qualified budget line items table name. */
+    public static function budgetLineItemsTable(): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . self::BUDGET_LINE_ITEMS_TABLE;
+    }
+
+    /**
+     * Ensures all three budget tables exist, creating them if missing.
+     *
+     * Each table is checked independently so a partial schema failure (e.g. the
+     * plans table exists but the pivot or line-items table was never created)
+     * still recovers correctly.
+     */
+    public static function maybeCreateBudgetTables(): void
+    {
+        global $wpdb;
+
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $charset               = $wpdb->get_charset_collate();
+        $plansTable            = $wpdb->prefix . self::BUDGET_PLANS_TABLE;
+        $budgetPlanEventsTable = $wpdb->prefix . self::BUDGET_PLAN_EVENTS_TABLE;
+        $budgetLineItemsTable  = $wpdb->prefix . self::BUDGET_LINE_ITEMS_TABLE;
+
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        if ($wpdb->get_var("SHOW TABLES LIKE '{$plansTable}'") !== $plansTable) {
+            dbDelta("CREATE TABLE {$plansTable} (
+            id                  BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+            name                VARCHAR(255)        NOT NULL DEFAULT '',
+            description         TEXT,
+            target_amount_cents INT UNSIGNED        NOT NULL DEFAULT 0,
+            currency            VARCHAR(3)          NOT NULL DEFAULT 'USD',
+            created_at          DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at          DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id)
+        ) ENGINE=InnoDB {$charset};");
+        }
+
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        if ($wpdb->get_var("SHOW TABLES LIKE '{$budgetPlanEventsTable}'") !== $budgetPlanEventsTable) {
+            dbDelta("CREATE TABLE {$budgetPlanEventsTable} (
+                id         BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                plan_id    BIGINT(20) UNSIGNED NOT NULL,
+                event_id   BIGINT(20) UNSIGNED NOT NULL,
+                created_at DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY plan_event (plan_id, event_id),
+                KEY plan_id (plan_id),
+                KEY event_id (event_id)
+            ) ENGINE=InnoDB {$charset};");
+        }
+
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        if ($wpdb->get_var("SHOW TABLES LIKE '{$budgetLineItemsTable}'") !== $budgetLineItemsTable) {
+            dbDelta("CREATE TABLE {$budgetLineItemsTable} (
+                id                   BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                plan_id              BIGINT(20) UNSIGNED NOT NULL,
+                event_id             BIGINT(20) UNSIGNED NULL DEFAULT NULL,
+                category             VARCHAR(30)         NOT NULL DEFAULT 'other',
+                label                VARCHAR(255)        NOT NULL DEFAULT '',
+                source_type          VARCHAR(20)         NULL DEFAULT NULL,
+                source_id            BIGINT(20) UNSIGNED NULL DEFAULT NULL,
+                quantity             DECIMAL(10,2)       NOT NULL DEFAULT 1.00,
+                quantity_mode        VARCHAR(15)         NOT NULL DEFAULT 'fixed',
+                unit_cost_cents      INT UNSIGNED        NOT NULL DEFAULT 0,
+                total_override_cents INT UNSIGNED        NULL DEFAULT NULL,
+                paid_amount_cents    INT UNSIGNED        NOT NULL DEFAULT 0,
+                vendor_name          VARCHAR(255)        NOT NULL DEFAULT '',
+                notes                TEXT,
+                sort_order           INT                 NOT NULL DEFAULT 0,
+                created_at           DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at           DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY plan_id (plan_id),
+                KEY event_id (event_id),
+                KEY category (category)
+            ) ENGINE=InnoDB {$charset};");
+        }
     }
 }

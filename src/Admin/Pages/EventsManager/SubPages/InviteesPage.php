@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace EventsInviteManager\Admin\Pages;
+namespace EventsInviteManager\Admin\Pages\EventsManager\SubPages;
 
 if (!defined('ABSPATH')) exit;
 
@@ -138,22 +138,20 @@ final class InviteesPage extends AbstractAdminPage
         ];
 
         if (empty($data['first_name']) || empty($data['last_name']) || empty($data['email'])) {
-            wp_redirect(add_query_arg([
-                'page'      => AdminMenu::PAGE_INVITEES,
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, [
                 'action'    => $id ? 'edit' : 'add',
                 'id'        => $id ?: null,
                 'eim_error' => 'required_fields',
-            ], admin_url('admin.php')));
+            ]));
             exit;
         }
 
         if (!is_email($data['email'])) {
-            wp_redirect(add_query_arg([
-                'page'      => AdminMenu::PAGE_INVITEES,
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, [
                 'action'    => $id ? 'edit' : 'add',
                 'id'        => $id ?: null,
                 'eim_error' => 'invalid_email',
-            ], admin_url('admin.php')));
+            ]));
             exit;
         }
 
@@ -165,10 +163,9 @@ final class InviteesPage extends AbstractAdminPage
             $message = 'invitee_created';
         }
 
-        wp_redirect(add_query_arg([
-            'page'        => AdminMenu::PAGE_INVITEES,
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, [
             'eim_message' => $message,
-        ], admin_url('admin.php')));
+        ]));
         exit;
     }
 
@@ -183,10 +180,9 @@ final class InviteesPage extends AbstractAdminPage
 
         Invitee::delete($id);
 
-        wp_redirect(add_query_arg([
-            'page'        => AdminMenu::PAGE_INVITEES,
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, [
             'eim_message' => 'invitee_deleted',
-        ], admin_url('admin.php')));
+        ]));
         exit;
     }
 
@@ -199,7 +195,7 @@ final class InviteesPage extends AbstractAdminPage
         $order   = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
         $field   = $this->sanitizeInviteeFieldKey((string) ($_GET['field'] ?? ''));
         $rows    = Invitee::listForAdmin($search, $sort, $order, $field);
-        $addUrl  = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&action=add');
+        $addUrl  = AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, ['action' => 'add']);
 
         $inviteeIds      = array_map(static fn($r) => $r['invitee']->id, $rows);
         $groupsByInvitee = ConnectionGroup::forInvitees($inviteeIds);
@@ -213,7 +209,7 @@ final class InviteesPage extends AbstractAdminPage
 
             <p class="description" style="margin-bottom:16px;">
                 Manage invitee profiles here. Assign people to events from the event edit screen.
-                Use <a href="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_CONNECTION_GROUPS)); ?>">Connection Groups</a>
+                Use <a href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS)); ?>">Connection Groups</a>
                 to define relationships like couples or families.
             </p>
 
@@ -241,11 +237,11 @@ final class InviteesPage extends AbstractAdminPage
                    data-order="<?= esc_attr($order); ?>">
                 <thead>
                     <tr>
-                        <th style="width:12%;"><?= $this->sortLink('First Name', 'first_name', AdminMenu::PAGE_INVITEES, $sort, $order, $search); ?></th>
-                        <th style="width:12%;"><?= $this->sortLink('Last Name', 'last_name', AdminMenu::PAGE_INVITEES, $sort, $order, $search); ?></th>
-                        <th style="width:18%;"><?= $this->sortLink('Email', 'email', AdminMenu::PAGE_INVITEES, $sort, $order, $search); ?></th>
-                        <th style="width:11%;"><?= $this->sortLink('Phone', 'phone', AdminMenu::PAGE_INVITEES, $sort, $order, $search); ?></th>
-                        <th><?= $this->sortLink('Invited Events', 'events', AdminMenu::PAGE_INVITEES, $sort, $order, $search); ?></th>
+                        <th style="width:12%;"><?= $this->sortLink('First Name', 'first_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
+                        <th style="width:12%;"><?= $this->sortLink('Last Name', 'last_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
+                        <th style="width:18%;"><?= $this->sortLink('Email', 'email', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
+                        <th style="width:11%;"><?= $this->sortLink('Phone', 'phone', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
+                        <th><?= $this->sortLink('Invited Events', 'events', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
                         <th style="width:17%;">Connection Groups</th>
                         <th style="width:10%;">Actions</th>
                     </tr>
@@ -279,9 +275,9 @@ final class InviteesPage extends AbstractAdminPage
         foreach ($rows as $row) {
             /** @var Invitee $invitee */
             $invitee     = $row['invitee'];
-            $editUrl     = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&action=edit&id=' . $invitee->id);
+            $editUrl     = AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, ['action' => 'edit', 'id' => $invitee->id]);
             $deleteUrl   = wp_nonce_url(
-                admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES . '&action=delete_invitee&id=' . $invitee->id),
+                AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, ['action' => 'delete_invitee', 'id' => $invitee->id]),
                 'eim_delete_invitee_' . $invitee->id
             );
             $connGroups  = $groupsByInvitee[$invitee->id] ?? [];
@@ -298,7 +294,7 @@ final class InviteesPage extends AbstractAdminPage
                         <span class="eim-tag-list">
                             <?php foreach ($row['events'] as $event): ?>
                                 <a class="eim-event-tag"
-                                   href="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=edit&id=' . $event['id'] . '#eim-event-invitees')); ?>">
+                                   href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $event['id']]) . '#eim-event-invitees'); ?>">
                                     <?= esc_html($event['name']); ?>
                                 </a>
                             <?php endforeach; ?>
@@ -312,7 +308,7 @@ final class InviteesPage extends AbstractAdminPage
                         <span class="eim-tag-list">
                             <?php foreach ($connGroups as $cg): ?>
                                 <a class="eim-connection-tag"
-                                   href="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_CONNECTION_GROUPS . '&action=edit&id=' . $cg->id)); ?>"
+                                   href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'edit', 'id' => $cg->id])); ?>"
                                    title="<?= esc_attr($cg->typeLabel()); ?>">
                                     <?= esc_html($cg->name); ?>
                                 </a>
@@ -333,18 +329,18 @@ final class InviteesPage extends AbstractAdminPage
     private function renderInviteeForm(?Invitee $invitee): void
     {
         if (isset($_GET['id']) && $invitee === null) {
-            $this->renderError('Invitee not found.', admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES));
+            $this->renderError('Invitee not found.', AdminMenu::tabUrl(AdminMenu::TAB_INVITEES));
             return;
         }
 
         $isNew        = $invitee === null;
         $message      = (string) ($_GET['eim_message'] ?? '');
         $error        = (string) ($_GET['eim_error']   ?? '');
-        $backUrl      = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES);
+        $backUrl      = AdminMenu::tabUrl(AdminMenu::TAB_INVITEES);
         $title        = $isNew ? 'Add Invitee' : 'Edit Invitee';
         $events       = $isNew ? [] : Invitee::eventsForInvitee($invitee->id);
         $connGroups   = $isNew ? [] : ConnectionGroup::forInvitee($invitee->id);
-        $cgAddUrl     = admin_url('admin.php?page=' . AdminMenu::PAGE_CONNECTION_GROUPS . '&action=add');
+        $cgAddUrl     = AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'add']);
         ?>
         <div class="wrap">
             <h1><?= esc_html($title); ?></h1>
@@ -353,7 +349,7 @@ final class InviteesPage extends AbstractAdminPage
 
             <?php $this->renderNotice($message, $error); ?>
 
-            <form method="post" action="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES)); ?>">
+            <form method="post" action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_INVITEES)); ?>">
                 <?php wp_nonce_field('eim_save_invitee'); ?>
                 <input type="hidden" name="eim_action"  value="save_invitee">
                 <input type="hidden" name="invitee_id"  value="<?= esc_attr($isNew ? 0 : $invitee->id); ?>">
@@ -410,7 +406,7 @@ final class InviteesPage extends AbstractAdminPage
                                     <span class="eim-tag-list">
                                         <?php foreach ($connGroups as $cg): ?>
                                             <a class="eim-connection-tag"
-                                               href="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_CONNECTION_GROUPS . '&action=edit&id=' . $cg->id)); ?>">
+                                               href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'edit', 'id' => $cg->id])); ?>">
                                                 <span class="eim-cg-type-badge eim-cg-type-<?= esc_attr($cg->type); ?>" style="margin-right:4px;">
                                                     <?= esc_html($cg->typeLabel()); ?>
                                                 </span>
@@ -421,7 +417,7 @@ final class InviteesPage extends AbstractAdminPage
                                 <?php endif; ?>
                                 <p class="description" style="margin-top:6px;">
                                     Manage connection groups from the
-                                    <a href="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_CONNECTION_GROUPS)); ?>">Connection Groups page</a>.
+                                    <a href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS)); ?>">Connection Groups page</a>.
                                     <a href="<?= esc_url($cgAddUrl); ?>">Create a new group →</a>
                                 </p>
                             </td>
@@ -435,7 +431,7 @@ final class InviteesPage extends AbstractAdminPage
                                     <span class="eim-tag-list">
                                         <?php foreach ($events as $event): ?>
                                             <a class="eim-event-tag"
-                                               href="<?= esc_url(admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=edit&id=' . $event['id'] . '#eim-event-invitees')); ?>">
+                                               href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $event['id']]) . '#eim-event-invitees'); ?>">
                                                 <?= esc_html($event['name']); ?>
                                             </a>
                                         <?php endforeach; ?>

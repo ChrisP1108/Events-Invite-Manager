@@ -26,11 +26,20 @@ class MenuItem
         public readonly string $type,
         public readonly string $label,
         public readonly string $description,
+        public readonly int    $priceCents,
         public readonly int    $sortOrder,
         public readonly bool   $isActive,
         public readonly string $createdAt,
         public readonly string $updatedAt,
     ) {}
+
+    public function formattedPrice(): string
+    {
+        if ($this->priceCents === 0) {
+            return '';
+        }
+        return '$' . number_format($this->priceCents / 100, 2);
+    }
 
     // -------------------------------------------------------------------------
     // Global library — CRUD
@@ -150,6 +159,7 @@ class MenuItem
             'type'        => $type,
             'label'       => (string) ($data['label']       ?? ''),
             'description' => (string) ($data['description'] ?? ''),
+            'price_cents' => (int)    ($data['price_cents'] ?? 0),
             'is_active'   => isset($data['is_active']) ? (int) $data['is_active'] : 1,
         ]);
 
@@ -163,6 +173,7 @@ class MenuItem
         $fields = [];
         if (isset($data['label']))       $fields['label']       = (string) $data['label'];
         if (isset($data['description'])) $fields['description'] = (string) $data['description'];
+        if (isset($data['price_cents'])) $fields['price_cents'] = (int)    $data['price_cents'];
         if (isset($data['is_active']))   $fields['is_active']   = (int)    $data['is_active'];
 
         if (empty($fields)) {
@@ -200,7 +211,7 @@ class MenuItem
             $rows = $wpdb->get_results(
                 $wpdb->prepare(
                     "SELECT mi.id, mi.type, mi.label, mi.description,
-                            emi.sort_order, mi.is_active, mi.created_at, mi.updated_at
+                            mi.price_cents, emi.sort_order, mi.is_active, mi.created_at, mi.updated_at
                      FROM {$itemsTable} mi
                      INNER JOIN {$pivotTable} emi ON emi.menu_item_id = mi.id
                      WHERE emi.event_id = %d AND mi.type = %s
@@ -213,7 +224,7 @@ class MenuItem
             $rows = $wpdb->get_results(
                 $wpdb->prepare(
                     "SELECT mi.id, mi.type, mi.label, mi.description,
-                            emi.sort_order, mi.is_active, mi.created_at, mi.updated_at
+                            mi.price_cents, emi.sort_order, mi.is_active, mi.created_at, mi.updated_at
                      FROM {$itemsTable} mi
                      INNER JOIN {$pivotTable} emi ON emi.menu_item_id = mi.id
                      WHERE emi.event_id = %d
@@ -370,10 +381,11 @@ class MenuItem
             type:               $row->type        ?? self::TYPE_FOOD,
             label:              $row->label       ?? '',
             description:        $row->description ?? '',
-            sortOrder:   (int)  ($row->sort_order ?? 0),
-            isActive:    (bool) ($row->is_active  ?? true),
-            createdAt:          $row->created_at  ?? '',
-            updatedAt:          $row->updated_at  ?? '',
+            priceCents:  (int)  ($row->price_cents ?? 0),
+            sortOrder:   (int)  ($row->sort_order  ?? 0),
+            isActive:    (bool) ($row->is_active   ?? true),
+            createdAt:          $row->created_at   ?? '',
+            updatedAt:          $row->updated_at   ?? '',
         );
     }
 }

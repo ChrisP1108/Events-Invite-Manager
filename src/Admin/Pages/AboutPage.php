@@ -93,11 +93,11 @@ final class AboutPage extends AbstractAdminPage
 
     private function renderGettingStarted(): void
     {
-        $locationsUrl  = admin_url('admin.php?page=' . AdminMenu::PAGE_LOCATIONS . '&action=add');
-        $menuItemsUrl  = admin_url('admin.php?page=' . AdminMenu::PAGE_MENU_ITEMS);
-        $eventsUrl     = admin_url('admin.php?page=' . AdminMenu::PAGE_EVENTS . '&action=add');
-        $inviteesUrl   = admin_url('admin.php?page=' . AdminMenu::PAGE_INVITEES);
-        $groupsUrl     = admin_url('admin.php?page=' . AdminMenu::PAGE_CONNECTION_GROUPS);
+        $locationsUrl  = AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS, ['action' => 'add']);
+        $menuItemsUrl  = AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS);
+        $eventsUrl     = AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'add']);
+        $inviteesUrl   = AdminMenu::tabUrl(AdminMenu::TAB_INVITEES);
+        $groupsUrl     = AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS);
         ?>
         <div class="eim-about-section">
             <h2>Getting Started</h2>
