@@ -85,7 +85,7 @@ final class AboutPage extends AbstractAdminPage
                     Events Invite Manager
                     <span class="eim-about-version">v<?= esc_html(EIM_VERSION); ?></span>
                 </h1>
-                <p>Manage private event invitations, grouped RSVPs, attendee registration, venue and lodging assignments, a global food &amp; beverage menu library, and automated email workflows — all from the WordPress admin.</p>
+                <p>Manage private event invitations, grouped RSVPs, attendee registration, venue and lodging assignments, a global food &amp; beverage menu library, budget tracking, newsletter posts, and automated email workflows — all from the WordPress admin.</p>
             </div>
         </div>
         <?php
@@ -93,11 +93,13 @@ final class AboutPage extends AbstractAdminPage
 
     private function renderGettingStarted(): void
     {
-        $locationsUrl  = AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS, ['action' => 'add']);
-        $menuItemsUrl  = AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS);
-        $eventsUrl     = AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'add']);
-        $inviteesUrl   = AdminMenu::tabUrl(AdminMenu::TAB_INVITEES);
-        $groupsUrl     = AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS);
+        $locationsUrl    = AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS, ['action' => 'add']);
+        $menuItemsUrl    = AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS);
+        $eventsUrl       = AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'add']);
+        $inviteesUrl     = AdminMenu::tabUrl(AdminMenu::TAB_INVITEES);
+        $groupsUrl       = AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS);
+        $newslettersUrl  = AdminMenu::tabUrl(AdminMenu::TAB_NEWSLETTERS);
+        $budgetUrl       = AdminMenu::tabUrl(AdminMenu::TAB_BUDGET);
         ?>
         <div class="eim-about-section">
             <h2>Getting Started</h2>
@@ -132,10 +134,8 @@ final class AboutPage extends AbstractAdminPage
                     <div>
                         <h3>Create an event</h3>
                         <p>
-                            Go to <strong>Events → Add New Event</strong>. Set the date, time zone, venue (search the library), and optionally enable lodging, food options, and/or beverage options.
-                            Select a <strong>QR Code RSVP Page</strong> — the WordPress page recipients land on after scanning their QR code.
-                            Customise the invite email template with your messaging before saving.
-                            After saving, assign food/beverage items to the event from the global library.
+                            Go to <strong>Events → Add New Event</strong>. The edit screen is tabbed — fill in the <strong>Details</strong>, set a venue on the <strong>Venue/Location</strong> tab, configure your invite email on the <strong>Invite Email</strong> tab, choose an RSVP page on <strong>QR Code &amp; RSVP</strong>, and enable lodging or food/beverage options on their respective tabs.
+                            After saving, assign food/beverage items from the global library directly on the <strong>Food &amp; Beverage</strong> tab, and manage invitees on the <strong>Invited Invitees</strong> tab.
                             <a href="<?= esc_url($eventsUrl); ?>">Create your first event →</a>
                         </p>
                     </div>
@@ -159,6 +159,7 @@ final class AboutPage extends AbstractAdminPage
                         <p>
                             Go to <strong>Connection Groups</strong> to define reusable relationships like couples, families, or households.
                             These groups become checkbox suggestions when adding invitees to an event.
+                            The <strong>Invited To</strong> column shows which events each group has already been invited to.
                             <a href="<?= esc_url($groupsUrl); ?>">Go to Connection Groups →</a>
                         </p>
                     </div>
@@ -169,8 +170,8 @@ final class AboutPage extends AbstractAdminPage
                     <div>
                         <h3>Send invites</h3>
                         <p>
-                            Open an event, add existing invitees to its <strong>Invited Invitees</strong> list, and optionally check connected people to include them in the same invitation group.
-                            The invited invitees list supports AJAX live search (including a column-filter dropdown) so you can quickly find groups as the event grows.
+                            Open an event and navigate to the <strong>Invited Invitees</strong> tab. Add existing invitees and optionally check connected people to include them in the same invitation group.
+                            The list supports AJAX live search and a column-filter dropdown.
                             Click <strong>Send Invite</strong> for one group or <strong>Send All Unsent Invites</strong>.
                             A unique QR code is generated automatically for each group — add <code>{{ qr_code }}</code>
                             anywhere in your invite email to embed the scannable image, or
@@ -191,6 +192,28 @@ final class AboutPage extends AbstractAdminPage
                             primary invitee, all group members, event details, food/beverage options, and lodging.
                             Submit via <code>POST /wp-json/eim/v1/register</code> with per-person RSVP statuses,
                             food/beverage selections, and optional dietary notes.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="eim-about-step">
+                    <div class="eim-about-step-num">8</div>
+                    <div>
+                        <h3>Write newsletters <em style="font-weight:400;color:#646970;">(optional)</em></h3>
+                        <p>
+                            Go to <strong>Newsletters</strong> to create newsletter posts for email blasts or website display. Associate each post with one or more events, assign managed categories and tags, and use the TinyMCE editor to author HTML content. Click <strong>Preview Content</strong> to open a side-by-side live preview that refreshes automatically as you type.
+                            <a href="<?= esc_url($newslettersUrl); ?>">Go to Newsletters →</a>
+                        </p>
+                    </div>
+                </div>
+
+                <div class="eim-about-step">
+                    <div class="eim-about-step-num">9</div>
+                    <div>
+                        <h3>Track your budget <em style="font-weight:400;color:#646970;">(optional)</em></h3>
+                        <p>
+                            Go to <strong>Budget</strong> to create a budget plan. Add line items with vendor, quantity, unit cost, and optional total overrides. Plans can span multiple events; the totals row shows estimated, paid, and remaining amounts at a glance.
+                            <a href="<?= esc_url($budgetUrl); ?>">Go to Budget →</a>
                         </p>
                     </div>
                 </div>
@@ -216,7 +239,7 @@ final class AboutPage extends AbstractAdminPage
             [
                 'icon'  => 'dashicons-calendar-alt',
                 'title' => 'Event Management',
-                'body'  => 'Create events with name, description, date, start/end time, time zone, an optional invitee cap, and food/beverage option flags. A monthly calendar grid gives a visual overview of all dated events.',
+                'body'  => 'Create events with name, description, date, start/end time, time zone, an optional invitee cap, and food/beverage option flags. The edit screen is organised into seven tabs — Details, Venue/Location, Invite Email, QR Code & RSVP, Lodging, Food & Beverage, and Invited Invitees — with tab state persisted via localStorage and URL hash. A monthly calendar grid gives a visual overview of all dated events.',
             ],
             [
                 'icon'  => 'dashicons-admin-home',
@@ -226,7 +249,7 @@ final class AboutPage extends AbstractAdminPage
             [
                 'icon'  => 'dashicons-carrot',
                 'title' => 'Food & Beverage Options (per event)',
-                'body'  => 'When food or beverage options are enabled on an event, the edit screen presents an autocomplete that searches the global library. Assigned items are returned by the RSVP API and stored as per-person selections (food_option_id / beverage_option_id) on each group member when they register.',
+                'body'  => 'When food or beverage options are enabled on an event, the Food & Beverage tab presents an autocomplete that searches the global library. Assigned items are returned by the RSVP API and stored as per-person selections on each group member. When both types are enabled, the food and beverage assignment tables are displayed side-by-side.',
             ],
             [
                 'icon'  => 'dashicons-groups',
@@ -236,7 +259,7 @@ final class AboutPage extends AbstractAdminPage
             [
                 'icon'  => 'dashicons-networking',
                 'title' => 'Connection Groups',
-                'body'  => 'Create reusable relationships for couples, families, households, or custom groups. The Connection Groups list has its own live search bar with a column-filter dropdown (Name, Type, Members) and searches both group names and member details.',
+                'body'  => 'Create reusable relationships for couples, families, households, or custom groups. The Connection Groups list has its own live search bar with a column-filter dropdown (Name, Type, Members, Invited To) and searches group names, member details, and event names. The Invited To column shows which events each group has been invited to as clickable event tags.',
             ],
             [
                 'icon'  => 'dashicons-email-alt',
@@ -262,6 +285,16 @@ final class AboutPage extends AbstractAdminPage
                 'icon'  => 'dashicons-shield',
                 'title' => 'Search & Validation',
                 'body'  => 'All list tables share a contextual search bar with a column-filter dropdown. The search bar hides when the list is empty, and returns a distinct message when a search finds no matches. Venue/lodging/menu item fields enforce library validation — free-text entries are blocked server-side.',
+            ],
+            [
+                'icon'  => 'dashicons-media-document',
+                'title' => 'Newsletters',
+                'body'  => 'Create newsletter posts for email blasts or website display. Each newsletter supports HTML content via the WordPress TinyMCE editor, status (draft/published), a publish date, many-to-many event associations, and managed categories and tags. A live side-by-side content preview renders the HTML in an isolated iframe and refreshes automatically as you type.',
+            ],
+            [
+                'icon'  => 'dashicons-chart-bar',
+                'title' => 'Budget Tracking',
+                'body'  => 'Plan and track event costs with named budget plans that can span multiple events. Each plan contains categorised line items with vendor, quantity (fixed or per-attending-guest), unit cost, total override, and paid amount. Estimated, paid, and remaining totals are computed and displayed in a summary row. Line items support drag-to-reorder.',
             ],
         ];
         ?>
