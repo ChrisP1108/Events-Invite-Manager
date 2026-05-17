@@ -192,6 +192,13 @@ abstract class AbstractAdminPage
             'budget_plan_deleted'        => 'Budget plan deleted.',
             'line_item_saved'            => 'Line item saved.',
             'line_item_deleted'          => 'Line item deleted.',
+            'newsletter_created'         => 'Newsletter created.',
+            'newsletter_updated'         => 'Newsletter updated.',
+            'newsletter_deleted'         => 'Newsletter deleted.',
+            'nl_category_added'          => 'Category added.',
+            'nl_category_deleted'        => 'Category deleted.',
+            'nl_tag_added'               => 'Tag added.',
+            'nl_tag_deleted'             => 'Tag deleted.',
         ];
 
         $errors = [
@@ -217,6 +224,9 @@ abstract class AbstractAdminPage
             'budget_name_required'       => 'A plan name is required.',
             'budget_save_failed'         => 'Could not save the budget plan. Please try again.',
             'per_attending_needs_event'  => '"Per attending guest" mode requires an event to be selected.',
+            'newsletter_title_required'  => 'A title is required for the newsletter.',
+            'nl_category_name_required'  => 'A category name is required.',
+            'nl_tag_name_required'       => 'A tag name is required.',
         ];
 
         if (isset($successes[$messageKey])) {

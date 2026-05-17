@@ -58,9 +58,11 @@ final class ConnectionGroup
     {
         global $wpdb;
 
-        $groupsTable   = DatabaseManager::inviteeConnectionGroupsTable();
-        $membersTable  = DatabaseManager::inviteeConnectionGroupMembersTable();
-        $inviteesTable = DatabaseManager::inviteesTable();
+        $groupsTable        = DatabaseManager::inviteeConnectionGroupsTable();
+        $membersTable       = DatabaseManager::inviteeConnectionGroupMembersTable();
+        $inviteesTable      = DatabaseManager::inviteesTable();
+        $eventsTable        = DatabaseManager::eventsTable();
+        $eventInviteesTable = DatabaseManager::eventInviteesTable();
 
         $where  = '';
         $params = [];
@@ -86,6 +88,15 @@ final class ConnectionGroup
                     )";
                     $params = [$like, $like, $like];
                     break;
+                case 'invited_to':
+                    $where  = "WHERE EXISTS (
+                        SELECT 1 FROM {$membersTable} cgm_ev
+                        INNER JOIN {$eventInviteesTable} ei ON ei.invitee_id = cgm_ev.invitee_id
+                        INNER JOIN {$eventsTable} e ON e.id = ei.event_id
+                        WHERE cgm_ev.group_id = cg.id AND LOWER(e.name) LIKE %s
+                    )";
+                    $params = [$like];
+                    break;
                 default:
                     $where  = "WHERE cg.name LIKE %s
                                OR EXISTS (
@@ -93,16 +104,23 @@ final class ConnectionGroup
                                    INNER JOIN {$inviteesTable} i ON i.id = cgm.invitee_id
                                    WHERE cgm.group_id = cg.id
                                      AND (i.first_name LIKE %s OR i.last_name LIKE %s OR i.email LIKE %s)
+                               )
+                               OR EXISTS (
+                                   SELECT 1 FROM {$membersTable} cgm_ev
+                                   INNER JOIN {$eventInviteesTable} ei ON ei.invitee_id = cgm_ev.invitee_id
+                                   INNER JOIN {$eventsTable} e ON e.id = ei.event_id
+                                   WHERE cgm_ev.group_id = cg.id AND LOWER(e.name) LIKE %s
                                )";
-                    $params = [$like, $like, $like, $like];
+                    $params = [$like, $like, $like, $like, $like];
             }
         }
 
         $dir         = $order === 'desc' ? 'DESC' : 'ASC';
         $orderClause = match ($sort) {
-            'type'    => "ORDER BY cg.type {$dir}, cg.name ASC",
-            'members' => 'ORDER BY cg.name ASC', // re-sorted in PHP after member counts are known
-            default   => "ORDER BY cg.name {$dir}, cg.id ASC",
+            'type'       => "ORDER BY cg.type {$dir}, cg.name ASC",
+            'members',
+            'invited_to' => 'ORDER BY cg.name ASC', // re-sorted in PHP after relational counts are known
+            default      => "ORDER BY cg.name {$dir}, cg.id ASC",
         };
 
         $sql  = "SELECT cg.* FROM {$groupsTable} cg {$where} {$orderClause}";
@@ -377,6 +395,57 @@ final class ConnectionGroup
     // -------------------------------------------------------------------------
     // Event add-flow helpers
     // -------------------------------------------------------------------------
+
+    /**
+     * Returns events each group has been invited to, keyed by group ID.
+     *
+     * A group "is invited to" an event when at least one of its members appears
+     * in eim_event_invitees for that event.
+     *
+     * @param int[] $groupIds
+     * @return array<int, array<int, array{id:int,name:string}>>
+     */
+    public static function eventsForGroups(array $groupIds): array
+    {
+        global $wpdb;
+
+        $groupIds = array_values(array_unique(array_filter(array_map('intval', $groupIds))));
+        if (empty($groupIds)) {
+            return [];
+        }
+
+        $membersTable       = DatabaseManager::inviteeConnectionGroupMembersTable();
+        $eventInviteesTable = DatabaseManager::eventInviteesTable();
+        $eventsTable        = DatabaseManager::eventsTable();
+        $placeholders       = implode(', ', array_fill(0, count($groupIds), '%d'));
+
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT DISTINCT cgm.group_id, e.id AS event_id, e.name AS event_name
+                 FROM {$membersTable} cgm
+                 INNER JOIN {$eventInviteesTable} ei ON ei.invitee_id = cgm.invitee_id
+                 INNER JOIN {$eventsTable} e ON e.id = ei.event_id
+                 WHERE cgm.group_id IN ({$placeholders})
+                 ORDER BY cgm.group_id ASC, e.name ASC",
+                ...$groupIds
+            )
+        );
+
+        $grouped = [];
+        foreach ($rows ?? [] as $row) {
+            $gid = (int) $row->group_id;
+            $eid = (int) $row->event_id;
+            if (!isset($grouped[$gid][$eid])) {
+                $grouped[$gid][$eid] = ['id' => $eid, 'name' => (string) $row->event_name];
+            }
+        }
+
+        foreach ($grouped as $gid => $events) {
+            $grouped[$gid] = array_values($events);
+        }
+
+        return $grouped;
+    }
 
     /**
      * Returns invitees who share a connection group with the given invitee,

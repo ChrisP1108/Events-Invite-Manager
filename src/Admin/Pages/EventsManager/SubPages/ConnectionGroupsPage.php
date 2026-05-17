@@ -62,8 +62,15 @@ final class ConnectionGroupsPage extends AbstractAdminPage
         $field  = $this->sanitizeGroupFieldKey((string) ($_GET['field'] ?? ''));
         $groups = ConnectionGroup::listForAdmin($query, $sort, $order, $field);
 
+        $groupIds      = array_map(static fn(ConnectionGroup $g) => $g->id, $groups);
+        $eventsByGroup = ConnectionGroup::eventsForGroups($groupIds);
+
+        if ($sort === 'invited_to') {
+            $groups = $this->phpSortByEvents($groups, $eventsByGroup, $order);
+        }
+
         ob_start();
-        $this->renderGroupRows($groups, $query);
+        $this->renderGroupRows($groups, $query, $eventsByGroup);
         $html = (string) ob_get_clean();
 
         wp_send_json_success([
@@ -75,13 +82,13 @@ final class ConnectionGroupsPage extends AbstractAdminPage
     private function sanitizeGroupSortKey(string $key): string
     {
         $key = sanitize_key($key);
-        return in_array($key, ['name', 'type', 'members'], true) ? $key : 'name';
+        return in_array($key, ['name', 'type', 'members', 'invited_to'], true) ? $key : 'name';
     }
 
     private function sanitizeGroupFieldKey(string $field): string
     {
         $field = sanitize_key($field);
-        return in_array($field, ['name', 'type', 'members'], true) ? $field : '';
+        return in_array($field, ['name', 'type', 'members', 'invited_to'], true) ? $field : '';
     }
 
     /**
@@ -227,6 +234,13 @@ final class ConnectionGroupsPage extends AbstractAdminPage
         $field   = $this->sanitizeGroupFieldKey((string) ($_GET['field'] ?? ''));
         $groups  = ConnectionGroup::listForAdmin($search, $sort, $order, $field);
         $addUrl  = AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'add']);
+
+        $groupIds      = array_map(static fn(ConnectionGroup $g) => $g->id, $groups);
+        $eventsByGroup = ConnectionGroup::eventsForGroups($groupIds);
+
+        if ($sort === 'invited_to') {
+            $groups = $this->phpSortByEvents($groups, $eventsByGroup, $order);
+        }
         ?>
         <div class="wrap">
             <h1 class="wp-heading-inline">Connection Groups</h1>
@@ -245,13 +259,14 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                 'eim-connection-group-search',
                 'eim-connection-group-count',
                 'eim-connection-group-loading',
-                'Search groups or members...',
+                'Search groups, members, or events...',
                 count($groups),
                 $search,
                 [
-                    ['value' => 'name',    'label' => 'Name'],
-                    ['value' => 'type',    'label' => 'Type'],
-                    ['value' => 'members', 'label' => 'Members'],
+                    ['value' => 'name',       'label' => 'Name'],
+                    ['value' => 'type',       'label' => 'Type'],
+                    ['value' => 'members',    'label' => 'Members'],
+                    ['value' => 'invited_to', 'label' => 'Invited To'],
                 ],
                 $field
             ); ?>
@@ -263,14 +278,15 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                    data-order="<?= esc_attr($order); ?>">
                 <thead>
                     <tr>
-                        <th style="width:28%;"><?= $this->sortLink('Name',    'name',    AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_CONNECTION_GROUPS]); ?></th>
-                        <th style="width:10%;"><?= $this->sortLink('Type',    'type',    AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_CONNECTION_GROUPS]); ?></th>
-                        <th><?= $this->sortLink('Members', 'members', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_CONNECTION_GROUPS]); ?></th>
-                        <th style="width:14%;">Actions</th>
+                        <th style="width:22%;"><?= $this->sortLink('Name',       'name',       AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_CONNECTION_GROUPS]); ?></th>
+                        <th style="width:9%;"><?= $this->sortLink('Type',        'type',        AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_CONNECTION_GROUPS]); ?></th>
+                        <th style="width:30%;"><?= $this->sortLink('Members',    'members',     AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_CONNECTION_GROUPS]); ?></th>
+                        <th><?= $this->sortLink('Invited To', 'invited_to', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_CONNECTION_GROUPS]); ?></th>
+                        <th style="width:12%;">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="eim-connection-groups-table-body">
-                    <?php $this->renderGroupRows($groups, $search); ?>
+                    <?php $this->renderGroupRows($groups, $search, $eventsByGroup); ?>
                 </tbody>
             </table>
         </div>
@@ -280,17 +296,18 @@ final class ConnectionGroupsPage extends AbstractAdminPage
     /**
      * Renders connection group table rows for the initial page and AJAX responses.
      *
-     * @param ConnectionGroup[] $groups
-     * @param string            $search
+     * @param ConnectionGroup[]                                   $groups
+     * @param string                                              $search
+     * @param array<int, array<int, array{id:int,name:string}>>  $eventsByGroup
      * @return void
      */
-    private function renderGroupRows(array $groups, string $search = ''): void
+    private function renderGroupRows(array $groups, string $search = '', array $eventsByGroup = []): void
     {
         if (empty($groups)) {
             $addUrl = AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'add']);
             ?>
             <tr>
-                <td colspan="4">
+                <td colspan="5">
                     <?= $search
                         ? 'No results found based upon search criteria.'
                         : 'No connection groups yet. <a href="' . esc_url($addUrl) . '">Add the first one.</a>'; ?>
@@ -306,6 +323,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                 AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'delete_connection_group', 'id' => $group->id]),
                 'eim_delete_connection_group_' . $group->id
             );
+            $groupEvents = $eventsByGroup[$group->id] ?? [];
             ?>
             <tr>
                 <td>
@@ -332,6 +350,18 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                     <?php endif; ?>
                 </td>
                 <td>
+                    <?php if (empty($groupEvents)): ?>
+                        <span style="color:#999;">—</span>
+                    <?php else: ?>
+                        <span class="eim-tag-list">
+                            <?php foreach ($groupEvents as $ev): ?>
+                                <?php $evUrl = AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $ev['id']]); ?>
+                                <a class="eim-event-tag" href="<?= esc_url($evUrl); ?>"><?= esc_html($ev['name']); ?></a>
+                            <?php endforeach; ?>
+                        </span>
+                    <?php endif; ?>
+                </td>
+                <td>
                     <a href="<?= esc_url($editUrl); ?>">Edit</a> |
                     <a href="<?= esc_url($deleteUrl); ?>"
                        onclick="return confirm('Delete the group &quot;<?= esc_js($group->name); ?>&quot;? Members will not be deleted.');">Delete</a>
@@ -339,6 +369,27 @@ final class ConnectionGroupsPage extends AbstractAdminPage
             </tr>
             <?php
         }
+    }
+
+    /**
+     * Sorts a connection group array by event count (then name) in PHP.
+     *
+     * @param ConnectionGroup[]                                  $groups
+     * @param array<int, array<int, array{id:int,name:string}>> $eventsByGroup
+     * @param string                                             $order
+     * @return ConnectionGroup[]
+     */
+    private function phpSortByEvents(array $groups, array $eventsByGroup, string $order): array
+    {
+        $mul = $order === 'desc' ? -1 : 1;
+        usort($groups, static function (ConnectionGroup $a, ConnectionGroup $b) use ($eventsByGroup, $mul): int {
+            $aCount = count($eventsByGroup[$a->id] ?? []);
+            $bCount = count($eventsByGroup[$b->id] ?? []);
+            $cmp    = $aCount <=> $bCount;
+            return $cmp !== 0 ? $mul * $cmp : strcasecmp($a->name, $b->name);
+        });
+
+        return $groups;
     }
 
     private function renderGroupForm(?ConnectionGroup $group): void

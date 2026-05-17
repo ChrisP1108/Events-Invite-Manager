@@ -14,6 +14,7 @@ use EventsInviteManager\Admin\Pages\EventsManager\SubPages\InviteesPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\LocationsPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\BudgetPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\MenuItemsPage;
+use EventsInviteManager\Admin\Pages\EventsManager\SubPages\NewslettersPage;
 use EventsInviteManager\Email\EmailService;
 use EventsInviteManager\Email\TemplateRenderer;
 use EventsInviteManager\Services\QrCodeService;
@@ -32,6 +33,7 @@ final class AdminMenu
     public const TAB_LOCATIONS          = 'locations';
     public const TAB_MENU_ITEMS         = 'food-beverages';
     public const TAB_BUDGET             = 'budget';
+    public const TAB_NEWSLETTERS        = 'newsletters';
 
     private AboutPage            $aboutPage;
     private EventsManagerPage    $eventsManagerPage;
@@ -41,6 +43,7 @@ final class AdminMenu
     private LocationsPage        $locationsPage;
     private MenuItemsPage        $menuItemsPage;
     private BudgetPage           $budgetPage;
+    private NewslettersPage      $newslettersPage;
 
     public function __construct()
     {
@@ -53,6 +56,7 @@ final class AdminMenu
         $this->locationsPage        = new LocationsPage();
         $this->menuItemsPage        = new MenuItemsPage();
         $this->budgetPage           = new BudgetPage();
+        $this->newslettersPage      = new NewslettersPage();
 
         $this->aboutPage          = new AboutPage();
         $this->eventsManagerPage  = new EventsManagerPage(
@@ -61,7 +65,8 @@ final class AdminMenu
             $this->connectionGroupsPage,
             $this->locationsPage,
             $this->menuItemsPage,
-            $this->budgetPage
+            $this->budgetPage,
+            $this->newslettersPage
         );
     }
 
@@ -104,6 +109,7 @@ final class AdminMenu
         add_action('wp_ajax_eim_suggest_cg_members',    [$this->connectionGroupsPage, 'handleAjaxSuggestMembers']);
         add_action('wp_ajax_eim_search_budget_plans',      [$this->budgetPage, 'handleAjaxSearchPlans']);
         add_action('wp_ajax_eim_search_budget_line_items', [$this->budgetPage, 'handleAjaxSearchLineItems']);
+        add_action('wp_ajax_eim_search_newsletters',       [$this->newslettersPage, 'handleAjaxSearchNewsletters']);
 
         add_filter('script_loader_tag', [$this, 'addModuleTypeToScript'], 10, 2);
     }
@@ -208,6 +214,18 @@ final class AdminMenu
             ]);
         }
 
+        if ($tab === self::TAB_NEWSLETTERS && !in_array($action, ['add', 'edit'], true)) {
+            wp_enqueue_script('eim-admin-newsletters', EIM_PLUGIN_URL . 'assets/js/admin-newsletters.js', [], EIM_VERSION, true);
+            wp_localize_script('eim-admin-newsletters', 'eimNewslettersAdmin', [
+                'searchNonce' => wp_create_nonce('eim_search_newsletters_nonce'),
+                'table'       => [
+                    'enabled' => true,
+                    'sort'    => sanitize_key($_GET['sort'] ?? 'title'),
+                    'order'   => strtolower((string) ($_GET['order'] ?? 'asc')) === 'desc' ? 'desc' : 'asc',
+                ],
+            ]);
+        }
+
         if ($tab !== self::TAB_EVENTS || !in_array($action, ['add', 'edit'], true)) {
             return;
         }
@@ -268,6 +286,7 @@ final class AdminMenu
                 self::TAB_LOCATIONS         => $this->locationsPage->handleAction($action),
                 self::TAB_MENU_ITEMS        => $this->menuItemsPage->handleAction($action),
                 self::TAB_BUDGET            => $this->budgetPage->handleAction($action),
+                self::TAB_NEWSLETTERS       => $this->newslettersPage->handleAction($action),
                 default                     => null,
             };
         }

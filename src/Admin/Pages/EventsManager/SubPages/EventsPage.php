@@ -288,7 +288,7 @@ final class EventsPage extends AbstractAdminPage
             $args['eim_error'] = 'lodging_create_failed';
         }
 
-        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, $args));
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, $args) . '#eim-etab-lodging');
         exit;
     }
 
@@ -308,7 +308,7 @@ final class EventsPage extends AbstractAdminPage
             'action'      => 'edit',
             'id'          => $eventId,
             'eim_message' => 'lodging_deleted',
-        ]));
+        ]) . '#eim-etab-lodging');
         exit;
     }
 
@@ -337,7 +337,7 @@ final class EventsPage extends AbstractAdminPage
                 'action'    => 'edit',
                 'id'        => $eventId ?: null,
                 'eim_error' => 'invitee_required',
-            ]) . '#eim-event-invitees');
+            ]) . '#eim-etab-invitees');
             exit;
         }
 
@@ -346,7 +346,7 @@ final class EventsPage extends AbstractAdminPage
                 'action'    => 'edit',
                 'id'        => $eventId,
                 'eim_error' => 'invitee_already_invited',
-            ]) . '#eim-event-invitees');
+            ]) . '#eim-etab-invitees');
             exit;
         }
 
@@ -371,7 +371,7 @@ final class EventsPage extends AbstractAdminPage
                 'action'    => 'edit',
                 'id'        => $eventId,
                 'eim_error' => 'invitee_limit_reached',
-            ]) . '#eim-event-invitees');
+            ]) . '#eim-etab-invitees');
             exit;
         }
 
@@ -390,7 +390,7 @@ final class EventsPage extends AbstractAdminPage
             'action'      => 'edit',
             'id'          => $eventId,
             'eim_message' => 'event_invitee_added',
-        ]) . '#eim-event-invitees');
+        ]) . '#eim-etab-invitees');
         exit;
     }
 
@@ -410,7 +410,7 @@ final class EventsPage extends AbstractAdminPage
             'action'      => 'edit',
             'id'          => $eventId,
             'eim_message' => 'event_invitee_removed',
-        ]) . '#eim-event-invitees');
+        ]) . '#eim-etab-invitees');
         exit;
     }
 
@@ -431,7 +431,7 @@ final class EventsPage extends AbstractAdminPage
             'action'      => 'edit',
             'id'          => $eventId,
             'eim_message' => 'primary_updated',
-        ]) . '#eim-event-invitees');
+        ]) . '#eim-etab-invitees');
         exit;
     }
 
@@ -455,7 +455,7 @@ final class EventsPage extends AbstractAdminPage
                 'action'    => 'edit',
                 'id'        => $eventId ?: null,
                 'eim_error' => 'invalid_request',
-            ]) . '#eim-event-invitees');
+            ]) . '#eim-etab-invitees');
             exit;
         }
 
@@ -464,7 +464,7 @@ final class EventsPage extends AbstractAdminPage
                 'action'    => 'edit',
                 'id'        => $eventId,
                 'eim_error' => 'invitee_already_invited',
-            ]) . '#eim-event-invitees');
+            ]) . '#eim-etab-invitees');
             exit;
         }
 
@@ -473,7 +473,7 @@ final class EventsPage extends AbstractAdminPage
                 'action'    => 'edit',
                 'id'        => $eventId,
                 'eim_error' => 'invitee_limit_reached',
-            ]) . '#eim-event-invitees');
+            ]) . '#eim-etab-invitees');
             exit;
         }
 
@@ -483,7 +483,7 @@ final class EventsPage extends AbstractAdminPage
             'action'      => 'edit',
             'id'          => $eventId,
             'eim_message' => 'event_invitee_added',
-        ]) . '#eim-event-invitees');
+        ]) . '#eim-etab-invitees');
         exit;
     }
 
@@ -503,7 +503,7 @@ final class EventsPage extends AbstractAdminPage
             'action'      => 'edit',
             'id'          => $eventId,
             'eim_message' => 'event_invitee_removed',
-        ]) . '#eim-event-invitees');
+        ]) . '#eim-etab-invitees');
         exit;
     }
 
@@ -525,13 +525,13 @@ final class EventsPage extends AbstractAdminPage
                 'action'      => 'edit',
                 'id'          => $eventId,
                 'eim_message' => 'menu_item_added_to_event',
-            ]) . '#eim-rsvp-options');
+            ]) . '#eim-etab-food');
         } else {
             wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
                 'action'    => 'edit',
                 'id'        => $eventId ?: null,
                 'eim_error' => 'invalid_request',
-            ]) . '#eim-rsvp-options');
+            ]) . '#eim-etab-food');
         }
         exit;
     }
@@ -552,7 +552,7 @@ final class EventsPage extends AbstractAdminPage
             'action'      => 'edit',
             'id'          => $eventId,
             'eim_message' => 'menu_item_removed_from_event',
-        ]) . '#eim-rsvp-options');
+        ]) . '#eim-etab-food');
         exit;
     }
 
@@ -653,7 +653,7 @@ final class EventsPage extends AbstractAdminPage
             'action'      => 'edit',
             'id'          => $eventId,
             'eim_message' => $message,
-        ]) . '#eim-event-invitees');
+        ]) . '#eim-etab-invitees');
         exit;
     }
 
@@ -711,7 +711,7 @@ final class EventsPage extends AbstractAdminPage
             'id'          => $eventId,
             'eim_message' => 'invites_sent',
             'count'       => $sentCount,
-        ]) . '#eim-event-invitees');
+        ]) . '#eim-etab-invitees');
         exit;
     }
 
@@ -771,7 +771,7 @@ final class EventsPage extends AbstractAdminPage
                                 AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'delete_event', 'id' => $event->id]),
                                 'eim_delete_event_' . $event->id
                             );
-                            $inviteesUrl = AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $event->id]) . '#eim-event-invitees';
+                            $inviteesUrl = AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $event->id]) . '#eim-etab-invitees';
                             ?>
                             <tr>
                                 <td>
@@ -1044,14 +1044,19 @@ final class EventsPage extends AbstractAdminPage
             return;
         }
 
-        $message = (string) ($_GET['eim_message'] ?? '');
-        $error   = (string) ($_GET['eim_error'] ?? '');
-        $title   = $isNew ? 'Add New Event' : 'Edit Event: ' . $event->name;
+        $message          = (string) ($_GET['eim_message'] ?? '');
+        $error            = (string) ($_GET['eim_error'] ?? '');
+        $title            = $isNew ? 'Add New Event' : 'Edit Event: ' . $event->name;
         $addLodgingFormId = 'eim-add-lodging-form';
+        $saveLabel        = $isNew ? 'Create Event' : 'Update Event';
+
+        $venue           = (!$isNew && $event->venueId !== null) ? Location::find($event->venueId) : null;
+        $venueLocationId = $venue ? $venue->id : 0;
+        $venueAddress    = $venue ? $venue->formattedAddress() : '';
         ?>
         <div class="wrap">
             <h1><?= esc_html($title); ?></h1>
-            <a href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS)); ?>" style="margin-top: 12px; display: block;">← Back to Events</a>
+            <a href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS)); ?>" style="margin-top:12px;display:block;">← Back to Events</a>
             <hr class="wp-header-end">
 
             <?php $this->renderNotice($message, $error, (int) ($_GET['count'] ?? 0)); ?>
@@ -1060,194 +1065,219 @@ final class EventsPage extends AbstractAdminPage
                 <form id="<?= esc_attr($addLodgingFormId); ?>" method="post" action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS)); ?>"></form>
             <?php endif; ?>
 
-            <form method="post" action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS)); ?>">
+            <nav class="nav-tab-wrapper eim-event-tabs" data-event-id="<?= esc_attr($isNew ? '0' : $event->id); ?>" style="margin-top:12px;">
+                <a href="#eim-etab-details"  class="nav-tab" data-etab="details">Details</a>
+                <a href="#eim-etab-venue"    class="nav-tab" data-etab="venue">Venue/Location</a>
+                <a href="#eim-etab-email"    class="nav-tab" data-etab="email">Invite Email</a>
+                <a href="#eim-etab-qr"       class="nav-tab" data-etab="qr">QR Code &amp; RSVP</a>
+                <a href="#eim-etab-lodging"  class="nav-tab" data-etab="lodging">Lodging</a>
+                <a href="#eim-etab-food"     class="nav-tab" data-etab="food">Food &amp; Beverage</a>
+                <?php if (!$isNew): ?>
+                    <a href="#eim-etab-invitees" class="nav-tab" data-etab="invitees">Invited Invitees</a>
+                <?php endif; ?>
+            </nav>
+
+            <form id="eim-event-form" method="post" action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS)); ?>">
                 <?php wp_nonce_field('eim_save_event'); ?>
                 <input type="hidden" name="eim_action" value="save_event">
                 <input type="hidden" name="event_id" value="<?= esc_attr($isNew ? 0 : $event->id); ?>">
 
-                <table class="form-table" role="presentation">
-                    <tr><td colspan="2" class="sub-heading"><h2 class="title" style="margin-top:0;">Details</h2></td></tr>
-                    <tr>
-                        <th scope="row"><label for="eim_name">Event Name <span aria-hidden="true" style="color:#d63638;">*</span></label></th>
-                        <td>
-                            <input type="text" id="eim_name" name="name" class="regular-text"
-                                   value="<?= esc_attr($isNew ? '' : $event->name); ?>" required>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="eim_description">Description</label></th>
-                        <td>
-                            <textarea id="eim_description" name="description" class="large-text" rows="4"><?= esc_textarea($isNew ? '' : $event->description); ?></textarea>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="eim_start_datetime">Event Start</label></th>
-                        <td>
-                            <?php $startVal = (!$isNew && $event->startDatetime) ? $this->utcToDatetimeLocal($event->startDatetime, $event->timezone) : ''; ?>
-                            <input type="datetime-local" id="eim_start_datetime" name="start_datetime" value="<?= esc_attr($startVal); ?>">
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="eim_end_datetime">Event End</label></th>
-                        <td>
-                            <?php $endVal = (!$isNew && $event->endDatetime) ? $this->utcToDatetimeLocal($event->endDatetime, $event->timezone) : ''; ?>
-                            <input type="datetime-local" id="eim_end_datetime" name="end_datetime" value="<?= esc_attr($endVal); ?>">
-                            <p class="description">Leave blank if the event has no fixed end time.</p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="eim_timezone">Timezone</label></th>
-                        <td>
-                            <?php
-                            $usTimezones = [
-                                'America/New_York'    => 'Eastern (ET) — New York, Miami, Atlanta',
-                                'America/Chicago'     => 'Central (CT) — Chicago, Dallas, Houston',
-                                'America/Denver'      => 'Mountain (MT) — Denver, Salt Lake City',
-                                'America/Phoenix'     => 'Mountain no DST (MT) — Phoenix, Tucson',
-                                'America/Los_Angeles' => 'Pacific (PT) — Los Angeles, Seattle, Las Vegas',
-                                'America/Anchorage'   => 'Alaska (AKT) — Anchorage',
-                                'Pacific/Honolulu'    => 'Hawaii (HT) — Honolulu',
-                            ];
-                            $selectedTz = $isNew ? '' : $event->timezone;
-                            ?>
-                            <select id="eim_timezone" name="timezone">
-                                <option value="">— Select a timezone —</option>
-                                <?php foreach ($usTimezones as $tzId => $tzLabel): ?>
-                                    <option value="<?= esc_attr($tzId); ?>" <?php selected($selectedTz, $tzId); ?>>
-                                        <?= esc_html($tzLabel); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="eim_max_invitees">Max Invitees</label></th>
-                        <td>
-                            <input type="number" id="eim_max_invitees" name="max_invitees" min="1" step="1"
-                                   class="small-text"
-                                   value="<?= esc_attr($isNew ? '' : ($event->maxInvitees ?? '')); ?>">
-                            <p class="description">
-                                Leave blank for no limit. Counts individual people, not invitation groups.
-                            </p>
-                        </td>
-                    </tr>
-                    <tr><td colspan="2" class="sub-heading"><h2 class="title" style="margin-top:0;">Venue / Location</h2></td></tr>
+                <!-- ── Details ──────────────────────────────────────────── -->
+                <div id="eim-etab-details" class="eim-etab-panel">
+                    <table class="form-table" role="presentation">
+                        <tr>
+                            <th scope="row"><label for="eim_name">Event Name <span aria-hidden="true" style="color:#d63638;">*</span></label></th>
+                            <td>
+                                <input type="text" id="eim_name" name="name" class="regular-text"
+                                       value="<?= esc_attr($isNew ? '' : $event->name); ?>">
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="eim_description">Description</label></th>
+                            <td>
+                                <textarea id="eim_description" name="description" class="large-text" rows="4"><?= esc_textarea($isNew ? '' : $event->description); ?></textarea>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="eim_start_datetime">Event Start</label></th>
+                            <td>
+                                <?php $startVal = (!$isNew && $event->startDatetime) ? $this->utcToDatetimeLocal($event->startDatetime, $event->timezone) : ''; ?>
+                                <input type="datetime-local" id="eim_start_datetime" name="start_datetime" value="<?= esc_attr($startVal); ?>">
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="eim_end_datetime">Event End</label></th>
+                            <td>
+                                <?php $endVal = (!$isNew && $event->endDatetime) ? $this->utcToDatetimeLocal($event->endDatetime, $event->timezone) : ''; ?>
+                                <input type="datetime-local" id="eim_end_datetime" name="end_datetime" value="<?= esc_attr($endVal); ?>">
+                                <p class="description">Leave blank if the event has no fixed end time.</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="eim_timezone">Timezone</label></th>
+                            <td>
+                                <?php
+                                $usTimezones = [
+                                    'America/New_York'    => 'Eastern (ET) — New York, Miami, Atlanta',
+                                    'America/Chicago'     => 'Central (CT) — Chicago, Dallas, Houston',
+                                    'America/Denver'      => 'Mountain (MT) — Denver, Salt Lake City',
+                                    'America/Phoenix'     => 'Mountain no DST (MT) — Phoenix, Tucson',
+                                    'America/Los_Angeles' => 'Pacific (PT) — Los Angeles, Seattle, Las Vegas',
+                                    'America/Anchorage'   => 'Alaska (AKT) — Anchorage',
+                                    'Pacific/Honolulu'    => 'Hawaii (HT) — Honolulu',
+                                ];
+                                $selectedTz = $isNew ? '' : $event->timezone;
+                                ?>
+                                <select id="eim_timezone" name="timezone">
+                                    <option value="">— Select a timezone —</option>
+                                    <?php foreach ($usTimezones as $tzId => $tzLabel): ?>
+                                        <option value="<?= esc_attr($tzId); ?>" <?php selected($selectedTz, $tzId); ?>>
+                                            <?= esc_html($tzLabel); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="eim_max_invitees">Max Invitees</label></th>
+                            <td>
+                                <input type="number" id="eim_max_invitees" name="max_invitees" min="1" step="1"
+                                       class="small-text"
+                                       value="<?= esc_attr($isNew ? '' : ($event->maxInvitees ?? '')); ?>">
+                                <p class="description">
+                                    Leave blank for no limit. Counts individual people, not invitation groups.
+                                </p>
+                            </td>
+                        </tr>
+                    </table>
+                    <?php submit_button($saveLabel, 'primary', 'submit', false); ?>
+                </div>
 
-                    <?php
-                    $venue           = (!$isNew && $event->venueId !== null) ? Location::find($event->venueId) : null;
-                    $venueLocationId = $venue ? $venue->id : 0;
-                    $venueAddress    = $venue ? $venue->formattedAddress() : '';
-                    ?>
+                <!-- ── Venue / Location ─────────────────────────────────── -->
+                <div id="eim-etab-venue" class="eim-etab-panel">
                     <input type="hidden" id="eim_venue_library_id" name="venue_library_id"     value="<?= esc_attr($venueLocationId); ?>">
                     <input type="hidden" id="eim_venue_street"     name="venue_street_address" value="<?= esc_attr($venue ? $venue->streetAddress : ''); ?>">
                     <input type="hidden" id="eim_venue_city"       name="venue_city"           value="<?= esc_attr($venue ? $venue->city : ''); ?>">
                     <input type="hidden" id="eim_venue_state"      name="venue_state"          value="<?= esc_attr($venue ? $venue->state : ''); ?>">
                     <input type="hidden" id="eim_venue_zip"        name="venue_zip_code"       value="<?= esc_attr($venue ? $venue->zipCode : ''); ?>">
-                    <tr>
-                        <th scope="row"><label for="eim_venue_name">Venue Name</label></th>
-                        <td>
-                            <input type="text" id="eim_venue_name" name="venue_name" class="regular-text"
-                                   value="<?= esc_attr($venue ? $venue->name : ''); ?>" autocomplete="off">
-                            <p id="eim_venue_address_display" style="margin-top:6px;color:#3c434a;<?= $venueAddress ? '' : 'display:none;'; ?>">
-                                <?= esc_html($venueAddress); ?>
-                            </p>
-                            <p class="description" style="margin-top:4px;">
-                                Start typing to search the locations catalogue.
-                                <?php if (!$isNew): ?>Clear this field and save to remove the venue.<?php endif; ?>
-                            </p>
-                        </td>
-                    </tr>
-
-                    <tr><td colspan="2" class="sub-heading"><h2 class="title" style="margin-top:0;">Invite Email</h2></td></tr>
-
-                    <tr>
-                        <th scope="row"><label for="eim_from_name">From Name</label></th>
-                        <td>
-                            <input type="text" id="eim_from_name" name="from_name" class="regular-text"
-                                   value="<?= esc_attr($isNew ? '' : $event->fromName); ?>">
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="eim_from_email">From Email</label></th>
-                        <td>
-                            <input type="text" id="eim_from_email" name="from_email" class="regular-text"
-                                   value="<?= esc_attr($isNew ? '' : $event->fromEmail); ?>">
-                            <p class="description">
-                                Optional. Supports <code>{{ current_domain }}</code>, e.g. <code>noreply@{{current_domain}}</code>.
-                            </p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="eim_invite_email_subject">Subject Line</label></th>
-                        <td>
-                            <input type="text" id="eim_invite_email_subject" name="invite_email_subject" class="regular-text"
-                                   value="<?= esc_attr($isNew ? '' : $event->inviteEmailSubject); ?>">
-                            <p class="description">
-                                Tags: <code>{{ event_name }}</code> <code>{{ first_name }}</code> <code>{{ last_name }}</code>
-                            </p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="invite_email_template">Email Body</label></th>
-                        <td>
-                            <?php
-                            wp_editor(
-                                $isNew ? '' : $event->inviteEmailTemplate,
-                                'invite_email_template',
-                                ['textarea_name' => 'invite_email_template', 'media_buttons' => false, 'textarea_rows' => 15]
-                            );
-                            ?>
-                            <p class="description">
-                                Invitee tags:
-                                <code>{{ event_name }}</code> <code>{{ first_name }}</code> <code>{{ last_name }}</code>
-                                <code>{{ full_name }}</code> <code>{{ email }}</code> <code>{{ qr_code }}</code> <code>{{ invite_url }}</code>
-                            </p>
-                            <p class="description">
-                                Group tags:
-                                <code>{{ group_names }}</code> — all members' names ·
-                                <code>{{ invitee_names }}</code> — same as group_names ·
-                                <code>{{ invitee_count }}</code> — number of people in the group
-                            </p>
-                        </td>
-                    </tr>
-
-                    <tr><td colspan="2" class="sub-heading"><h2 class="title" style="margin-top:0;">QR Code &amp; RSVP</h2></td></tr>
-
-                    <tr>
-                        <th scope="row"><label for="eim_rsvp_page_id">QR Code RSVP Page Redirect</label></th>
-                        <td>
-                            <?php
-                            $pages          = get_pages(['sort_column' => 'post_title', 'sort_order' => 'ASC']);
-                            $selectedPageId = $isNew ? 0 : ($event->rsvpPageId ?? 0);
-                            ?>
-                            <select id="eim_rsvp_page_id" name="rsvp_page_id">
-                                <option value="0">— No redirect page selected —</option>
-                                <?php foreach ($pages as $page): ?>
-                                    <option value="<?= esc_attr($page->ID); ?>" <?php selected($selectedPageId, $page->ID); ?>>
-                                        <?= esc_html($page->post_title); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                            <?php if ($selectedPageId > 0): ?>
-                                <p class="description">
-                                    Current RSVP page: <a href="<?= esc_url(get_permalink($selectedPageId)); ?>" target="_blank"><?= esc_html(get_the_title($selectedPageId)); ?> ↗</a>
+                    <table class="form-table" role="presentation">
+                        <tr>
+                            <th scope="row"><label for="eim_venue_name">Venue Name</label></th>
+                            <td>
+                                <input type="text" id="eim_venue_name" name="venue_name" class="regular-text"
+                                       value="<?= esc_attr($venue ? $venue->name : ''); ?>" autocomplete="off">
+                                <p id="eim_venue_address_display" style="margin-top:6px;color:#3c434a;<?= $venueAddress ? '' : 'display:none;'; ?>">
+                                    <?= esc_html($venueAddress); ?>
                                 </p>
-                            <?php endif; ?>
-                        </td>
-                    </tr>
+                                <p class="description" style="margin-top:4px;">
+                                    Start typing to search the locations catalogue.
+                                    <?php if (!$isNew): ?>Clear this field and save to remove the venue.<?php endif; ?>
+                                </p>
+                            </td>
+                        </tr>
+                    </table>
+                    <?php submit_button($saveLabel, 'primary', 'submit', false); ?>
+                </div>
 
-                    <tr><td colspan="2" class="sub-heading"><h2 class="title" style="margin-top:0;">Lodging</h2></td></tr>
+                <!-- ── Invite Email ──────────────────────────────────────── -->
+                <div id="eim-etab-email" class="eim-etab-panel">
+                    <table class="form-table" role="presentation">
+                        <tr>
+                            <th scope="row"><label for="eim_from_name">From Name</label></th>
+                            <td>
+                                <input type="text" id="eim_from_name" name="from_name" class="regular-text"
+                                       value="<?= esc_attr($isNew ? '' : $event->fromName); ?>">
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="eim_from_email">From Email</label></th>
+                            <td>
+                                <input type="text" id="eim_from_email" name="from_email" class="regular-text"
+                                       value="<?= esc_attr($isNew ? '' : $event->fromEmail); ?>">
+                                <p class="description">
+                                    Optional. Supports <code>{{ current_domain }}</code>, e.g. <code>noreply@{{current_domain}}</code>.
+                                </p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="eim_invite_email_subject">Subject Line</label></th>
+                            <td>
+                                <input type="text" id="eim_invite_email_subject" name="invite_email_subject" class="regular-text"
+                                       value="<?= esc_attr($isNew ? '' : $event->inviteEmailSubject); ?>">
+                                <p class="description">
+                                    Tags: <code>{{ event_name }}</code> <code>{{ first_name }}</code> <code>{{ last_name }}</code>
+                                </p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="invite_email_template">Email Body</label></th>
+                            <td>
+                                <?php
+                                wp_editor(
+                                    $isNew ? '' : $event->inviteEmailTemplate,
+                                    'invite_email_template',
+                                    ['textarea_name' => 'invite_email_template', 'media_buttons' => false, 'textarea_rows' => 15]
+                                );
+                                ?>
+                                <p class="description">
+                                    Invitee tags:
+                                    <code>{{ event_name }}</code> <code>{{ first_name }}</code> <code>{{ last_name }}</code>
+                                    <code>{{ full_name }}</code> <code>{{ email }}</code> <code>{{ qr_code }}</code> <code>{{ invite_url }}</code>
+                                </p>
+                                <p class="description">
+                                    Group tags:
+                                    <code>{{ group_names }}</code> — all members' names ·
+                                    <code>{{ invitee_names }}</code> — same as group_names ·
+                                    <code>{{ invitee_count }}</code> — number of people in the group
+                                </p>
+                            </td>
+                        </tr>
+                    </table>
+                    <?php submit_button($saveLabel, 'primary', 'submit', false); ?>
+                </div>
 
-                    <tr>
-                        <th scope="row">Lodging Options</th>
-                        <td>
-                            <label>
-                                <input type="checkbox" name="lodging_enabled" value="1"
-                                       <?php checked($isNew ? false : $event->lodgingEnabled); ?>>
-                                Enable lodging options for this event
-                            </label>
-                        </td>
-                    </tr>
+                <!-- ── QR Code & RSVP ────────────────────────────────────── -->
+                <div id="eim-etab-qr" class="eim-etab-panel">
+                    <table class="form-table" role="presentation">
+                        <tr>
+                            <th scope="row"><label for="eim_rsvp_page_id">QR Code RSVP Page Redirect</label></th>
+                            <td>
+                                <?php
+                                $pages          = get_pages(['sort_column' => 'post_title', 'sort_order' => 'ASC']);
+                                $selectedPageId = $isNew ? 0 : ($event->rsvpPageId ?? 0);
+                                ?>
+                                <select id="eim_rsvp_page_id" name="rsvp_page_id">
+                                    <option value="0">— No redirect page selected —</option>
+                                    <?php foreach ($pages as $page): ?>
+                                        <option value="<?= esc_attr($page->ID); ?>" <?php selected($selectedPageId, $page->ID); ?>>
+                                            <?= esc_html($page->post_title); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <?php if ($selectedPageId > 0): ?>
+                                    <p class="description">
+                                        Current RSVP page: <a href="<?= esc_url(get_permalink($selectedPageId)); ?>" target="_blank"><?= esc_html(get_the_title($selectedPageId)); ?> ↗</a>
+                                    </p>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                    </table>
+                    <?php submit_button($saveLabel, 'primary', 'submit', false); ?>
+                </div>
+
+                <!-- ── Lodging ───────────────────────────────────────────── -->
+                <div id="eim-etab-lodging" class="eim-etab-panel">
+                    <table class="form-table" role="presentation">
+                        <tr>
+                            <th scope="row">Lodging Options</th>
+                            <td>
+                                <label>
+                                    <input type="checkbox" name="lodging_enabled" value="1"
+                                           <?php checked($isNew ? false : $event->lodgingEnabled); ?>>
+                                    Enable lodging options for this event
+                                </label>
+                            </td>
+                        </tr>
                     <?php if ($isNew): ?>
                         <tr>
                             <th scope="row">Lodging Locations</th>
@@ -1378,34 +1408,114 @@ final class EventsPage extends AbstractAdminPage
                             </td>
                         </tr>
                     <?php endif; ?>
-                    <tr><td colspan="2" class="sub-heading"><h2 class="title" style="margin-top:0;">Food &amp; Beverage</h2></td></tr>
-                    <tr>
-                        <th scope="row">Menu Options</th>
-                        <td>
-                            <label>
-                                <input type="checkbox" name="food_options_enabled" value="1"
-                                       <?php checked(!$isNew && $event->foodOptionsEnabled); ?>>
-                                Enable food options for this event
-                            </label>
-                            <br>
-                            <label style="margin-top:6px;display:block;">
-                                <input type="checkbox" name="beverage_options_enabled" value="1"
-                                       <?php checked(!$isNew && $event->beverageOptionsEnabled); ?>>
-                                Enable beverage options for this event
-                            </label>
-                            <p class="description">When enabled, options appear below and are returned by the RSVP API so invitees can choose when registering.</p>
-                        </td>
-                    </tr>
-                </table>
+                    </table>
+                    <?php submit_button($saveLabel, 'primary', 'submit', false); ?>
+                </div><!-- /eim-etab-lodging -->
 
-                <?php submit_button($isNew ? 'Create Event' : 'Update Event'); ?>
+                <!-- ── Food & Beverage ──────────────────────────────────── -->
+                <div id="eim-etab-food" class="eim-etab-panel">
+                    <table class="form-table" role="presentation">
+                        <tr>
+                            <th scope="row">Menu Options</th>
+                            <td>
+                                <label>
+                                    <input type="checkbox" name="food_options_enabled" value="1"
+                                           <?php checked(!$isNew && $event->foodOptionsEnabled); ?>>
+                                    Enable food options for this event
+                                </label>
+                                <br>
+                                <label style="margin-top:6px;display:block;">
+                                    <input type="checkbox" name="beverage_options_enabled" value="1"
+                                           <?php checked(!$isNew && $event->beverageOptionsEnabled); ?>>
+                                    Enable beverage options for this event
+                                </label>
+                                <p class="description">When enabled, options appear below and are returned by the RSVP API so invitees can choose when registering.</p>
+                            </td>
+                        </tr>
+                    </table>
+                    <?php submit_button($saveLabel, 'primary', 'submit', false); ?>
+                </div>
+
             </form>
 
             <?php if (!$isNew): ?>
-                <?php $this->renderRsvpOptionsSection($event); ?>
-                <?php $this->renderEventInviteesSection($event); ?>
+                <div id="eim-etab-food-ext" class="eim-etab-ext-panel">
+                    <?php $this->renderRsvpOptionsSection($event); ?>
+                </div>
+                <div id="eim-etab-invitees" class="eim-etab-ext-panel">
+                    <?php $this->renderEventInviteesSection($event); ?>
+                </div>
             <?php endif; ?>
         </div>
+
+        <style>
+        .eim-etab-panel    { display: none; }
+        .eim-etab-ext-panel { display: none; }
+        .eim-etab-panel.eim-etab-active     { display: block; }
+        .eim-etab-ext-panel.eim-etab-active { display: block; }
+        </style>
+        <script>
+        (() => {
+            'use strict';
+            const nav = document.querySelector('.eim-event-tabs');
+            if (!nav) return;
+
+            const eventId    = nav.dataset.eventId || '0';
+            const storageKey = 'eim_event_tab_' + eventId;
+
+            const panelIds = ['details', 'venue', 'email', 'qr', 'lodging', 'food', 'invitees'];
+            const extMap   = { food: 'food-ext' };
+
+            const getEl = (id) => document.getElementById('eim-etab-' + id);
+
+            const activateTab = (slug) => {
+                panelIds.forEach(s => getEl(s)?.classList.remove('eim-etab-active'));
+                Object.values(extMap).forEach(s => getEl(s)?.classList.remove('eim-etab-active'));
+                nav.querySelectorAll('[data-etab]').forEach(l => l.classList.remove('nav-tab-active'));
+
+                const panel = getEl(slug);
+                if (!panel) return;
+
+                panel.classList.add('eim-etab-active');
+                if (extMap[slug]) getEl(extMap[slug])?.classList.add('eim-etab-active');
+                nav.querySelector('[data-etab="' + slug + '"]')?.classList.add('nav-tab-active');
+
+                try { localStorage.setItem(storageKey, slug); } catch (e) {}
+
+                if (slug === 'email') {
+                    window.dispatchEvent(new Event('resize'));
+                    if (window.tinyMCE) {
+                        setTimeout(() => tinyMCE.get('invite_email_template')?.execCommand('mceAutoResize'), 50);
+                    }
+                }
+            };
+
+            nav.addEventListener('click', (e) => {
+                const link = e.target.closest('[data-etab]');
+                if (!link) return;
+                e.preventDefault();
+                if (window.tinyMCE) tinyMCE.triggerSave();
+                activateTab(link.dataset.etab);
+            });
+
+            document.getElementById('eim-event-form')?.addEventListener('submit', () => {
+                if (window.tinyMCE) tinyMCE.triggerSave();
+            });
+
+            const hash = window.location.hash.slice(1);
+            let initialTab = 'details';
+            if (hash.startsWith('eim-etab-')) {
+                const slug = hash.slice('eim-etab-'.length);
+                if (getEl(slug)) initialTab = slug;
+            } else {
+                try {
+                    const saved = localStorage.getItem(storageKey);
+                    if (saved && getEl(saved)) initialTab = saved;
+                } catch (e) {}
+            }
+            activateTab(initialTab);
+        })();
+        </script>
         <?php
     }
 
@@ -1420,23 +1530,21 @@ final class EventsPage extends AbstractAdminPage
         $bevItems  = array_values(array_filter($allItems, static fn(MenuItem $i) => $i->type === MenuItem::TYPE_BEVERAGE));
         $menuItemsUrl = AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS);
         ?>
-        <hr id="eim-rsvp-options" style="margin:32px 0 20px;">
-        <h2>Food &amp; Beverage Options</h2>
+        <h2 style="margin-top:20px;">Food &amp; Beverage Options</h2>
         <p class="description">
             Select items from the
             <a href="<?= esc_url($menuItemsUrl); ?>">Food &amp; Beverages library</a>
             to offer at this event. These options are presented to invitees during RSVP.
         </p>
 
-        <?php if ($event->foodOptionsEnabled): ?>
-            <?php $this->renderEventMenuItemsSubsection($event, MenuItem::TYPE_FOOD, 'Food Options', $foodItems); ?>
-        <?php endif; ?>
-
-        <?php if ($event->beverageOptionsEnabled): ?>
-            <div style="margin-top:20px;">
-                <?php $this->renderEventMenuItemsSubsection($event, MenuItem::TYPE_BEVERAGE, 'Beverage Options', $bevItems); ?>
-            </div>
-        <?php endif; ?>
+        <div style="display:grid;grid-template-columns:<?= ($event->foodOptionsEnabled && $event->beverageOptionsEnabled) ? '1fr 1fr' : '1fr'; ?>;gap:32px;align-items:start;">
+            <?php if ($event->foodOptionsEnabled): ?>
+                <div><?php $this->renderEventMenuItemsSubsection($event, MenuItem::TYPE_FOOD, 'Food Options', $foodItems); ?></div>
+            <?php endif; ?>
+            <?php if ($event->beverageOptionsEnabled): ?>
+                <div><?php $this->renderEventMenuItemsSubsection($event, MenuItem::TYPE_BEVERAGE, 'Beverage Options', $bevItems); ?></div>
+            <?php endif; ?>
+        </div>
         <?php
     }
 
@@ -1454,7 +1562,7 @@ final class EventsPage extends AbstractAdminPage
 	        ?>
 	        <h3><?= esc_html($heading); ?></h3>
 
-	        <div style="max-width:680px;">
+	        <div>
             <?php $this->renderSearchBar(
                 $searchId,
                 $countId,
@@ -1528,7 +1636,7 @@ final class EventsPage extends AbstractAdminPage
             </table>
         </div>
 
-        <div style="border:1px solid #dcdcde;border-radius:4px;padding:14px;background:#f6f7f7;max-width:680px;">
+        <div style="border:1px solid #dcdcde;border-radius:4px;padding:14px;background:#f6f7f7;">
             <h4 style="margin:0 0 8px;">Add <?= esc_html(ucfirst($label)); ?> Item</h4>
             <form method="post" action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS)); ?>">
                 <?php wp_nonce_field('eim_add_menu_item_to_event'); ?>
@@ -1954,8 +2062,7 @@ final class EventsPage extends AbstractAdminPage
         $maxInvitees   = $event->maxInvitees;
         $atLimit       = $maxInvitees !== null && $memberCount >= $maxInvitees;
         ?>
-        <hr id="eim-event-invitees" style="margin:32px 0 20px;">
-        <h2>
+        <h2 style="margin-top:20px;">
             Invited Invitees
             <?php if ($maxInvitees !== null): ?>
                 <span style="font-size:14px;font-weight:normal;color:<?= $atLimit ? '#d63638' : '#3c434a'; ?>;">

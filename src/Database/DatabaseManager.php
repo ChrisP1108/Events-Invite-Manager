@@ -8,7 +8,7 @@ if (!defined('ABSPATH')) exit;
 
 final class DatabaseManager
 {
-    private const SCHEMA_VERSION = '13';
+    private const SCHEMA_VERSION = '14';
 
     private const EVENTS_TABLE                           = 'eim_events';
     private const INVITEES_TABLE                         = 'eim_invitees';
@@ -25,6 +25,12 @@ final class DatabaseManager
     private const BUDGET_PLANS_TABLE                     = 'eim_budget_plans';
     private const BUDGET_PLAN_EVENTS_TABLE               = 'eim_budget_plan_events';
     private const BUDGET_LINE_ITEMS_TABLE                = 'eim_budget_line_items';
+    private const NEWSLETTERS_TABLE                      = 'eim_newsletters';
+    private const NEWSLETTER_EVENTS_TABLE                = 'eim_newsletter_events';
+    private const NEWSLETTER_CATEGORIES_TABLE            = 'eim_newsletter_categories';
+    private const NEWSLETTER_TAGS_TABLE                  = 'eim_newsletter_tags';
+    private const NEWSLETTER_CATEGORY_MAP_TABLE          = 'eim_newsletter_category_map';
+    private const NEWSLETTER_TAG_MAP_TABLE               = 'eim_newsletter_tag_map';
 
     public static function createTables(): void
     {
@@ -47,6 +53,12 @@ final class DatabaseManager
         $budgetPlansTable    = $wpdb->prefix . self::BUDGET_PLANS_TABLE;
         $budgetPlanEventsTable = $wpdb->prefix . self::BUDGET_PLAN_EVENTS_TABLE;
         $budgetLineItemsTable  = $wpdb->prefix . self::BUDGET_LINE_ITEMS_TABLE;
+        $newslettersTable         = $wpdb->prefix . self::NEWSLETTERS_TABLE;
+        $newsletterEventsTable    = $wpdb->prefix . self::NEWSLETTER_EVENTS_TABLE;
+        $newsletterCategoriesTable = $wpdb->prefix . self::NEWSLETTER_CATEGORIES_TABLE;
+        $newsletterTagsTable      = $wpdb->prefix . self::NEWSLETTER_TAGS_TABLE;
+        $newsletterCategoryMapTable = $wpdb->prefix . self::NEWSLETTER_CATEGORY_MAP_TABLE;
+        $newsletterTagMapTable    = $wpdb->prefix . self::NEWSLETTER_TAG_MAP_TABLE;
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
@@ -249,6 +261,64 @@ final class DatabaseManager
                 KEY plan_id (plan_id),
                 KEY event_id (event_id),
                 KEY category (category)
+            ) ENGINE=InnoDB {$charset};
+            CREATE TABLE {$newslettersTable} (
+                id           BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                title        VARCHAR(255)        NOT NULL DEFAULT '',
+                content      LONGTEXT,
+                status       VARCHAR(10)         NOT NULL DEFAULT 'draft',
+                publish_date DATETIME            NULL DEFAULT NULL,
+                created_at   DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at   DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY status (status),
+                KEY publish_date (publish_date)
+            ) ENGINE=InnoDB {$charset};
+            CREATE TABLE {$newsletterEventsTable} (
+                id            BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                newsletter_id BIGINT(20) UNSIGNED NOT NULL,
+                event_id      BIGINT(20) UNSIGNED NOT NULL,
+                created_at    DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY newsletter_event (newsletter_id, event_id),
+                KEY newsletter_id (newsletter_id),
+                KEY event_id (event_id)
+            ) ENGINE=InnoDB {$charset};
+            CREATE TABLE {$newsletterCategoriesTable} (
+                id         BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                name       VARCHAR(255)        NOT NULL DEFAULT '',
+                slug       VARCHAR(255)        NOT NULL DEFAULT '',
+                created_at DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY slug (slug)
+            ) ENGINE=InnoDB {$charset};
+            CREATE TABLE {$newsletterTagsTable} (
+                id         BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                name       VARCHAR(255)        NOT NULL DEFAULT '',
+                slug       VARCHAR(255)        NOT NULL DEFAULT '',
+                created_at DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY slug (slug)
+            ) ENGINE=InnoDB {$charset};
+            CREATE TABLE {$newsletterCategoryMapTable} (
+                id            BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                newsletter_id BIGINT(20) UNSIGNED NOT NULL,
+                category_id   BIGINT(20) UNSIGNED NOT NULL,
+                created_at    DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY newsletter_category (newsletter_id, category_id),
+                KEY newsletter_id (newsletter_id),
+                KEY category_id (category_id)
+            ) ENGINE=InnoDB {$charset};
+            CREATE TABLE {$newsletterTagMapTable} (
+                id            BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                newsletter_id BIGINT(20) UNSIGNED NOT NULL,
+                tag_id        BIGINT(20) UNSIGNED NOT NULL,
+                created_at    DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY newsletter_tag (newsletter_id, tag_id),
+                KEY newsletter_id (newsletter_id),
+                KEY tag_id (tag_id)
             ) ENGINE=InnoDB {$charset};";
 
         dbDelta($sql);
@@ -368,6 +438,148 @@ final class DatabaseManager
     {
         global $wpdb;
         return $wpdb->prefix . self::BUDGET_LINE_ITEMS_TABLE;
+    }
+
+    /** @return string Fully-qualified newsletters table name. */
+    public static function newslettersTable(): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . self::NEWSLETTERS_TABLE;
+    }
+
+    /** @return string Fully-qualified newsletter-events pivot table name. */
+    public static function newsletterEventsTable(): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . self::NEWSLETTER_EVENTS_TABLE;
+    }
+
+    /** @return string Fully-qualified newsletter categories table name. */
+    public static function newsletterCategoriesTable(): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . self::NEWSLETTER_CATEGORIES_TABLE;
+    }
+
+    /** @return string Fully-qualified newsletter tags table name. */
+    public static function newsletterTagsTable(): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . self::NEWSLETTER_TAGS_TABLE;
+    }
+
+    /** @return string Fully-qualified newsletter-category pivot table name. */
+    public static function newsletterCategoryMapTable(): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . self::NEWSLETTER_CATEGORY_MAP_TABLE;
+    }
+
+    /** @return string Fully-qualified newsletter-tag pivot table name. */
+    public static function newsletterTagMapTable(): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . self::NEWSLETTER_TAG_MAP_TABLE;
+    }
+
+    /**
+     * Ensures all six newsletter tables exist, creating them if missing.
+     */
+    public static function maybeCreateNewsletterTables(): void
+    {
+        global $wpdb;
+
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $charset                    = $wpdb->get_charset_collate();
+        $newslettersTable           = $wpdb->prefix . self::NEWSLETTERS_TABLE;
+        $newsletterEventsTable      = $wpdb->prefix . self::NEWSLETTER_EVENTS_TABLE;
+        $newsletterCategoriesTable  = $wpdb->prefix . self::NEWSLETTER_CATEGORIES_TABLE;
+        $newsletterTagsTable        = $wpdb->prefix . self::NEWSLETTER_TAGS_TABLE;
+        $newsletterCategoryMapTable = $wpdb->prefix . self::NEWSLETTER_CATEGORY_MAP_TABLE;
+        $newsletterTagMapTable      = $wpdb->prefix . self::NEWSLETTER_TAG_MAP_TABLE;
+
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        if ($wpdb->get_var("SHOW TABLES LIKE '{$newslettersTable}'") !== $newslettersTable) {
+            dbDelta("CREATE TABLE {$newslettersTable} (
+                id           BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                title        VARCHAR(255)        NOT NULL DEFAULT '',
+                content      LONGTEXT,
+                status       VARCHAR(10)         NOT NULL DEFAULT 'draft',
+                publish_date DATETIME            NULL DEFAULT NULL,
+                created_at   DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at   DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY status (status),
+                KEY publish_date (publish_date)
+            ) ENGINE=InnoDB {$charset};");
+        }
+
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        if ($wpdb->get_var("SHOW TABLES LIKE '{$newsletterEventsTable}'") !== $newsletterEventsTable) {
+            dbDelta("CREATE TABLE {$newsletterEventsTable} (
+                id            BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                newsletter_id BIGINT(20) UNSIGNED NOT NULL,
+                event_id      BIGINT(20) UNSIGNED NOT NULL,
+                created_at    DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY newsletter_event (newsletter_id, event_id),
+                KEY newsletter_id (newsletter_id),
+                KEY event_id (event_id)
+            ) ENGINE=InnoDB {$charset};");
+        }
+
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        if ($wpdb->get_var("SHOW TABLES LIKE '{$newsletterCategoriesTable}'") !== $newsletterCategoriesTable) {
+            dbDelta("CREATE TABLE {$newsletterCategoriesTable} (
+                id         BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                name       VARCHAR(255)        NOT NULL DEFAULT '',
+                slug       VARCHAR(255)        NOT NULL DEFAULT '',
+                created_at DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY slug (slug)
+            ) ENGINE=InnoDB {$charset};");
+        }
+
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        if ($wpdb->get_var("SHOW TABLES LIKE '{$newsletterTagsTable}'") !== $newsletterTagsTable) {
+            dbDelta("CREATE TABLE {$newsletterTagsTable} (
+                id         BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                name       VARCHAR(255)        NOT NULL DEFAULT '',
+                slug       VARCHAR(255)        NOT NULL DEFAULT '',
+                created_at DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY slug (slug)
+            ) ENGINE=InnoDB {$charset};");
+        }
+
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        if ($wpdb->get_var("SHOW TABLES LIKE '{$newsletterCategoryMapTable}'") !== $newsletterCategoryMapTable) {
+            dbDelta("CREATE TABLE {$newsletterCategoryMapTable} (
+                id            BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                newsletter_id BIGINT(20) UNSIGNED NOT NULL,
+                category_id   BIGINT(20) UNSIGNED NOT NULL,
+                created_at    DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY newsletter_category (newsletter_id, category_id),
+                KEY newsletter_id (newsletter_id),
+                KEY category_id (category_id)
+            ) ENGINE=InnoDB {$charset};");
+        }
+
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        if ($wpdb->get_var("SHOW TABLES LIKE '{$newsletterTagMapTable}'") !== $newsletterTagMapTable) {
+            dbDelta("CREATE TABLE {$newsletterTagMapTable} (
+                id            BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                newsletter_id BIGINT(20) UNSIGNED NOT NULL,
+                tag_id        BIGINT(20) UNSIGNED NOT NULL,
+                created_at    DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY newsletter_tag (newsletter_id, tag_id),
+                KEY newsletter_id (newsletter_id),
+                KEY tag_id (tag_id)
+            ) ENGINE=InnoDB {$charset};");
+        }
     }
 
     /**
