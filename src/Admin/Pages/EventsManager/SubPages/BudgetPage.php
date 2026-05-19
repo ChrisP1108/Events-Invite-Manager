@@ -84,6 +84,11 @@ final class BudgetPage extends AbstractAdminPage
         wp_send_json_success(['html' => $html, 'count' => count($plans)]);
     }
 
+    /**
+     * Dispatches budget-page form submissions and GET actions.
+     *
+     * @param string $action The action slug from eim_action / action param.
+     */
     public function handleAction(string $action): void
     {
         DatabaseManager::maybeCreateBudgetTables();
@@ -97,6 +102,7 @@ final class BudgetPage extends AbstractAdminPage
         };
     }
 
+    /** Renders the Budget admin page, routing to the list, add form, or plan detail view. */
     public function renderPage(): void
     {
         DatabaseManager::maybeCreateBudgetTables();
@@ -114,6 +120,7 @@ final class BudgetPage extends AbstractAdminPage
     // Action handlers
     // =========================================================================
 
+    /** Handles creating or updating a budget plan from the admin form. */
     private function handleSavePlan(): void
     {
         if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_save_budget_plan')) {
@@ -167,6 +174,7 @@ final class BudgetPage extends AbstractAdminPage
         exit;
     }
 
+    /** Handles deleting a budget plan (cascades to its line items) via a GET nonce link. */
     private function handleDeletePlan(): void
     {
         $id    = (int) ($_GET['id'] ?? 0);
@@ -179,6 +187,7 @@ final class BudgetPage extends AbstractAdminPage
         exit;
     }
 
+    /** Handles creating or updating a budget line item from the admin form. */
     private function handleSaveLineItem(): void
     {
         if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_save_budget_line_item')) {
@@ -275,6 +284,7 @@ final class BudgetPage extends AbstractAdminPage
         exit;
     }
 
+    /** Handles deleting a budget line item after verifying ownership of the plan. */
     private function handleDeleteLineItem(): void
     {
         $itemId = (int) ($_GET['item_id'] ?? 0);
@@ -308,6 +318,7 @@ final class BudgetPage extends AbstractAdminPage
     // Rendering
     // =========================================================================
 
+    /** Renders the budget plans list table with search bar and sortable columns. */
     private function renderPlanList(): void
     {
         $message = (string) ($_GET['eim_message'] ?? '');
@@ -421,6 +432,11 @@ final class BudgetPage extends AbstractAdminPage
         }
     }
 
+    /**
+     * Renders the add / edit form for a budget plan.
+     *
+     * @param BudgetPlan|null $plan Existing plan to edit, or null when creating.
+     */
     private function renderPlanForm(?BudgetPlan $plan): void
     {
         $isNew   = $plan === null;
@@ -428,8 +444,6 @@ final class BudgetPage extends AbstractAdminPage
         $error   = (string) ($_GET['eim_error']   ?? '');
         $backUrl = AdminMenu::tabUrl(AdminMenu::TAB_BUDGET);
         $title   = $isNew ? 'New Budget Plan' : 'Edit Plan: ' . $plan->name;
-        $allEvents  = Event::all();
-        $linkedIds  = $isNew ? [] : $plan->eventIds();
         ?>
         <div class="wrap">
             <h1><?= esc_html($title); ?></h1>
@@ -462,28 +476,30 @@ final class BudgetPage extends AbstractAdminPage
                             <p class="description">Optional overall budget ceiling (e.g. 15000.00).</p>
                         </td>
                     </tr>
+                    <?php
+                    // Build pre-formatted event data for the picker.
+                    $linkedEvents    = $isNew ? [] : $plan->events();
+                    $dateFormat      = (string) get_option('date_format', 'M j, Y');
+                    $formatDt = static function (?string $utcDt, string $tz) use ($dateFormat): string {
+                        if (!$utcDt) return '';
+                        $dt = new \DateTime($utcDt, new \DateTimeZone('UTC'));
+                        if ($tz !== '') { try { $dt->setTimezone(new \DateTimeZone($tz)); } catch (\Throwable) {} }
+                        return $dt->format($dateFormat . ', g:i A');
+                    };
+                    $linkedEventData = array_map(static fn(Event $e): array => [
+                        'id'          => $e->id,
+                        'name'        => $e->name,
+                        'start_label' => $formatDt($e->startDatetime, $e->timezone),
+                        'end_label'   => $e->endDatetime ? $formatDt($e->endDatetime, $e->timezone) : '',
+                        'start_raw'   => $e->startDatetime ?? '',
+                        'end_raw'     => $e->endDatetime   ?? '',
+                    ], $linkedEvents);
+                    ?>
                     <tr>
                         <th scope="row">Events</th>
                         <td>
-                            <?php if (empty($allEvents)): ?>
-                                <p class="description">No events exist yet.</p>
-                            <?php else: ?>
-                                <fieldset>
-                                    <legend class="screen-reader-text">Link events to this plan</legend>
-                                    <?php foreach ($allEvents as $event): ?>
-                                        <label style="display:block;margin-bottom:4px;">
-                                            <input type="checkbox" name="event_ids[]"
-                                                   value="<?= esc_attr($event->id); ?>"
-                                                   <?php checked(in_array($event->id, $linkedIds, true)); ?>>
-                                            <?= esc_html($event->name); ?>
-                                            <?php if ($event->startDatetime): ?>
-                                                <span style="color:#646970;font-size:12px;"><?= esc_html($event->formattedDateTimeRange()); ?></span>
-                                            <?php endif; ?>
-                                        </label>
-                                    <?php endforeach; ?>
-                                </fieldset>
-                                <p class="description">Check each event this budget covers.</p>
-                            <?php endif; ?>
+                            <?php $this->renderEventPicker('eim-budget-event-picker', $linkedEventData, 'event_ids[]'); ?>
+                            <p class="description" style="margin-top:8px;">Associate this budget plan with one or more events.</p>
                         </td>
                     </tr>
                 </table>
@@ -494,6 +510,11 @@ final class BudgetPage extends AbstractAdminPage
         <?php
     }
 
+    /**
+     * Renders the detailed view for a single budget plan, including summary, line items, and plan settings form.
+     *
+     * @param BudgetPlan|null $plan The plan to render, or null if not found.
+     */
     private function renderPlanDetail(?BudgetPlan $plan): void
     {
         if ($plan === null) {
@@ -696,6 +717,12 @@ final class BudgetPage extends AbstractAdminPage
         <?php
     }
 
+    /**
+     * Renders the inline add/edit line item form below the plan detail table.
+     *
+     * @param BudgetPlan $plan      The parent budget plan.
+     * @param Event[]    $allEvents All events in the system, for the event selector.
+     */
     private function renderAddLineItemForm(BudgetPlan $plan, array $allEvents): void
     {
         $linkedEventIds = $plan->eventIds();
@@ -825,6 +852,12 @@ final class BudgetPage extends AbstractAdminPage
         <?php
     }
 
+    /**
+     * Sanitizes a budget plan table sort key against the allowed column list.
+     *
+     * @param string $key Raw sort key.
+     * @return string Validated key, defaulting to 'name'.
+     */
     private function sanitizeBudgetSortKey(string $key): string
     {
         return in_array($key, ['name', 'events', 'target', 'estimated', 'paid'], true)
@@ -832,6 +865,12 @@ final class BudgetPage extends AbstractAdminPage
             : 'name';
     }
 
+    /**
+     * Sanitizes a line-item table sort key against the allowed column list.
+     *
+     * @param string $key Raw sort key.
+     * @return string Validated key, defaulting to 'sort_order'.
+     */
     private function sanitizeLineItemSortKey(string $key): string
     {
         return in_array($key, ['sort_order', 'label', 'category', 'event', 'quantity', 'unit_cost', 'estimated', 'paid'], true)

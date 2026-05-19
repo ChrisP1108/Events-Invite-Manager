@@ -25,9 +25,17 @@ use EventsInviteManager\Models\QrCode;
  */
 final class QrCodeService
 {
-    private const QR_SUBDIR = 'eim-qr-codes';
-    private const QR_SIZE   = 300;
-    private const QR_MARGIN = 10;
+    /** @var string Upload sub-directory where QR PNG files are stored. */
+    private const QR_SUBDIR       = 'eim-qr-codes';
+
+    /** @var int Width and height in pixels of the generated QR code PNG. */
+    private const QR_SIZE         = 300;
+
+    /** @var int Quiet-zone margin in pixels around the QR code module grid. */
+    private const QR_MARGIN       = 10;
+
+    /** @var int Number of characters in each random confirmation code. */
+    private const QR_CODE_LENGTH  = 16;
 
     /**
      * Returns the existing QR code for the invitation group, or generates a new one.
@@ -73,6 +81,14 @@ final class QrCodeService
         return $this->buildInviteUrl($qrCode->confirmationCode);
     }
 
+    /**
+     * Generates a new QR code PNG for the given group, stores it on disk, and
+     * creates the corresponding eim_qr_codes database record.
+     *
+     * @param int $eventId
+     * @param int $groupId
+     * @return QrCode|null Null when the PNG cannot be written or the DB insert fails.
+     */
     private function generateForGroup(int $eventId, int $groupId): ?QrCode
     {
         $code    = $this->generateCode();
@@ -106,18 +122,29 @@ final class QrCodeService
         return QrCode::create($eventId, $groupId, $code, $relPath);
     }
 
+    /**
+     * Generates a cryptographically random alphanumeric confirmation code.
+     *
+     * @return string 16-character string composed of A-Z, a-z, 0-9.
+     */
     private function generateCode(): string
     {
         $chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
         $code  = '';
 
-        for ($i = 0; $i < 16; $i++) {
+        for ($i = 0; $i < self::QR_CODE_LENGTH; $i++) {
             $code .= $chars[random_int(0, strlen($chars) - 1)];
         }
 
         return $code;
     }
 
+    /**
+     * Constructs the confirmation URL that is encoded into the QR code PNG.
+     *
+     * @param string $code The 16-character confirmation code.
+     * @return string Full URL of the form {home_url}/?eim_confirmation={code}.
+     */
     private function buildInviteUrl(string $code): string
     {
         return home_url('/') . '?eim_confirmation=' . $code;

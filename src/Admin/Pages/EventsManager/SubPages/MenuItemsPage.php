@@ -19,6 +19,11 @@ use EventsInviteManager\Models\MenuItem;
  */
 final class MenuItemsPage extends AbstractAdminPage
 {
+    /**
+     * Dispatches menu item form submissions and GET actions.
+     *
+     * @param string $action The action slug.
+     */
     public function handleAction(string $action): void
     {
         match ($action) {
@@ -29,6 +34,7 @@ final class MenuItemsPage extends AbstractAdminPage
         };
     }
 
+    /** Renders the Food &amp; Beverages admin page (list or single-item edit form). */
     public function renderPage(): void
     {
         $action  = $_GET['action'] ?? 'list';
@@ -64,6 +70,13 @@ final class MenuItemsPage extends AbstractAdminPage
         <?php
     }
 
+    /**
+     * Renders the standalone edit form for an existing menu item.
+     *
+     * @param MenuItem $item    The item being edited.
+     * @param string   $message Success message key to display.
+     * @param string   $error   Error key to display.
+     */
     private function renderEditForm(MenuItem $item, string $message, string $error): void
     {
         $backUrl = AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS);
@@ -169,6 +182,7 @@ final class MenuItemsPage extends AbstractAdminPage
     // Form handlers
     // -------------------------------------------------------------------------
 
+    /** Handles updating an existing menu item from the edit form. */
     private function handleUpdateMenuItem(): void
     {
         if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_update_menu_item')) {
@@ -200,6 +214,7 @@ final class MenuItemsPage extends AbstractAdminPage
         exit;
     }
 
+    /** Handles creating a new menu item from the inline add form. */
     private function handleSaveMenuItem(): void
     {
         if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_save_menu_item')) {
@@ -233,6 +248,7 @@ final class MenuItemsPage extends AbstractAdminPage
         exit;
     }
 
+    /** Handles deleting a menu item via a GET nonce link. */
     private function handleDeleteMenuItem(): void
     {
         $id    = (int) ($_GET['id'] ?? 0);
@@ -254,6 +270,12 @@ final class MenuItemsPage extends AbstractAdminPage
     // Rendering
     // -------------------------------------------------------------------------
 
+    /**
+     * Renders one of the two side-by-side item type sections (food or beverage).
+     *
+     * @param string $type    MenuItem::TYPE_FOOD or MenuItem::TYPE_BEVERAGE.
+     * @param string $heading Section heading text.
+     */
     private function renderTypeSection(string $type, string $heading): void
     {
         $inputId  = 'eim-menu-' . $type . '-search';
@@ -306,6 +328,13 @@ final class MenuItemsPage extends AbstractAdminPage
         <?php
     }
 
+    /**
+     * Renders menu item table rows for the initial page and AJAX responses.
+     *
+     * @param MenuItem[] $items  Items to render.
+     * @param string     $type   MenuItem::TYPE_FOOD or TYPE_BEVERAGE (for empty-state message).
+     * @param string     $search Active search query (used to distinguish no-match from empty library).
+     */
     private function renderItemRows(array $items, string $type, string $search = ''): void
     {
         if (empty($items)) {
@@ -343,6 +372,11 @@ final class MenuItemsPage extends AbstractAdminPage
         }
     }
 
+    /**
+     * Renders the inline add-item form below the menu item table.
+     *
+     * @param string $type MenuItem::TYPE_FOOD or MenuItem::TYPE_BEVERAGE.
+     */
     private function renderAddItemForm(string $type): void
     {
         $label = $type === MenuItem::TYPE_BEVERAGE ? 'Beverage' : 'Food';
@@ -375,18 +409,41 @@ final class MenuItemsPage extends AbstractAdminPage
     // Sanitizers
     // -------------------------------------------------------------------------
 
+    /**
+     * Sanitizes a menu item sort key against the allowed column list.
+     *
+     * @param string $key Raw sort key.
+     * @return string Validated key, defaulting to 'label'.
+     */
     private function sanitizeMenuItemSortKey(string $key): string
     {
         $key = sanitize_key($key);
         return in_array($key, ['label', 'description'], true) ? $key : 'label';
     }
 
+    /**
+     * Sanitizes a menu item search field key against the allowed column list.
+     *
+     * @param string $field Raw field key.
+     * @return string Validated key, or '' for any-column search.
+     */
     private function sanitizeMenuItemFieldKey(string $field): string
     {
         $field = sanitize_key($field);
         return in_array($field, ['label', 'description'], true) ? $field : '';
     }
 
+    /**
+     * Generates a client-side sort link for menu item columns.
+     *
+     * The link carries only data-sort / data-order attributes; JS reads them and re-sorts the DOM.
+     *
+     * @param string $label        Visible column header text.
+     * @param string $key          Column sort key.
+     * @param string $currentSort  Currently active sort column.
+     * @param string $currentOrder Currently active sort direction ('asc' or 'desc').
+     * @return string HTML anchor element.
+     */
     private function clientSortLink(string $label, string $key, string $currentSort, string $currentOrder): string
     {
         $isCurrent = $currentSort === $key;

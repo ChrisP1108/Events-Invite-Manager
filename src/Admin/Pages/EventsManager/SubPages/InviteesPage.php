@@ -16,6 +16,11 @@ use EventsInviteManager\Models\Invitee;
  */
 final class InviteesPage extends AbstractAdminPage
 {
+    /**
+     * Dispatches invitee form submissions and GET actions.
+     *
+     * @param string $action The action slug.
+     */
     public function handleAction(string $action): void
     {
         match ($action) {
@@ -108,6 +113,11 @@ final class InviteesPage extends AbstractAdminPage
         wp_send_json_success(ConnectionGroup::connectedInviteesForEvent($inviteeId, $eventId));
     }
 
+    /**
+     * Renders the Invitees admin page, routing to the list or add/edit form.
+     *
+     * @return void
+     */
     public function renderPage(): void
     {
         $action = $_GET['action'] ?? 'list';
@@ -119,6 +129,7 @@ final class InviteesPage extends AbstractAdminPage
         };
     }
 
+    /** Handles creating or updating an invitee profile from the admin form. */
     private function handleSaveInvitee(): void
     {
         if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_save_invitee')) {
@@ -169,6 +180,7 @@ final class InviteesPage extends AbstractAdminPage
         exit;
     }
 
+    /** Handles deleting an invitee profile via a GET nonce link. */
     private function handleDeleteInvitee(): void
     {
         $id    = (int) ($_GET['id'] ?? 0);
@@ -186,6 +198,7 @@ final class InviteesPage extends AbstractAdminPage
         exit;
     }
 
+    /** Renders the global invitees list table with search bar and sortable columns. */
     private function renderInviteesList(): void
     {
         $message = (string) ($_GET['eim_message'] ?? '');
@@ -326,6 +339,11 @@ final class InviteesPage extends AbstractAdminPage
         }
     }
 
+    /**
+     * Renders the add/edit form for an invitee profile.
+     *
+     * @param Invitee|null $invitee Existing invitee to edit, or null when adding.
+     */
     private function renderInviteeForm(?Invitee $invitee): void
     {
         if (isset($_GET['id']) && $invitee === null) {
@@ -449,6 +467,12 @@ final class InviteesPage extends AbstractAdminPage
         <?php
     }
 
+    /**
+     * Sanitizes an invitee list sort key against the allowed column list.
+     *
+     * @param string $key Raw sort key.
+     * @return string Validated key, defaulting to 'last_name'.
+     */
     private function sanitizeSortKey(string $key): string
     {
         $key = sanitize_key($key);
@@ -457,6 +481,12 @@ final class InviteesPage extends AbstractAdminPage
             : 'last_name';
     }
 
+    /**
+     * Sanitizes an invitee search field key against the allowed column list.
+     *
+     * @param string $field Raw field key.
+     * @return string Validated key, or '' for any-column search.
+     */
     private function sanitizeInviteeFieldKey(string $field): string
     {
         $field = sanitize_key($field);

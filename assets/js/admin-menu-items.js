@@ -8,6 +8,13 @@
 
     const config = window.eimMenuItemsAdmin ?? {};
 
+    /**
+     * Build an absolute WordPress AJAX URL for the given action and params.
+     *
+     * @param {string}                  action The wp_ajax_* action name.
+     * @param {Record<string,string|number>} params Additional query-string parameters.
+     * @returns {URL} The fully constructed URL object.
+     */
     const ajaxUrl = (action, params = {}) => {
         const url = new URL(ajaxurl, window.location.href);
         url.searchParams.set('action', action);
@@ -17,6 +24,14 @@
         return url;
     };
 
+    /**
+     * Returns a debounced version of the given function that delays invocation
+     * until after `delay` milliseconds have elapsed since the last call.
+     *
+     * @param {Function} fn    The function to debounce.
+     * @param {number}   delay Milliseconds to wait before invoking (default 250).
+     * @returns {Function} A new debounced function.
+     */
     const debounce = (fn, delay = 250) => {
         let timer = 0;
         return (...args) => {
@@ -28,9 +43,43 @@
     // -----------------------------------------------------------------------
     // MenuItemTable — live search for one type (food or beverage)
     // -----------------------------------------------------------------------
-    class MenuItemTable {
-        #type; #table; #tbody; #search; #field; #count; #spinner; #sort; #order;
 
+    /**
+     * Manages live-search and column-sort behaviour for a single food-or-beverage
+     * type table on the Admin Food & Beverages page. One instance is created per
+     * type ("food" and "beverage") at DOMContentLoaded.
+     */
+    class MenuItemTable {
+        /** @type {string} */
+        #type;
+
+        /** @type {HTMLTableElement|null} */
+        #table;
+
+        /** @type {HTMLTableSectionElement|null} */
+        #tbody;
+
+        /** @type {HTMLInputElement|null} */
+        #search;
+
+        /** @type {HTMLSelectElement|null} */
+        #field;
+
+        /** @type {HTMLElement|null} */
+        #count;
+
+        /** @type {HTMLElement|null} */
+        #spinner;
+
+        /** @type {string} */
+        #sort;
+
+        /** @type {string} */
+        #order;
+
+        /**
+         * @param {string} type The menu item type to manage — "food" or "beverage".
+         */
         constructor(type) {
             this.#type    = type;
             this.#table   = document.getElementById(`eim-menu-${type}-table`);
@@ -59,6 +108,12 @@
             }
         }
 
+        /**
+         * Fetches fresh table rows from the server using the current search query,
+         * field, sort column, and sort direction, then replaces the tbody contents.
+         *
+         * @returns {Promise<void>}
+         */
         async #refresh() {
             if (this.#spinner) this.#spinner.classList.add('is-active');
             try {
@@ -81,6 +136,12 @@
             }
         }
 
+        /**
+         * Refreshes the sort-link indicators and their `data-order` attributes to
+         * reflect the current sort column and direction.
+         *
+         * @returns {void}
+         */
         #updateSortLinks() {
             if (!this.#table) return;
 

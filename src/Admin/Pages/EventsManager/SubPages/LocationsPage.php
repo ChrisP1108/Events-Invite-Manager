@@ -343,6 +343,12 @@ final class LocationsPage extends AbstractAdminPage
         return in_array($key, ['name', 'is_other', 'has_lodging'], true) ? $key : 'name';
     }
 
+    /**
+     * Sanitizes a location search field key against the allowed column list.
+     *
+     * @param string $field Raw field key.
+     * @return string Validated key, or '' for any-column search.
+     */
     private function sanitizeLocationFieldKey(string $field): string
     {
         $field = sanitize_key($field);

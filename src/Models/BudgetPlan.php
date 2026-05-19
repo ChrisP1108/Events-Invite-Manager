@@ -16,6 +16,15 @@ use EventsInviteManager\Database\DatabaseManager;
  */
 final class BudgetPlan
 {
+    /**
+     * @param int    $id                Primary key.
+     * @param string $name              Human-readable plan name.
+     * @param string $description       Optional free-text description.
+     * @param int    $targetAmountCents Overall budget target in cents.
+     * @param string $currency          ISO 4217 currency code (e.g. "USD").
+     * @param string $createdAt         Row creation timestamp (MySQL datetime string).
+     * @param string $updatedAt         Row last-update timestamp (MySQL datetime string).
+     */
     public function __construct(
         public readonly int    $id,
         public readonly string $name,
@@ -30,6 +39,12 @@ final class BudgetPlan
     // CRUD
     // -------------------------------------------------------------------------
 
+    /**
+     * Finds a single budget plan by primary key.
+     *
+     * @param int $id Primary key of the plan.
+     * @return self|null The plan, or null if not found.
+     */
     public static function find(int $id): ?self
     {
         global $wpdb;
@@ -190,6 +205,15 @@ final class BudgetPlan
         return $plans;
     }
 
+    /**
+     * Creates a new budget plan.
+     *
+     * Accepted keys in $data: name, description, target_amount_cents, currency.
+     * Defaults: description = "", target_amount_cents = 0, currency = "USD".
+     *
+     * @param array<string,mixed> $data Column values for the new row.
+     * @return self|null The newly created plan, or null on failure.
+     */
     public static function create(array $data): ?self
     {
         global $wpdb;
@@ -202,6 +226,16 @@ final class BudgetPlan
         return $result ? self::find((int) $wpdb->insert_id) : null;
     }
 
+    /**
+     * Updates one or more columns on an existing budget plan.
+     *
+     * Accepted keys in $data: name, description, target_amount_cents, currency.
+     * Unknown keys are silently ignored.
+     *
+     * @param int                 $id   Primary key of the plan to update.
+     * @param array<string,mixed> $data Fields to update.
+     * @return bool True on success or when there are no fields to update.
+     */
     public static function update(int $id, array $data): bool
     {
         global $wpdb;
@@ -214,6 +248,12 @@ final class BudgetPlan
         return $wpdb->update(DatabaseManager::budgetPlansTable(), $fields, ['id' => $id]) !== false;
     }
 
+    /**
+     * Deletes a budget plan along with all its line items and event pivot rows.
+     *
+     * @param int $id Primary key of the plan to delete.
+     * @return bool True on success.
+     */
     public static function delete(int $id): bool
     {
         global $wpdb;
@@ -243,6 +283,17 @@ final class BudgetPlan
         return array_values(array_filter(array_map(static fn(int $id) => Event::find($id), $ids)));
     }
 
+    /**
+     * Replaces the full set of events linked to a budget plan.
+     *
+     * Events that were previously linked but are absent from $eventIds will have
+     * their associated line items demoted to plan-wide (event_id = NULL) rather
+     * than being deleted, so cost totals are preserved.
+     *
+     * @param int   $planId    The plan whose event associations should be replaced.
+     * @param int[] $eventIds  New set of event IDs to link.
+     * @return void
+     */
     public static function setEvents(int $planId, array $eventIds): void
     {
         global $wpdb;
@@ -283,26 +334,70 @@ final class BudgetPlan
     // Totals (delegates to BudgetLineItem)
     // -------------------------------------------------------------------------
 
+    /**
+     * Returns the sum of all line-item estimated amounts for this plan in cents.
+     *
+     * @return int Total estimated cost in cents.
+     */
     public function estimatedCents(): int
     {
         return BudgetLineItem::sumEstimatedForPlan($this->id);
     }
 
+    /**
+     * Returns the sum of all line-item paid amounts for this plan in cents.
+     *
+     * @return int Total paid amount in cents.
+     */
     public function paidCents(): int
     {
         return BudgetLineItem::sumPaidForPlan($this->id);
     }
 
+    /**
+     * Returns the remaining balance (estimated minus paid) in cents, floored at zero.
+     *
+     * @return int Remaining amount in cents.
+     */
     public function remainingCents(): int
     {
         return max(0, $this->estimatedCents() - $this->paidCents());
     }
 
+    /**
+     * Returns the formatted target amount (e.g. "$5,000.00").
+     *
+     * @return string
+     */
     public function formattedTarget(): string   { return self::formatCents($this->targetAmountCents); }
+
+    /**
+     * Returns the formatted estimated total (e.g. "$3,200.00").
+     *
+     * @return string
+     */
     public function formattedEstimated(): string { return self::formatCents($this->estimatedCents()); }
+
+    /**
+     * Returns the formatted paid total (e.g. "$1,500.00").
+     *
+     * @return string
+     */
     public function formattedPaid(): string      { return self::formatCents($this->paidCents()); }
+
+    /**
+     * Returns the formatted remaining balance (e.g. "$1,700.00").
+     *
+     * @return string
+     */
     public function formattedRemaining(): string { return self::formatCents($this->remainingCents()); }
 
+    /**
+     * Converts an integer cent amount to a formatted dollar string.
+     *
+     * @param int $cents Amount in cents.
+     * @return string e.g. "$1,234.56".
+     */
     public static function formatCents(int $cents): string
     {
         return '$' . number_format($cents / 100, 2);
@@ -312,6 +407,12 @@ final class BudgetPlan
     // Hydration
     // -------------------------------------------------------------------------
 
+    /**
+     * Hydrates a BudgetPlan instance from a database result row.
+     *
+     * @param object $row Raw row object returned by $wpdb->get_row() / get_results().
+     * @return self
+     */
     private static function fromRow(object $row): self
     {
         return new self(

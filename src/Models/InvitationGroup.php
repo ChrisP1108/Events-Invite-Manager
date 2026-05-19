@@ -421,8 +421,11 @@ final class InvitationGroup
      *
      * @param int    $groupId
      * @param int    $inviteeId
-     * @param string $status   One of the RSVP_* constants.
-     * @param array  $extras   Optional keys: food_option_id (int|null), beverage_option_id (int|null), dietary_notes (string).
+     * @param string $status    One of the RSVP_* constants.
+     * @param array  $extras    Optional keys:
+     *                            food_option_id (int|null), beverage_option_id (int|null),
+     *                            dietary_notes (string), food_confirmed_at (string|null),
+     *                            beverage_confirmed_at (string|null).
      * @return bool
      */
     public static function updateMemberRsvp(int $groupId, int $inviteeId, string $status, array $extras = []): bool
@@ -446,6 +449,12 @@ final class InvitationGroup
         }
         if (array_key_exists('dietary_notes', $extras)) {
             $fields['dietary_notes'] = (string) $extras['dietary_notes'];
+        }
+        if (array_key_exists('food_confirmed_at', $extras)) {
+            $fields['food_confirmed_at'] = $extras['food_confirmed_at'];
+        }
+        if (array_key_exists('beverage_confirmed_at', $extras)) {
+            $fields['beverage_confirmed_at'] = $extras['beverage_confirmed_at'];
         }
 
         $result = $wpdb->update(
@@ -518,14 +527,16 @@ final class InvitationGroup
         $rows = $wpdb->get_results(
             $wpdb->prepare(
                 "SELECT i.*,
-                        egm.group_id          AS invitation_group_id,
-                        eig.event_id          AS invitation_event_id,
-                        egm.rsvp_status       AS invitation_rsvp_status,
-                        egm.registered_at     AS invitation_registered_at,
-                        eig.invite_sent_at    AS invitation_invite_sent_at,
-                        egm.food_option_id    AS invitation_food_option_id,
-                        egm.beverage_option_id AS invitation_beverage_option_id,
-                        egm.dietary_notes     AS invitation_dietary_notes
+                        egm.group_id              AS invitation_group_id,
+                        eig.event_id              AS invitation_event_id,
+                        egm.rsvp_status           AS invitation_rsvp_status,
+                        egm.registered_at         AS invitation_registered_at,
+                        eig.invite_sent_at        AS invitation_invite_sent_at,
+                        egm.food_option_id        AS invitation_food_option_id,
+                        egm.beverage_option_id    AS invitation_beverage_option_id,
+                        egm.dietary_notes         AS invitation_dietary_notes,
+                        egm.food_confirmed_at     AS invitation_food_confirmed_at,
+                        egm.beverage_confirmed_at AS invitation_beverage_confirmed_at
                  FROM {$membersTable} egm
                  INNER JOIN {$inviteesTable} i   ON i.id   = egm.invitee_id
                  INNER JOIN {$groupsTable}   eig ON eig.id = egm.group_id

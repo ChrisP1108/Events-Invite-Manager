@@ -23,14 +23,36 @@ use EventsInviteManager\Admin\Pages\EventsManager\SubPages\NewslettersPage;
  */
 final class EventsManagerPage
 {
+    /** @var EventsPage Events sub-page handler. */
     private EventsPage           $eventsPage;
+
+    /** @var InviteesPage Invitees sub-page handler. */
     private InviteesPage         $inviteesPage;
+
+    /** @var ConnectionGroupsPage Connection Groups sub-page handler. */
     private ConnectionGroupsPage $connectionGroupsPage;
+
+    /** @var LocationsPage Locations sub-page handler. */
     private LocationsPage        $locationsPage;
+
+    /** @var MenuItemsPage Food &amp; Beverages sub-page handler. */
     private MenuItemsPage        $menuItemsPage;
+
+    /** @var BudgetPage Budget sub-page handler. */
     private BudgetPage           $budgetPage;
+
+    /** @var NewslettersPage Newsletters sub-page handler. */
     private NewslettersPage      $newslettersPage;
 
+    /**
+     * @param EventsPage           $eventsPage
+     * @param InviteesPage         $inviteesPage
+     * @param ConnectionGroupsPage $connectionGroupsPage
+     * @param LocationsPage        $locationsPage
+     * @param MenuItemsPage        $menuItemsPage
+     * @param BudgetPage           $budgetPage
+     * @param NewslettersPage      $newslettersPage
+     */
     public function __construct(
         EventsPage           $eventsPage,
         InviteesPage         $inviteesPage,
@@ -49,6 +71,11 @@ final class EventsManagerPage
         $this->newslettersPage      = $newslettersPage;
     }
 
+    /**
+     * Renders the tabbed Events Manager page, delegating to the active sub-page.
+     *
+     * @return void
+     */
     public function renderPage(): void
     {
         $tab = sanitize_key($_GET['tab'] ?? AdminMenu::TAB_EVENTS);

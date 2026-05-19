@@ -18,6 +18,30 @@ use EventsInviteManager\Database\DatabaseManager;
  */
 final class Invitee
 {
+    /**
+     * @param int     $id               Primary key.
+     * @param int     $eventId          Event context ID (0 when loaded globally without an event).
+     * @param string  $firstName        Invitee first name.
+     * @param string  $lastName         Invitee last name.
+     * @param string  $email            Invitee email address.
+     * @param string  $phone            Invitee phone number.
+     * @param string  $streetAddress    Street address.
+     * @param string  $city             City.
+     * @param string  $state            State or region.
+     * @param string  $zipCode          Postal/ZIP code.
+     * @param string  $rsvpStatus       RSVP status for event context: 'pending' | 'attending' | 'declined' | '' for global.
+     * @param bool    $isRegistered     True when rsvpStatus === 'attending'.
+     * @param ?string $registeredAt     MySQL datetime when the invitee confirmed attendance, or null.
+     * @param ?string $inviteSentAt     MySQL datetime when the invite email was sent, or null.
+     * @param ?int    $groupId          Invitation group ID for the event context, or null.
+     * @param ?int    $foodOptionId     Selected food menu item ID, or null.
+     * @param ?int    $beverageOptionId Selected beverage menu item ID, or null.
+     * @param string  $dietaryNotes     Free-text dietary notes.
+     * @param ?string $foodConfirmedAt  MySQL datetime when the food selection was finalised, or null.
+     * @param ?string $beverageConfirmedAt MySQL datetime when the beverage selection was finalised, or null.
+     * @param string  $createdAt        MySQL datetime of row creation.
+     * @param string  $updatedAt        MySQL datetime of last update.
+     */
     public function __construct(
         public readonly int     $id,
         public readonly int     $eventId,
@@ -29,9 +53,7 @@ final class Invitee
         public readonly string  $city,
         public readonly string  $state,
         public readonly string  $zipCode,
-        /** RSVP status for event context: 'pending' | 'attending' | 'declined' | '' for global. */
         public readonly string  $rsvpStatus,
-        /** True when rsvpStatus === 'attending'. */
         public readonly bool    $isRegistered,
         public readonly ?string $registeredAt,
         public readonly ?string $inviteSentAt,
@@ -39,6 +61,8 @@ final class Invitee
         public readonly ?int    $foodOptionId,
         public readonly ?int    $beverageOptionId,
         public readonly string  $dietaryNotes,
+        public readonly ?string $foodConfirmedAt,
+        public readonly ?string $beverageConfirmedAt,
         public readonly string  $createdAt,
         public readonly string  $updatedAt,
     ) {}
@@ -552,26 +576,28 @@ final class Invitee
         $rsvpStatus = $row->invitation_rsvp_status ?? '';
 
         return new self(
-            id:           (int)  $row->id,
-            eventId:      (int)  ($row->invitation_event_id ?? 0),
-            firstName:           $row->first_name,
-            lastName:            $row->last_name,
-            email:               $row->email,
-            phone:               $row->phone           ?? '',
-            streetAddress:       $row->street_address  ?? '',
-            city:                $row->city            ?? '',
-            state:               $row->state           ?? '',
-            zipCode:             $row->zip_code        ?? '',
-            rsvpStatus:       $rsvpStatus,
-            isRegistered:     $rsvpStatus === InvitationGroup::RSVP_ATTENDING,
-            registeredAt:     $row->invitation_registered_at  ?? $row->registered_at  ?? null,
-            inviteSentAt:     $row->invitation_invite_sent_at ?? null,
-            groupId:          isset($row->invitation_group_id) ? (int) $row->invitation_group_id : null,
-            foodOptionId:     isset($row->invitation_food_option_id)     && $row->invitation_food_option_id     !== null ? (int) $row->invitation_food_option_id     : null,
-            beverageOptionId: isset($row->invitation_beverage_option_id) && $row->invitation_beverage_option_id !== null ? (int) $row->invitation_beverage_option_id : null,
-            dietaryNotes:     $row->invitation_dietary_notes ?? '',
-            createdAt:        $row->created_at ?? '',
-            updatedAt:        $row->updated_at ?? '',
+            id:                  (int)  $row->id,
+            eventId:             (int)  ($row->invitation_event_id ?? 0),
+            firstName:                  $row->first_name,
+            lastName:                   $row->last_name,
+            email:                      $row->email,
+            phone:                      $row->phone           ?? '',
+            streetAddress:              $row->street_address  ?? '',
+            city:                       $row->city            ?? '',
+            state:                      $row->state           ?? '',
+            zipCode:                    $row->zip_code        ?? '',
+            rsvpStatus:                 $rsvpStatus,
+            isRegistered:               $rsvpStatus === InvitationGroup::RSVP_ATTENDING,
+            registeredAt:               $row->invitation_registered_at      ?? $row->registered_at  ?? null,
+            inviteSentAt:               $row->invitation_invite_sent_at     ?? null,
+            groupId:                    isset($row->invitation_group_id)              ? (int) $row->invitation_group_id              : null,
+            foodOptionId:               isset($row->invitation_food_option_id)        && $row->invitation_food_option_id        !== null ? (int) $row->invitation_food_option_id        : null,
+            beverageOptionId:           isset($row->invitation_beverage_option_id)    && $row->invitation_beverage_option_id    !== null ? (int) $row->invitation_beverage_option_id    : null,
+            dietaryNotes:               $row->invitation_dietary_notes ?? '',
+            foodConfirmedAt:            $row->invitation_food_confirmed_at     ?? null,
+            beverageConfirmedAt:        $row->invitation_beverage_confirmed_at ?? null,
+            createdAt:                  $row->created_at ?? '',
+            updatedAt:                  $row->updated_at ?? '',
         );
     }
 
@@ -631,26 +657,28 @@ final class Invitee
         $rsvpStatus = $row->invitation_rsvp_status ?? InvitationGroup::RSVP_PENDING;
 
         return new self(
-            id:           (int)  $row->id,
-            eventId:      (int)  ($row->invitation_event_id ?? 0),
-            firstName:           $row->first_name,
-            lastName:            $row->last_name,
-            email:               $row->email,
-            phone:               $row->phone           ?? '',
-            streetAddress:       $row->street_address  ?? '',
-            city:                $row->city            ?? '',
-            state:               $row->state           ?? '',
-            zipCode:             $row->zip_code        ?? '',
-            rsvpStatus:       $rsvpStatus,
-            isRegistered:     $rsvpStatus === InvitationGroup::RSVP_ATTENDING,
-            registeredAt:     $row->invitation_registered_at  ?? null,
-            inviteSentAt:     $row->invitation_invite_sent_at ?? null,
-            groupId:          isset($row->invitation_group_id) ? (int) $row->invitation_group_id : null,
-            foodOptionId:     isset($row->invitation_food_option_id)     && $row->invitation_food_option_id     !== null ? (int) $row->invitation_food_option_id     : null,
-            beverageOptionId: isset($row->invitation_beverage_option_id) && $row->invitation_beverage_option_id !== null ? (int) $row->invitation_beverage_option_id : null,
-            dietaryNotes:     $row->invitation_dietary_notes ?? '',
-            createdAt:        $row->created_at ?? '',
-            updatedAt:        $row->updated_at ?? '',
+            id:                  (int)  $row->id,
+            eventId:             (int)  ($row->invitation_event_id ?? 0),
+            firstName:                  $row->first_name,
+            lastName:                   $row->last_name,
+            email:                      $row->email,
+            phone:                      $row->phone           ?? '',
+            streetAddress:              $row->street_address  ?? '',
+            city:                       $row->city            ?? '',
+            state:                      $row->state           ?? '',
+            zipCode:                    $row->zip_code        ?? '',
+            rsvpStatus:                 $rsvpStatus,
+            isRegistered:               $rsvpStatus === InvitationGroup::RSVP_ATTENDING,
+            registeredAt:               $row->invitation_registered_at      ?? null,
+            inviteSentAt:               $row->invitation_invite_sent_at     ?? null,
+            groupId:                    isset($row->invitation_group_id)              ? (int) $row->invitation_group_id              : null,
+            foodOptionId:               isset($row->invitation_food_option_id)        && $row->invitation_food_option_id        !== null ? (int) $row->invitation_food_option_id        : null,
+            beverageOptionId:           isset($row->invitation_beverage_option_id)    && $row->invitation_beverage_option_id    !== null ? (int) $row->invitation_beverage_option_id    : null,
+            dietaryNotes:               $row->invitation_dietary_notes ?? '',
+            foodConfirmedAt:            $row->invitation_food_confirmed_at     ?? null,
+            beverageConfirmedAt:        $row->invitation_beverage_confirmed_at ?? null,
+            createdAt:                  $row->created_at ?? '',
+            updatedAt:                  $row->updated_at ?? '',
         );
     }
 }

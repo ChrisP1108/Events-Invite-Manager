@@ -237,4 +237,109 @@ abstract class AbstractAdminPage
             echo '<div class="notice notice-error is-dismissible"><p>' . esc_html($errors[$errorKey]) . '</p></div>';
         }
     }
+
+    /**
+     * Renders a typeahead event picker with a sortable, searchable selected-events table.
+     *
+     * The picker replaces the traditional checkbox fieldset wherever an admin needs to
+     * associate one or more events with a record. JavaScript (EventPicker class) drives
+     * the autocomplete search and the selected-items list.
+     *
+     * @param string $containerId  HTML id for the outer wrapper div.
+     * @param array  $linked       Pre-formatted linked events. Each entry must be an
+     *                             associative array with keys:
+     *                               id (int), name (string), start_label (string),
+     *                               end_label (string), start_raw (string), end_raw (string).
+     * @param string $inputName    Form field name for the submitted IDs (default 'event_ids[]').
+     * @return void
+     */
+    protected function renderEventPicker(string $containerId, array $linked, string $inputName = 'event_ids[]'): void
+    {
+        $count = count($linked);
+        ?>
+        <div id="<?= esc_attr($containerId); ?>" class="eim-event-picker"
+             data-input-name="<?= esc_attr($inputName); ?>">
+
+            <?php /* --- autocomplete search row --- */ ?>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                <div class="eim-event-picker-positioner" style="position:relative;display:inline-block;">
+                    <input type="text" class="eim-event-picker-search regular-text"
+                           placeholder="Search events to add…" autocomplete="off">
+                </div>
+            </div>
+
+            <?php /* --- selected events list --- */ ?>
+            <div class="eim-event-picker-list-wrap"<?= $count === 0 ? ' style="display:none;"' : ''; ?>>
+
+                <?php /* filter bar — hidden by JS when < 2 rows */ ?>
+                <div class="eim-event-picker-filter-bar"
+                     style="margin-bottom:6px;<?= $count < 2 ? 'display:none;' : ''; ?>">
+                    <label class="screen-reader-text"
+                           for="<?= esc_attr($containerId); ?>-filter">Filter selected events</label>
+                    <input type="search"
+                           id="<?= esc_attr($containerId); ?>-filter"
+                           class="eim-event-picker-filter regular-text"
+                           placeholder="Filter selected events…"
+                           autocomplete="off">
+                    <span class="eim-event-picker-count description">
+                        <?= esc_html($count); ?> event<?= $count === 1 ? '' : 's'; ?>
+                    </span>
+                </div>
+
+                <table class="eim-event-picker-table wp-list-table widefat fixed striped"
+                       data-sort="name" data-order="asc">
+                    <thead>
+                        <tr>
+                            <th>
+                                <a href="#" class="eim-sort-link eim-event-sort"
+                                   data-sort="name" data-order="desc">
+                                    Event Name <span aria-hidden="true">^</span>
+                                </a>
+                            </th>
+                            <th style="width:26%;">
+                                <a href="#" class="eim-sort-link eim-event-sort"
+                                   data-sort="start" data-order="asc">
+                                    Start <span aria-hidden="true"></span>
+                                </a>
+                            </th>
+                            <th style="width:26%;">
+                                <a href="#" class="eim-sort-link eim-event-sort"
+                                   data-sort="end" data-order="asc">
+                                    End <span aria-hidden="true"></span>
+                                </a>
+                            </th>
+                            <th style="width:8%;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="eim-event-picker-tbody">
+                        <?php foreach ($linked as $ev): ?>
+                        <tr data-event-id="<?= esc_attr($ev['id']); ?>"
+                            data-name="<?= esc_attr(strtolower($ev['name'])); ?>"
+                            data-start="<?= esc_attr($ev['start_raw']); ?>"
+                            data-end="<?= esc_attr($ev['end_raw']); ?>">
+                            <td><?= esc_html($ev['name']); ?></td>
+                            <td><?= esc_html($ev['start_label'] ?: '—'); ?></td>
+                            <td><?= esc_html($ev['end_label']   ?: '—'); ?></td>
+                            <td>
+                                <button type="button"
+                                        class="button button-small eim-event-picker-remove">Remove</button>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+
+            <?php /* hidden inputs submitted with the form */ ?>
+            <div class="eim-event-picker-hidden-inputs">
+                <?php foreach ($linked as $ev): ?>
+                <input type="hidden"
+                       name="<?= esc_attr($inputName); ?>"
+                       value="<?= esc_attr($ev['id']); ?>"
+                       data-event-id="<?= esc_attr($ev['id']); ?>">
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <?php
+    }
 }

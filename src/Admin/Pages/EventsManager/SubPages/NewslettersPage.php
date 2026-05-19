@@ -14,8 +14,22 @@ use EventsInviteManager\Models\Newsletter;
 use EventsInviteManager\Models\NewsletterCategory;
 use EventsInviteManager\Models\NewsletterTag;
 
+/**
+ * Admin CRUD page for newsletter posts, including category and tag management.
+ *
+ * Actions handled:
+ *   save_newsletter            — create or update a newsletter
+ *   delete_newsletter          — delete a newsletter
+ *   add_newsletter_category    — create a category
+ *   delete_newsletter_category — delete a category
+ *   add_newsletter_tag         — create a tag
+ *   delete_newsletter_tag      — delete a tag
+ */
 final class NewslettersPage extends AbstractAdminPage
 {
+    /**
+     * Ensures the newsletter tables exist and initialises the page.
+     */
     public function __construct()
     {
         DatabaseManager::maybeCreateNewsletterTables();
@@ -23,6 +37,11 @@ final class NewslettersPage extends AbstractAdminPage
 
     // ─── Action dispatch ─────────────────────────────────────────────────────
 
+    /**
+     * Dispatches newsletter form submissions and GET actions.
+     *
+     * @param string $action The action slug.
+     */
     public function handleAction(string $action): void
     {
         match ($action) {
@@ -71,6 +90,7 @@ final class NewslettersPage extends AbstractAdminPage
 
     // ─── Page routing ────────────────────────────────────────────────────────
 
+    /** Renders the Newsletters admin page, routing to the list or add/edit form. */
     public function renderPage(): void
     {
         $action = $_GET['action'] ?? 'list';
@@ -84,6 +104,7 @@ final class NewslettersPage extends AbstractAdminPage
 
     // ─── Form handlers ───────────────────────────────────────────────────────
 
+    /** Handles creating or updating a newsletter from the admin form. */
     private function handleSaveNewsletter(): void
     {
         if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_save_newsletter')) {
@@ -128,6 +149,7 @@ final class NewslettersPage extends AbstractAdminPage
         exit;
     }
 
+    /** Handles deleting a newsletter via a GET nonce link. */
     private function handleDeleteNewsletter(): void
     {
         $id    = (int) ($_GET['id'] ?? 0);
@@ -143,6 +165,7 @@ final class NewslettersPage extends AbstractAdminPage
         exit;
     }
 
+    /** Handles creating a new newsletter category from the taxonomy panel form. */
     private function handleAddCategory(): void
     {
         if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_add_newsletter_category')) {
@@ -162,6 +185,7 @@ final class NewslettersPage extends AbstractAdminPage
         exit;
     }
 
+    /** Handles deleting a newsletter category via a GET nonce link. */
     private function handleDeleteCategory(): void
     {
         $id    = (int) ($_GET['id'] ?? 0);
@@ -177,6 +201,7 @@ final class NewslettersPage extends AbstractAdminPage
         exit;
     }
 
+    /** Handles creating a new newsletter tag from the taxonomy panel form. */
     private function handleAddTag(): void
     {
         if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_add_newsletter_tag')) {
@@ -196,6 +221,7 @@ final class NewslettersPage extends AbstractAdminPage
         exit;
     }
 
+    /** Handles deleting a newsletter tag via a GET nonce link. */
     private function handleDeleteTag(): void
     {
         $id    = (int) ($_GET['id'] ?? 0);
@@ -213,6 +239,7 @@ final class NewslettersPage extends AbstractAdminPage
 
     // ─── List view ───────────────────────────────────────────────────────────
 
+    /** Renders the newsletters list table with search bar and sortable columns. */
     private function renderNewslettersList(): void
     {
         $message     = (string) ($_GET['eim_message'] ?? '');
@@ -462,6 +489,11 @@ final class NewslettersPage extends AbstractAdminPage
 
     // ─── Add / edit form ─────────────────────────────────────────────────────
 
+    /**
+     * Renders the add/edit form for a newsletter, including the TinyMCE editor and live preview.
+     *
+     * @param Newsletter|null $newsletter Existing newsletter to edit, or null when adding.
+     */
     private function renderNewsletterForm(?Newsletter $newsletter): void
     {
         $isNew      = $newsletter === null;
@@ -470,7 +502,6 @@ final class NewslettersPage extends AbstractAdminPage
         $backUrl    = AdminMenu::tabUrl(AdminMenu::TAB_NEWSLETTERS);
         $title      = $isNew ? 'Add Newsletter' : 'Edit Newsletter';
 
-        $allEvents     = Event::all();
         $allCategories = NewsletterCategory::all();
         $allTags       = NewsletterTag::all();
 
@@ -526,25 +557,33 @@ final class NewslettersPage extends AbstractAdminPage
                             <p class="description">Leave blank to use the created date.</p>
                         </td>
                     </tr>
-                    <?php if (!empty($allEvents)): ?>
                     <tr>
                         <th scope="row">Events</th>
                         <td>
-                            <fieldset>
-                                <legend class="screen-reader-text">Events</legend>
-                                <?php foreach ($allEvents as $ev): ?>
-                                    <label style="display:block;margin-bottom:4px;">
-                                        <input type="checkbox" name="event_ids[]"
-                                               value="<?= esc_attr($ev->id); ?>"
-                                               <?= in_array($ev->id, $linkedEventIds, true) ? 'checked' : ''; ?>>
-                                        <?= esc_html($ev->name); ?>
-                                    </label>
-                                <?php endforeach; ?>
-                            </fieldset>
-                            <p class="description">Associate this newsletter with one or more events.</p>
+                            <?php
+                            $linkedEvents = array_values(array_filter(
+                                array_map(static fn(int $id) => Event::find($id), $linkedEventIds)
+                            ));
+                            $dateFormat   = (string) get_option('date_format', 'M j, Y');
+                            $formatDt     = static function (?string $utcDt, string $tz) use ($dateFormat): string {
+                                if (!$utcDt) return '';
+                                $dt = new \DateTime($utcDt, new \DateTimeZone('UTC'));
+                                if ($tz !== '') { try { $dt->setTimezone(new \DateTimeZone($tz)); } catch (\Throwable) {} }
+                                return $dt->format($dateFormat . ', g:i A');
+                            };
+                            $linkedEventData = array_map(static fn(Event $e): array => [
+                                'id'          => $e->id,
+                                'name'        => $e->name,
+                                'start_label' => $formatDt($e->startDatetime, $e->timezone),
+                                'end_label'   => $e->endDatetime ? $formatDt($e->endDatetime, $e->timezone) : '',
+                                'start_raw'   => $e->startDatetime ?? '',
+                                'end_raw'     => $e->endDatetime   ?? '',
+                            ], $linkedEvents);
+                            $this->renderEventPicker('eim-newsletter-event-picker', $linkedEventData, 'event_ids[]');
+                            ?>
+                            <p class="description" style="margin-top:8px;">Associate this newsletter with one or more events.</p>
                         </td>
                     </tr>
-                    <?php endif; ?>
                     <?php if (!empty($allCategories)): ?>
                     <tr>
                         <th scope="row">Categories</th>
@@ -714,12 +753,24 @@ final class NewslettersPage extends AbstractAdminPage
 
     // ─── Sanitizers ──────────────────────────────────────────────────────────
 
+    /**
+     * Sanitizes a newsletter list sort key against the allowed column list.
+     *
+     * @param string $key Raw sort key.
+     * @return string Validated key, defaulting to 'title'.
+     */
     private function sanitizeSortKey(string $key): string
     {
         $key = sanitize_key($key);
         return in_array($key, ['title', 'status', 'publish_date', 'events', 'categories', 'tags'], true) ? $key : 'title';
     }
 
+    /**
+     * Sanitizes a newsletter search field key against the allowed column list.
+     *
+     * @param string $field Raw field key.
+     * @return string Validated key, or '' for any-column search.
+     */
     private function sanitizeFieldKey(string $field): string
     {
         $field = sanitize_key($field);

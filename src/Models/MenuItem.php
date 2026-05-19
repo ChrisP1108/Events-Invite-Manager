@@ -18,9 +18,23 @@ use EventsInviteManager\Database\DatabaseManager;
  */
 class MenuItem
 {
+    /** @var string Type constant for food items. */
     public const TYPE_FOOD     = 'food';
+
+    /** @var string Type constant for beverage items. */
     public const TYPE_BEVERAGE = 'beverage';
 
+    /**
+     * @param int    $id          Primary key.
+     * @param string $type        Item type — one of TYPE_FOOD or TYPE_BEVERAGE.
+     * @param string $label       Display name shown to invitees.
+     * @param string $description Optional longer description.
+     * @param int    $priceCents  Per-item price in cents (0 = no charge).
+     * @param int    $sortOrder   Display order within the event pivot.
+     * @param bool   $isActive    Whether the item is available for selection.
+     * @param string $createdAt   Row creation timestamp (MySQL datetime string).
+     * @param string $updatedAt   Row last-update timestamp (MySQL datetime string).
+     */
     public function __construct(
         public readonly int    $id,
         public readonly string $type,
@@ -33,6 +47,12 @@ class MenuItem
         public readonly string $updatedAt,
     ) {}
 
+    /**
+     * Returns a formatted dollar-string for the item price, or an empty string
+     * when the price is zero.
+     *
+     * @return string e.g. "$12.50" or "".
+     */
     public function formattedPrice(): string
     {
         if ($this->priceCents === 0) {
@@ -45,6 +65,12 @@ class MenuItem
     // Global library — CRUD
     // -------------------------------------------------------------------------
 
+    /**
+     * Finds a single menu item by primary key.
+     *
+     * @param int $id Primary key of the menu item.
+     * @return self|null The menu item, or null if not found.
+     */
     public static function find(int $id): ?self
     {
         global $wpdb;
@@ -147,6 +173,15 @@ class MenuItem
         return array_map(static fn(object $r) => self::fromRow($r), $rows ?? []);
     }
 
+    /**
+     * Creates a new menu item in the global library.
+     *
+     * Accepted keys in $data: type, label, description, price_cents, is_active.
+     * Defaults: type = TYPE_FOOD, is_active = 1.
+     *
+     * @param array<string,mixed> $data Column values for the new row.
+     * @return self|null The newly created item, or null on failure.
+     */
     public static function create(array $data): ?self
     {
         global $wpdb;
@@ -166,6 +201,16 @@ class MenuItem
         return $result ? self::find((int) $wpdb->insert_id) : null;
     }
 
+    /**
+     * Updates one or more columns on an existing menu item.
+     *
+     * Accepted keys in $data: label, description, price_cents, is_active.
+     * Unknown keys are silently ignored.
+     *
+     * @param int                 $id   Primary key of the item to update.
+     * @param array<string,mixed> $data Fields to update.
+     * @return bool True on success or when there are no fields to update.
+     */
     public static function update(int $id, array $data): bool
     {
         global $wpdb;
@@ -183,6 +228,12 @@ class MenuItem
         return $wpdb->update(DatabaseManager::menuItemsTable(), $fields, ['id' => $id]) !== false;
     }
 
+    /**
+     * Deletes a menu item from the global library and removes it from all event pivots.
+     *
+     * @param int $id Primary key of the item to delete.
+     * @return bool True on success.
+     */
     public static function delete(int $id): bool
     {
         global $wpdb;
@@ -247,6 +298,16 @@ class MenuItem
         return self::forEvent($eventId, $type);
     }
 
+    /**
+     * Assigns a menu item to an event (inserts into the pivot table).
+     *
+     * If the item is already assigned this is a no-op and returns true.
+     * sort_order is computed automatically via {@see nextEventSortOrder()}.
+     *
+     * @param int $eventId    The event to assign the item to.
+     * @param int $menuItemId The menu item to assign.
+     * @return bool True on success.
+     */
     public static function addToEvent(int $eventId, int $menuItemId): bool
     {
         global $wpdb;
@@ -334,6 +395,13 @@ class MenuItem
         return true;
     }
 
+    /**
+     * Removes a single menu item from an event pivot.
+     *
+     * @param int $eventId    The event to remove the item from.
+     * @param int $menuItemId The menu item to remove.
+     * @return bool True on success.
+     */
     public static function removeFromEvent(int $eventId, int $menuItemId): bool
     {
         global $wpdb;
@@ -343,12 +411,30 @@ class MenuItem
         ) !== false;
     }
 
+    /**
+     * Removes all menu item pivot rows for an event.
+     *
+     * Called when an event is deleted so orphaned pivot rows are cleaned up.
+     *
+     * @param int $eventId The event whose menu assignments should be deleted.
+     * @return void
+     */
     public static function deleteForEvent(int $eventId): void
     {
         global $wpdb;
         $wpdb->delete(DatabaseManager::eventMenuItemsTable(), ['event_id' => $eventId]);
     }
 
+    /**
+     * Computes the next available sort_order for a menu item being added to an event.
+     *
+     * The new position is (max sort_order among same-type items in the event) + 1,
+     * or 1 if the event has no items of that type yet.
+     *
+     * @param int $eventId    The target event.
+     * @param int $menuItemId The menu item being added (used to look up its type).
+     * @return int The next sort position.
+     */
     private static function nextEventSortOrder(int $eventId, int $menuItemId): int
     {
         global $wpdb;
@@ -374,6 +460,12 @@ class MenuItem
     // Hydration
     // -------------------------------------------------------------------------
 
+    /**
+     * Hydrates a MenuItem instance from a database result row.
+     *
+     * @param object $row Raw row object returned by $wpdb->get_row() / get_results().
+     * @return self
+     */
     private static function fromRow(object $row): self
     {
         return new self(

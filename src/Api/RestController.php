@@ -13,24 +13,51 @@ use EventsInviteManager\Models\InvitationGroup;
 use EventsInviteManager\Models\Invitee;
 use EventsInviteManager\Models\Location;
 use EventsInviteManager\Models\QrCode;
+use EventsInviteManager\Services\RsvpFlowResolver;
+use EventsInviteManager\Services\RsvpFlowResult;
 use WP_REST_Request;
 use WP_REST_Response;
 
 /**
  * Registers and handles the plugin's public-facing REST API endpoints.
  *
+ * Endpoints
+ * ─────────
  *   GET  /wp-json/eim/v1/rsvp?confirmation_code={code}
- *     Resolves the QR code to an invitation group. Returns event details, the
- *     primary invitee (for backward compat), and all group_members with rsvp_status.
+ *     Resolves the QR code via RsvpFlowResolver and returns the full invitation
+ *     state including next_action, requires_food, requires_beverage,
+ *     newsletter_url, event details, all group members, and lodging options.
  *
  *   POST /wp-json/eim/v1/register
  *     Accepts a confirmation_code and an optional members array for per-person
- *     RSVP status. Without members, marks all pending members as attending.
+ *     RSVP status and menu selections. Sets food_confirmed_at /
+ *     beverage_confirmed_at when valid required choices are submitted.
+ *     Without a members array the legacy behaviour is preserved: all pending
+ *     members are marked as attending.
  */
 class RestController
 {
+    /** @var string WordPress REST namespace for all plugin endpoints. */
     private const NAMESPACE = 'eim/v1';
 
+    /** @var RsvpFlowResolver Flow state resolver — injected for testability. */
+    private RsvpFlowResolver $resolver;
+
+    /**
+     * @param RsvpFlowResolver|null $resolver Optional resolver override; defaults to a fresh instance.
+     */
+    public function __construct(?RsvpFlowResolver $resolver = null)
+    {
+        $this->resolver = $resolver ?? new RsvpFlowResolver();
+    }
+
+    /**
+     * Registers the REST routes with WordPress.
+     *
+     * Called once from the plugin bootstrap via `rest_api_init`.
+     *
+     * @return void
+     */
     public function register(): void
     {
         add_action('rest_api_init', function (): void {
@@ -79,33 +106,30 @@ class RestController
     /**
      * Handles GET /eim/v1/rsvp.
      *
-     * Returns event details, primary invitee (backward compat), all group members
-     * with their current rsvp_status, and lodging options.
+     * Delegates flow-state resolution to RsvpFlowResolver and returns a
+     * comprehensive payload including next_action, requires_food,
+     * requires_beverage, newsletter_url, event metadata, all group members
+     * with their current RSVP / menu state, and lodging options.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
      */
     public function handleRsvp(WP_REST_Request $request): WP_REST_Response
     {
         $code   = trim((string) $request->get_param('confirmation_code'));
-        $qrCode = QrCode::findByCode($code);
+        $result = $this->resolver->resolve($code);
 
-        if ($qrCode === null) {
+        if (!$result->success) {
             return new WP_REST_Response(
-                ['success' => false, 'message' => 'Invalid or unrecognised confirmation code.'],
+                ['success' => false, 'message' => $result->message],
                 404
             );
         }
 
-        $group = InvitationGroup::find($qrCode->groupId);
-        $event = Event::find($qrCode->eventId);
-
-        if ($group === null || $event === null) {
-            return new WP_REST_Response(
-                ['success' => false, 'message' => 'Event or invitation group not found.'],
-                404
-            );
-        }
+        $event = $result->event;
+        $group = $result->group;
 
         $primaryInvitee = Invitee::find($group->primaryInviteeId);
-
         if ($primaryInvitee === null) {
             return new WP_REST_Response(
                 ['success' => false, 'message' => 'Primary invitee not found.'],
@@ -113,16 +137,13 @@ class RestController
             );
         }
 
-        $members = $group->getMembers();
+        $members = $result->members;
         $venue   = $event->venueId ? Location::find($event->venueId) : null;
         $lodging = $event->lodgingEnabled ? EventLodging::forEvent($event->id) : [];
 
         $allAttending = !empty($members)
             && count(array_filter($members, static fn(Invitee $m) => $m->rsvpStatus === InvitationGroup::RSVP_ATTENDING)) === count($members);
 
-        // Locate the primary invitee's member record so we can return their
-        // registeredAt rather than arbitrarily using the first element, which
-        // is ordered alphabetically and may not be the primary recipient.
         $primaryMember = null;
         foreach ($members as $m) {
             if ($m->id === $group->primaryInviteeId) {
@@ -139,8 +160,12 @@ class RestController
         ];
 
         return new WP_REST_Response([
-            'success' => true,
-            'event'   => [
+            'success'          => true,
+            'next_action'      => $result->nextAction,
+            'requires_food'    => $result->requiresFood,
+            'requires_beverage' => $result->requiresBeverage,
+            'newsletter_url'   => $result->newsletterUrl,
+            'event'            => [
                 'name'        => $event->name,
                 'description' => $event->description,
                 'date'        => $event->formattedDateTimeRange(),
@@ -164,15 +189,17 @@ class RestController
                 'registered_at' => $allAttending ? ($primaryMember?->registeredAt ?? null) : null,
             ],
             'group_members' => array_map(static fn(Invitee $m): array => [
-                'invitee_id'         => $m->id,
-                'first_name'         => $m->firstName,
-                'last_name'          => $m->lastName,
-                'email'              => $m->email,
-                'rsvp_status'        => $m->rsvpStatus ?: InvitationGroup::RSVP_PENDING,
-                'registered_at'      => $m->registeredAt,
-                'food_option_id'     => $m->foodOptionId,
-                'beverage_option_id' => $m->beverageOptionId,
-                'dietary_notes'      => $m->dietaryNotes,
+                'invitee_id'            => $m->id,
+                'first_name'            => $m->firstName,
+                'last_name'             => $m->lastName,
+                'email'                 => $m->email,
+                'rsvp_status'           => $m->rsvpStatus ?: InvitationGroup::RSVP_PENDING,
+                'registered_at'         => $m->registeredAt,
+                'food_option_id'        => $m->foodOptionId,
+                'beverage_option_id'    => $m->beverageOptionId,
+                'dietary_notes'         => $m->dietaryNotes,
+                'food_confirmed_at'     => $m->foodConfirmedAt,
+                'beverage_confirmed_at' => $m->beverageConfirmedAt,
             ], $members),
             'lodging' => array_map(static fn(EventLodging $l): array => [
                 'name'        => $l->name,
@@ -187,20 +214,28 @@ class RestController
      * Handles POST /eim/v1/register.
      *
      * If `members` is provided, updates each listed member's rsvp_status individually.
-     * If omitted, marks all pending members as attending (backward compatible).
+     * food_confirmed_at and beverage_confirmed_at are set only when valid, required
+     * menu-item IDs are submitted alongside the RSVP.
      *
-     * Example with per-member statuses:
-     *   { "confirmation_code": "...", "members": [
-     *       { "invitee_id": 1, "rsvp_status": "attending" },
+     * If `members` is omitted, all pending members are marked attending (legacy path).
+     *
+     * Example with per-member data:
+     *   {
+     *     "confirmation_code": "...",
+     *     "members": [
+     *       { "invitee_id": 1, "rsvp_status": "attending", "food_option_id": 3, "beverage_option_id": 5 },
      *       { "invitee_id": 2, "rsvp_status": "declined" }
-     *   ]}
+     *     ]
+     *   }
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
      */
     public function handleRegister(WP_REST_Request $request): WP_REST_Response
     {
         $code = trim((string) $request->get_param('confirmation_code'));
 
         $qrCode = QrCode::findByCode($code);
-
         if ($qrCode === null) {
             return new WP_REST_Response(
                 ['success' => false, 'message' => 'Invalid or unrecognised confirmation code.'],
@@ -209,7 +244,6 @@ class RestController
         }
 
         $group = InvitationGroup::find($qrCode->groupId);
-
         if ($group === null) {
             return new WP_REST_Response(
                 ['success' => false, 'message' => 'No invitation group was found for this confirmation code.'],
@@ -218,7 +252,6 @@ class RestController
         }
 
         $primaryInvitee = Invitee::find($group->primaryInviteeId);
-
         if ($primaryInvitee === null) {
             return new WP_REST_Response(
                 ['success' => false, 'message' => 'Primary invitee not found.'],
@@ -226,7 +259,7 @@ class RestController
             );
         }
 
-        $members      = $group->getMembers();
+        $members       = $group->getMembers();
         $rawMemberList = $request->get_param('members');
 
         if (!empty($rawMemberList) && is_array($rawMemberList)) {
@@ -252,7 +285,6 @@ class RestController
             // so a stale or forged payload cannot update unrelated members.
             $validMemberIds = array_map(static fn(Invitee $m): int => $m->id, $members);
 
-            // Per-member status update.
             $processedCount = 0;
 
             foreach ($rawMemberList as $entry) {
@@ -264,14 +296,27 @@ class RestController
                 }
 
                 $extras = [];
+
                 if (array_key_exists('food_option_id', $entry)) {
-                    $id = (int) $entry['food_option_id'];
-                    $extras['food_option_id'] = ($id > 0 && in_array($id, $validFoodIds, true)) ? $id : null;
+                    $id      = (int) $entry['food_option_id'];
+                    $validId = ($id > 0 && in_array($id, $validFoodIds, true)) ? $id : null;
+                    $extras['food_option_id'] = $validId;
+                    // Set the confirmation timestamp only when a valid required choice is submitted.
+                    if ($validId !== null && !empty($validFoodIds)) {
+                        $extras['food_confirmed_at'] = current_time('mysql');
+                    }
                 }
+
                 if (array_key_exists('beverage_option_id', $entry)) {
-                    $id = (int) $entry['beverage_option_id'];
-                    $extras['beverage_option_id'] = ($id > 0 && in_array($id, $validBevIds, true)) ? $id : null;
+                    $id      = (int) $entry['beverage_option_id'];
+                    $validId = ($id > 0 && in_array($id, $validBevIds, true)) ? $id : null;
+                    $extras['beverage_option_id'] = $validId;
+                    // Set the confirmation timestamp only when a valid required choice is submitted.
+                    if ($validId !== null && !empty($validBevIds)) {
+                        $extras['beverage_confirmed_at'] = current_time('mysql');
+                    }
                 }
+
                 if (array_key_exists('dietary_notes', $entry)) {
                     $extras['dietary_notes'] = sanitize_textarea_field((string) $entry['dietary_notes']);
                 }
@@ -303,14 +348,27 @@ class RestController
             InvitationGroup::markAllMembersAttending($group->id);
         }
 
+        // Re-run the resolver so the response always includes the current next_action.
+        $flowResult = $this->resolver->resolve($code);
+
         return new WP_REST_Response([
             'success'            => true,
             'already_registered' => false,
             'message'            => 'You have successfully registered for the event!',
+            'next_action'        => $flowResult->success ? $flowResult->nextAction : null,
+            'requires_food'      => $flowResult->success ? $flowResult->requiresFood : false,
+            'requires_beverage'  => $flowResult->success ? $flowResult->requiresBeverage : false,
+            'newsletter_url'     => $flowResult->success ? $flowResult->newsletterUrl : null,
             'invitee'            => $this->inviteePayload($primaryInvitee),
         ], 200);
     }
 
+    /**
+     * Builds the minimal invitee sub-payload used in register responses.
+     *
+     * @param Invitee $invitee
+     * @return array{first_name: string, last_name: string, email: string}
+     */
     private function inviteePayload(Invitee $invitee): array
     {
         return [

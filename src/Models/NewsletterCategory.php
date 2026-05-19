@@ -13,6 +13,12 @@ use EventsInviteManager\Database\DatabaseManager;
  */
 final class NewsletterCategory
 {
+    /**
+     * @param int    $id        Primary key.
+     * @param string $name      Human-readable category name.
+     * @param string $slug      URL-safe slug generated from the name via sanitize_title().
+     * @param string $createdAt Row creation timestamp (MySQL datetime string).
+     */
     public function __construct(
         public readonly int    $id,
         public readonly string $name,
@@ -91,6 +97,12 @@ final class NewsletterCategory
         return $wpdb->delete(DatabaseManager::newsletterCategoriesTable(), ['id' => $id]) !== false;
     }
 
+    /**
+     * Hydrates a NewsletterCategory instance from a database result row.
+     *
+     * @param object $row Raw row object returned by $wpdb->get_row() / get_results().
+     * @return self
+     */
     private static function fromRow(object $row): self
     {
         return new self(

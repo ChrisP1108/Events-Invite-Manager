@@ -22,9 +22,13 @@ use EventsInviteManager\Database\DatabaseManager;
  */
 final class BudgetLineItem
 {
+    /** @var string Quantity mode where estimated total = quantity × unit_cost_cents. */
     public const QUANTITY_MODE_FIXED        = 'fixed';
+
+    /** @var string Quantity mode where quantity is replaced by the event's attending RSVP count. */
     public const QUANTITY_MODE_PER_ATTENDING = 'per_attending';
 
+    /** @var array<string,string> Map of category slugs to human-readable labels. */
     public const CATEGORIES = [
         'catering'       => 'Catering',
         'venue'          => 'Venue',
@@ -40,6 +44,25 @@ final class BudgetLineItem
         'other'          => 'Other',
     ];
 
+    /**
+     * @param int     $id                 Primary key.
+     * @param int     $planId             The parent budget plan ID.
+     * @param int|null $eventId           Optional event this cost is scoped to.
+     * @param string  $category           Category slug (must be a key of CATEGORIES).
+     * @param string  $label              Short description of the cost.
+     * @param string|null $sourceType     Origin type, e.g. "menu_item" (nullable).
+     * @param int|null $sourceId          Origin record ID matching $sourceType (nullable).
+     * @param float   $quantity           Number of units (interpreted per $quantityMode).
+     * @param string  $quantityMode       One of QUANTITY_MODE_FIXED or QUANTITY_MODE_PER_ATTENDING.
+     * @param int     $unitCostCents      Per-unit cost in cents.
+     * @param int|null $totalOverrideCents When set, overrides the computed quantity × unit_cost total.
+     * @param int     $paidAmountCents    Amount already paid in cents.
+     * @param string  $vendorName         Name of the vendor or payee.
+     * @param string  $notes              Free-text notes.
+     * @param int     $sortOrder          Display position within the plan.
+     * @param string  $createdAt          Row creation timestamp (MySQL datetime string).
+     * @param string  $updatedAt          Row last-update timestamp (MySQL datetime string).
+     */
     public function __construct(
         public readonly int     $id,
         public readonly int     $planId,
@@ -64,6 +87,12 @@ final class BudgetLineItem
     // CRUD
     // -------------------------------------------------------------------------
 
+    /**
+     * Finds a single budget line item by primary key.
+     *
+     * @param int $id Primary key of the line item.
+     * @return self|null The line item, or null if not found.
+     */
     public static function find(int $id): ?self
     {
         global $wpdb;
@@ -207,6 +236,16 @@ final class BudgetLineItem
         return $items;
     }
 
+    /**
+     * Creates a new budget line item within a plan.
+     *
+     * Accepted keys in $data: plan_id, event_id, category, label, source_type,
+     * source_id, quantity, quantity_mode, unit_cost_cents, total_override_cents,
+     * paid_amount_cents, vendor_name, notes.  sort_order is assigned automatically.
+     *
+     * @param array<string,mixed> $data Column values for the new row.
+     * @return self|null The newly created line item, or null on failure.
+     */
     public static function create(array $data): ?self
     {
         global $wpdb;
@@ -237,6 +276,17 @@ final class BudgetLineItem
         return $result ? self::find((int) $wpdb->insert_id) : null;
     }
 
+    /**
+     * Updates one or more columns on an existing budget line item.
+     *
+     * Accepted keys in $data: event_id, category, label, quantity, quantity_mode,
+     * unit_cost_cents, total_override_cents, paid_amount_cents, vendor_name, notes.
+     * Unknown keys are silently ignored.
+     *
+     * @param int                 $id   Primary key of the line item to update.
+     * @param array<string,mixed> $data Fields to update.
+     * @return bool True on success or when there are no fields to update.
+     */
     public static function update(int $id, array $data): bool
     {
         global $wpdb;
@@ -255,6 +305,12 @@ final class BudgetLineItem
         return $wpdb->update(DatabaseManager::budgetLineItemsTable(), $fields, ['id' => $id]) !== false;
     }
 
+    /**
+     * Deletes a single budget line item by primary key.
+     *
+     * @param int $id Primary key of the line item to delete.
+     * @return bool True on success.
+     */
     public static function delete(int $id): bool
     {
         global $wpdb;
@@ -288,12 +344,28 @@ final class BudgetLineItem
         return (int) round($qty * $this->unitCostCents);
     }
 
+    /**
+     * Returns the sum of estimated amounts for all line items in a plan, in cents.
+     *
+     * Each item's estimated value accounts for quantity mode and total overrides.
+     *
+     * @param int $planId The plan to aggregate.
+     * @return int Total estimated cost in cents.
+     */
     public static function sumEstimatedForPlan(int $planId): int
     {
         $items = self::forPlan($planId);
         return array_sum(array_map(static fn(self $i) => $i->estimatedCents(), $items));
     }
 
+    /**
+     * Returns the sum of paid amounts for all line items in a plan, in cents.
+     *
+     * Computed via a single SUM() query for efficiency.
+     *
+     * @param int $planId The plan to aggregate.
+     * @return int Total paid amount in cents.
+     */
     public static function sumPaidForPlan(int $planId): int
     {
         global $wpdb;
@@ -307,15 +379,46 @@ final class BudgetLineItem
     // Formatting helpers
     // -------------------------------------------------------------------------
 
+    /**
+     * Returns the formatted estimated total for this line item (e.g. "$250.00").
+     *
+     * @return string
+     */
     public function formattedEstimated(): string { return BudgetPlan::formatCents($this->estimatedCents()); }
+
+    /**
+     * Returns the formatted paid amount for this line item (e.g. "$100.00").
+     *
+     * @return string
+     */
     public function formattedPaid(): string       { return BudgetPlan::formatCents($this->paidAmountCents); }
+
+    /**
+     * Returns the formatted per-unit cost for this line item (e.g. "$25.00").
+     *
+     * @return string
+     */
     public function formattedUnitCost(): string   { return BudgetPlan::formatCents($this->unitCostCents); }
+
+    /**
+     * Returns the human-readable label for this item's category slug.
+     *
+     * Falls back to ucfirst($category) if the slug is not found in CATEGORIES.
+     *
+     * @return string
+     */
     public function categoryLabel(): string       { return self::CATEGORIES[$this->category] ?? ucfirst($this->category); }
 
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
+    /**
+     * Validates a category slug, returning "other" if the slug is not in CATEGORIES.
+     *
+     * @param string $cat The category slug to validate.
+     * @return string A valid category slug.
+     */
     private static function sanitizeCategory(string $cat): string
     {
         return array_key_exists($cat, self::CATEGORIES) ? $cat : 'other';
@@ -325,6 +428,12 @@ final class BudgetLineItem
     // Hydration
     // -------------------------------------------------------------------------
 
+    /**
+     * Hydrates a BudgetLineItem instance from a database result row.
+     *
+     * @param object $row Raw row object returned by $wpdb->get_row() / get_results().
+     * @return self
+     */
     private static function fromRow(object $row): self
     {
         return new self(

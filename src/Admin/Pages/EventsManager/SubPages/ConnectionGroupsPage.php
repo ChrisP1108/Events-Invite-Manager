@@ -20,6 +20,11 @@ use EventsInviteManager\Models\Invitee;
  */
 final class ConnectionGroupsPage extends AbstractAdminPage
 {
+    /**
+     * Dispatches connection-group form submissions and GET actions.
+     *
+     * @param string $action The action slug.
+     */
     public function handleAction(string $action): void
     {
         match ($action) {
@@ -31,6 +36,11 @@ final class ConnectionGroupsPage extends AbstractAdminPage
         };
     }
 
+    /**
+     * Renders the Connection Groups page, routing to the list or add/edit form.
+     *
+     * @return void
+     */
     public function renderPage(): void
     {
         $action = $_GET['action'] ?? 'list';
@@ -79,12 +89,24 @@ final class ConnectionGroupsPage extends AbstractAdminPage
         ]);
     }
 
+    /**
+     * Sanitizes a connection group sort key against the allowed column list.
+     *
+     * @param string $key Raw sort key.
+     * @return string Validated key, defaulting to 'name'.
+     */
     private function sanitizeGroupSortKey(string $key): string
     {
         $key = sanitize_key($key);
         return in_array($key, ['name', 'type', 'members', 'invited_to'], true) ? $key : 'name';
     }
 
+    /**
+     * Sanitizes a connection group search field key against the allowed column list.
+     *
+     * @param string $field Raw field key.
+     * @return string Validated key, or '' for any-column search.
+     */
     private function sanitizeGroupFieldKey(string $field): string
     {
         $field = sanitize_key($field);
@@ -124,6 +146,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
     // Form handlers
     // -------------------------------------------------------------------------
 
+    /** Handles creating or updating a connection group from the admin form. */
     private function handleSaveGroup(): void
     {
         if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_save_connection_group')) {
@@ -161,6 +184,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
         exit;
     }
 
+    /** Handles deleting a connection group via a GET nonce link. */
     private function handleDeleteGroup(): void
     {
         $id    = (int) ($_GET['id'] ?? 0);
@@ -178,6 +202,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
         exit;
     }
 
+    /** Handles adding a member to an existing connection group. */
     private function handleAddMember(): void
     {
         if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_add_cg_member')) {
@@ -200,6 +225,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
         exit;
     }
 
+    /** Handles removing a member from a connection group via a GET nonce link. */
     private function handleRemoveMember(): void
     {
         $groupId   = (int) ($_GET['group_id']   ?? 0);
@@ -224,6 +250,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
     // Rendering
     // -------------------------------------------------------------------------
 
+    /** Renders the connection groups list table with search bar and sortable columns. */
     private function renderGroupList(): void
     {
         $message = (string) ($_GET['eim_message'] ?? '');
@@ -392,6 +419,11 @@ final class ConnectionGroupsPage extends AbstractAdminPage
         return $groups;
     }
 
+    /**
+     * Renders the add/edit form for a connection group, including the member management section.
+     *
+     * @param ConnectionGroup|null $group Existing group to edit, or null when adding.
+     */
     private function renderGroupForm(?ConnectionGroup $group): void
     {
         if (isset($_GET['id']) && $group === null) {
@@ -468,16 +500,46 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                 $members = $group->getMembers();
                 if (!empty($members)):
                 ?>
-                    <table class="wp-list-table widefat fixed striped" style="margin-bottom:16px;">
+                    <?php $memberCount = count($members); ?>
+
+                    <?php if ($memberCount >= 2): ?>
+                    <div style="margin-bottom:6px;display:flex;align-items:center;gap:12px;">
+                        <label class="screen-reader-text" for="eim-cg-members-search">Filter members</label>
+                        <input type="search"
+                               id="eim-cg-members-search"
+                               class="regular-text"
+                               placeholder="Filter members…"
+                               autocomplete="off"
+                               style="max-width:280px;">
+                        <span id="eim-cg-members-count"
+                              class="description"><?= esc_html($memberCount); ?> member<?= $memberCount === 1 ? '' : 's'; ?></span>
+                    </div>
+                    <?php endif; ?>
+
+                    <table id="eim-cg-members-table"
+                           class="wp-list-table widefat fixed striped"
+                           style="margin-bottom:16px;"
+                           data-sort="name"
+                           data-order="asc">
                         <thead>
                             <tr>
-                                <th>Name</th>
-                                <th style="width:24%;">Email</th>
+                                <th>
+                                    <a href="#" class="eim-sort-link eim-cg-member-sort"
+                                       data-sort="name" data-order="desc">
+                                        Name <span aria-hidden="true">^</span>
+                                    </a>
+                                </th>
+                                <th style="width:30%;">
+                                    <a href="#" class="eim-sort-link eim-cg-member-sort"
+                                       data-sort="email" data-order="asc">
+                                        Email <span aria-hidden="true"></span>
+                                    </a>
+                                </th>
                                 <th style="width:18%;">Role</th>
                                 <th style="width:10%;">Actions</th>
                             </tr>
                         </thead>
-                        <tbody>
+                        <tbody id="eim-cg-members-tbody">
                             <?php foreach ($members as $member): ?>
                                 <?php
                                 $removeUrl = wp_nonce_url(
@@ -486,7 +548,8 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                                 );
                                 $editUrl = AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, ['action' => 'edit', 'id' => $member->id]);
                                 ?>
-                                <tr>
+                                <tr data-name="<?= esc_attr(strtolower($member->fullName())); ?>"
+                                    data-email="<?= esc_attr(strtolower($member->email)); ?>">
                                     <td><a href="<?= esc_url($editUrl); ?>"><?= esc_html($member->fullName()); ?></a></td>
                                     <td><?= esc_html($member->email); ?></td>
                                     <td><span style="color:#646970;">—</span></td>

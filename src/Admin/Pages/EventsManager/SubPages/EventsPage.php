@@ -23,15 +23,27 @@ use EventsInviteManager\Services\QrCodeService;
  */
 final class EventsPage extends AbstractAdminPage
 {
+    /** @var EmailService Sends invite emails. */
     private EmailService  $emailService;
+
+    /** @var QrCodeService Generates and retrieves per-group QR codes. */
     private QrCodeService $qrCodeService;
 
+    /**
+     * @param EmailService  $emailService  Email sending service.
+     * @param QrCodeService $qrCodeService QR code generation service.
+     */
     public function __construct(EmailService $emailService, QrCodeService $qrCodeService)
     {
         $this->emailService  = $emailService;
         $this->qrCodeService = $qrCodeService;
     }
 
+    /**
+     * Dispatches event-related form submissions and GET actions.
+     *
+     * @param string $action The action slug.
+     */
     public function handleAction(string $action): void
     {
         match ($action) {
@@ -52,6 +64,11 @@ final class EventsPage extends AbstractAdminPage
         };
     }
 
+    /**
+     * Renders the Events admin page, routing to the list, add, or edit view.
+     *
+     * @return void
+     */
     public function renderPage(): void
     {
         $action = $_GET['action'] ?? 'list';
@@ -63,6 +80,7 @@ final class EventsPage extends AbstractAdminPage
         };
     }
 
+    /** Handles creating or updating an event from the admin form. */
     private function handleSaveEvent(): void
     {
         if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_save_event')) {
@@ -86,6 +104,7 @@ final class EventsPage extends AbstractAdminPage
             'lodging_enabled'          => !empty($_POST['lodging_enabled']) ? 1 : 0,
             'food_options_enabled'     => !empty($_POST['food_options_enabled']) ? 1 : 0,
             'beverage_options_enabled' => !empty($_POST['beverage_options_enabled']) ? 1 : 0,
+            'newsletter_page_id'       => (int) ($_POST['newsletter_page_id'] ?? 0),
             'max_invitees'             => (int) ($_POST['max_invitees'] ?? 0),
         ];
 
@@ -154,6 +173,11 @@ final class EventsPage extends AbstractAdminPage
         exit;
     }
 
+    /**
+     * Persists the lodging location(s) submitted with a new event creation form.
+     *
+     * @param int $eventId The ID of the newly created event.
+     */
     private function saveInitialLodgingLocation(int $eventId): void
     {
         $locationIds = wp_unslash($_POST['lodging_init_library_id'] ?? []);
@@ -179,6 +203,12 @@ final class EventsPage extends AbstractAdminPage
         }
     }
 
+    /**
+     * Sanitizes a From Email field value that may contain the {{current_domain}} template tag.
+     *
+     * @param string $value Raw POST value.
+     * @return string Sanitized value, or '' if the resulting address is not a valid email.
+     */
     private function sanitizeFromEmailTemplate(string $value): string
     {
         $value = sanitize_text_field(wp_unslash($value));
@@ -198,6 +228,13 @@ final class EventsPage extends AbstractAdminPage
         return is_email($validationValue) ? $normalized : '';
     }
 
+    /**
+     * Sanitizes and converts a datetime-local input value to a UTC datetime string.
+     *
+     * @param string $value    Raw POST value in 'Y-m-d\TH:i' or 'Y-m-d\TH:i:s' format.
+     * @param string $timezone IANA timezone identifier for the input (e.g. 'America/New_York').
+     * @return string UTC datetime in 'Y-m-d H:i:s' format, or '' if invalid.
+     */
     private function sanitizeDatetimeLocal(string $value, string $timezone = ''): string
     {
         $value = sanitize_text_field(wp_unslash($value));
@@ -228,6 +265,13 @@ final class EventsPage extends AbstractAdminPage
         }
     }
 
+    /**
+     * Converts a stored UTC datetime string to a datetime-local input value in the event's timezone.
+     *
+     * @param string $utcDatetime UTC datetime from the database.
+     * @param string $timezone    IANA timezone identifier for the event.
+     * @return string Datetime in 'Y-m-d\TH:i' format for the datetime-local input, or '' if empty.
+     */
     private function utcToDatetimeLocal(string $utcDatetime, string $timezone): string
     {
         if ($utcDatetime === '') {
@@ -245,6 +289,7 @@ final class EventsPage extends AbstractAdminPage
         }
     }
 
+    /** Handles deleting an event via a GET nonce link. */
     private function handleDeleteEvent(): void
     {
         $id    = (int) ($_GET['id'] ?? 0);
@@ -260,6 +305,7 @@ final class EventsPage extends AbstractAdminPage
         exit;
     }
 
+    /** Handles adding a lodging location to an existing event. */
     private function handleAddLodgingToEvent(): void
     {
         if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_add_lodging_to_event')) {
@@ -292,6 +338,7 @@ final class EventsPage extends AbstractAdminPage
         exit;
     }
 
+    /** Handles removing a lodging entry from an event via a GET nonce link. */
     private function handleRemoveLodgingFromEvent(): void
     {
         $id      = (int) ($_GET['id']       ?? 0);
@@ -394,6 +441,7 @@ final class EventsPage extends AbstractAdminPage
         exit;
     }
 
+    /** Handles removing an invitee from an event (and their group) via a GET nonce link. */
     private function handleRemoveInviteeFromEvent(): void
     {
         $eventId   = (int) ($_GET['event_id']   ?? 0);
@@ -414,6 +462,7 @@ final class EventsPage extends AbstractAdminPage
         exit;
     }
 
+    /** Handles setting a different group member as the primary recipient for an invitation group. */
     private function handleSetGroupPrimary(): void
     {
         $eventId   = (int) ($_GET['event_id']   ?? 0);
@@ -435,6 +484,7 @@ final class EventsPage extends AbstractAdminPage
         exit;
     }
 
+    /** Handles adding an additional invitee to an existing invitation group. */
     private function handleAddMemberToGroup(): void
     {
         $groupId = (int) ($_POST['group_id'] ?? 0);
@@ -487,6 +537,7 @@ final class EventsPage extends AbstractAdminPage
         exit;
     }
 
+    /** Handles removing an entire invitation group (and all its members) from an event. */
     private function handleRemoveGroupFromEvent(): void
     {
         $eventId = (int) ($_GET['event_id'] ?? 0);
@@ -507,6 +558,7 @@ final class EventsPage extends AbstractAdminPage
         exit;
     }
 
+    /** Handles assigning a global menu item to an event. */
     private function handleAddMenuItemToEvent(): void
     {
         if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_add_menu_item_to_event')) {
@@ -536,6 +588,7 @@ final class EventsPage extends AbstractAdminPage
         exit;
     }
 
+    /** Handles removing a menu item assignment from an event via a GET nonce link. */
     private function handleRemoveMenuItemFromEvent(): void
     {
         $eventId    = (int) ($_GET['event_id']    ?? 0);
@@ -556,6 +609,77 @@ final class EventsPage extends AbstractAdminPage
         exit;
     }
 
+    /**
+     * AJAX: suggests events matching a search query, excluding already-selected IDs.
+     *
+     * Expected GET params: nonce, query, exclude_ids (comma-separated IDs).
+     * Returns JSON: { success: true, data: [ { id, name, start_label, end_label, start_raw, end_raw, label } ] }
+     *
+     * @return void
+     */
+    public function handleAjaxSuggestEvents(): void
+    {
+        check_ajax_referer('eim_suggest_events_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions.', 403);
+        }
+
+        $query      = sanitize_text_field(wp_unslash($_GET['query'] ?? ''));
+        $excludeRaw = sanitize_text_field(wp_unslash($_GET['exclude_ids'] ?? ''));
+        $excludeIds = array_filter(array_map('intval', explode(',', $excludeRaw)));
+
+        $all = Event::all();
+
+        if ($query !== '') {
+            $all = array_values(array_filter(
+                $all,
+                static fn(Event $e) => mb_stripos($e->name, $query) !== false
+            ));
+        }
+
+        if (!empty($excludeIds)) {
+            $all = array_values(array_filter(
+                $all,
+                static fn(Event $e) => !in_array($e->id, $excludeIds, true)
+            ));
+        }
+
+        $dateFormat = (string) get_option('date_format', 'M j, Y');
+
+        $formatDt = static function (?string $utcDt, string $tz) use ($dateFormat): string {
+            if (!$utcDt) {
+                return '';
+            }
+            $dt = new \DateTime($utcDt, new \DateTimeZone('UTC'));
+            if ($tz !== '') {
+                try {
+                    $dt->setTimezone(new \DateTimeZone($tz));
+                } catch (\Throwable) {
+                    // invalid timezone — stay in UTC
+                }
+            }
+            return $dt->format($dateFormat . ', g:i A');
+        };
+
+        wp_send_json_success(array_map(static fn(Event $e): array => [
+            'id'          => $e->id,
+            'name'        => $e->name,
+            'start_label' => $formatDt($e->startDatetime, $e->timezone),
+            'end_label'   => $e->endDatetime ? $formatDt($e->endDatetime, $e->timezone) : '',
+            'start_raw'   => $e->startDatetime ?? '',
+            'end_raw'     => $e->endDatetime   ?? '',
+            'label'       => $e->name . ($e->startDatetime
+                ? ' — ' . $formatDt($e->startDatetime, $e->timezone)
+                : ''),
+        ], $all));
+    }
+
+    /**
+     * AJAX: persists a new drag-sorted order for lodging entries on an event.
+     *
+     * Expected POST params: nonce, event_id, ids[] (ordered lodging IDs).
+     */
     public function handleAjaxSortLodging(): void
     {
         check_ajax_referer('eim_event_assignment_sort_nonce', 'nonce');
@@ -578,6 +702,11 @@ final class EventsPage extends AbstractAdminPage
         wp_send_json_success(['message' => 'Lodging order saved.']);
     }
 
+    /**
+     * AJAX: persists a new drag-sorted order for menu items of a specific type on an event.
+     *
+     * Expected POST params: nonce, event_id, type, ids[] (ordered menu item IDs).
+     */
     public function handleAjaxSortMenuItems(): void
     {
         check_ajax_referer('eim_event_assignment_sort_nonce', 'nonce');
@@ -715,6 +844,7 @@ final class EventsPage extends AbstractAdminPage
         exit;
     }
 
+    /** Renders the events list view including the monthly calendar grid. */
     private function renderEventsList(): void
     {
         $events       = Event::all();
@@ -814,6 +944,12 @@ final class EventsPage extends AbstractAdminPage
         <?php
     }
 
+    /**
+     * Renders the monthly calendar grid with event links and a month/year picker.
+     *
+     * @param int $year  Calendar year to display.
+     * @param int $month Calendar month to display (1–12).
+     */
     private function renderCalendar(int $year, int $month): void
     {
         $eventsByDay  = Event::byDayForMonth($year, $month);
@@ -1024,6 +1160,11 @@ final class EventsPage extends AbstractAdminPage
         <?php
     }
 
+    /**
+     * Renders the tabbed event add/edit form.
+     *
+     * @param Event|null $event Existing event to edit, or null when creating.
+     */
     private function renderEventForm(?Event $event): void
     {
         $isNew = $event === null;
@@ -1519,6 +1660,13 @@ final class EventsPage extends AbstractAdminPage
         <?php
     }
 
+    /**
+     * Renders the Food &amp; Beverage options section for an existing event.
+     *
+     * Only renders when food or beverage options are enabled for the event.
+     *
+     * @param Event $event The event whose options are being configured.
+     */
     private function renderRsvpOptionsSection(Event $event): void
     {
         if (!$event->foodOptionsEnabled && !$event->beverageOptionsEnabled) {
@@ -1663,6 +1811,15 @@ final class EventsPage extends AbstractAdminPage
 	        <?php
 	    }
 
+    /**
+     * Generates a client-side sort link for assignment list columns (lodging, menu items).
+     *
+     * @param string $label        Visible column header text.
+     * @param string $key          Column sort key.
+     * @param string $currentSort  Currently active sort column.
+     * @param string $currentOrder Currently active sort direction ('asc' or 'desc').
+     * @return string HTML anchor element with data-sort and data-order attributes.
+     */
     private function clientSortLink(string $label, string $key, string $currentSort, string $currentOrder): string
     {
         $isCurrent = $currentSort === $key;
@@ -1678,15 +1835,24 @@ final class EventsPage extends AbstractAdminPage
         );
     }
 
-	    /**
-	     * Renders the event-specific invitee section, grouped by invitation group.
-	     */
+    /**
+     * Sanitizes an invitation group sort key against the allowed column list.
+     *
+     * @param string $key Raw sort key.
+     * @return string Validated key, defaulting to 'name'.
+     */
     private function sanitizeEventGroupSortKey(string $key): string
     {
         $key = sanitize_key($key);
         return in_array($key, ['name', 'email', 'members', 'invite_sent', 'attending'], true) ? $key : 'name';
     }
 
+    /**
+     * Sanitizes an invitation group search field key against the allowed column list.
+     *
+     * @param string $field Raw field key.
+     * @return string Validated key, or '' for any-column search.
+     */
     private function sanitizeEventGroupFieldKey(string $field): string
     {
         $field = sanitize_key($field);
@@ -1778,6 +1944,14 @@ final class EventsPage extends AbstractAdminPage
         ));
     }
 
+    /**
+     * Sorts invitation groups by the specified column using PHP usort.
+     *
+     * @param InvitationGroup[] $groups
+     * @param string            $sort  Column key.
+     * @param string            $order 'asc' or 'desc'.
+     * @return InvitationGroup[]
+     */
     private function sortEventGroups(array $groups, string $sort, string $order): array
     {
         $primaryInviteeMap = [];
@@ -1823,6 +1997,12 @@ final class EventsPage extends AbstractAdminPage
         return $groups;
     }
 
+    /**
+     * AJAX: returns filtered and sorted invitation group rows for the event invitees table.
+     *
+     * Expected GET params: nonce, event_id, sort, order, query, field.
+     * Returns JSON: { success: true, data: { html, count } }
+     */
     public function handleAjaxSortGroups(): void
     {
         check_ajax_referer('eim_event_groups_sort_nonce', 'nonce');
@@ -1856,6 +2036,14 @@ final class EventsPage extends AbstractAdminPage
         wp_send_json_success(['html' => $html, 'count' => count($groups)]);
     }
 
+    /**
+     * Renders invitation group table rows for both the initial page and AJAX responses.
+     *
+     * @param Event             $event      The event whose groups are being rendered.
+     * @param InvitationGroup[] $groups     Groups to render.
+     * @param string            $dateFormat WordPress date format for the invite-sent column.
+     * @param string            $search     Active search query (for the empty-state message).
+     */
     private function renderEventGroupRows(Event $event, array $groups, string $dateFormat, string $search = ''): void
     {
         if (empty($groups)) {
@@ -2047,6 +2235,14 @@ final class EventsPage extends AbstractAdminPage
         }
     }
 
+    /**
+     * Renders the Invited Invitees section on the event edit screen.
+     *
+     * Includes the add-invitee picker, the Send All button, the search bar,
+     * and the sortable invitation-group table.
+     *
+     * @param Event $event The event being edited.
+     */
     private function renderEventInviteesSection(Event $event): void
     {
         $sort        = $this->sanitizeEventGroupSortKey((string) ($_GET['sort']  ?? 'name'));

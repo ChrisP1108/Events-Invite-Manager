@@ -23,6 +23,13 @@ final class ConnectionGroup
     /** @var Invitee[]|null Lazy-loaded members. */
     private ?array $members = null;
 
+    /**
+     * @param int    $id        Primary key.
+     * @param string $name      Human-readable group name.
+     * @param string $type      Group type — one of the values in TYPES.
+     * @param string $createdAt Row creation timestamp (MySQL datetime string).
+     * @param string $updatedAt Row last-update timestamp (MySQL datetime string).
+     */
     public function __construct(
         public readonly int    $id,
         public readonly string $name,
@@ -35,6 +42,12 @@ final class ConnectionGroup
     // Static finders
     // -------------------------------------------------------------------------
 
+    /**
+     * Finds a single connection group by primary key.
+     *
+     * @param int $id Primary key of the connection group.
+     * @return self|null The connection group, or null if not found.
+     */
     public static function find(int $id): ?self
     {
         global $wpdb;
@@ -595,6 +608,13 @@ final class ConnectionGroup
         return $this->members;
     }
 
+    /**
+     * Returns the number of invitees in this connection group.
+     *
+     * Triggers lazy loading of members if they have not been fetched yet.
+     *
+     * @return int
+     */
     public function memberCount(): int
     {
         return count($this->getMembers());
@@ -658,6 +678,12 @@ final class ConnectionGroup
         return $grouped;
     }
 
+    /**
+     * Hydrates a ConnectionGroup instance from a database result row.
+     *
+     * @param object $row Raw row object returned by $wpdb->get_row() / get_results().
+     * @return self
+     */
     private static function fromRow(object $row): self
     {
         return new self(

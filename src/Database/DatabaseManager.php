@@ -8,7 +8,7 @@ if (!defined('ABSPATH')) exit;
 
 final class DatabaseManager
 {
-    private const SCHEMA_VERSION = '14';
+    private const SCHEMA_VERSION = '15';
 
     private const EVENTS_TABLE                           = 'eim_events';
     private const INVITEES_TABLE                         = 'eim_invitees';
@@ -78,6 +78,7 @@ final class DatabaseManager
                 lodging_enabled           TINYINT(1)          NOT NULL DEFAULT 0,
                 food_options_enabled      TINYINT(1)          NOT NULL DEFAULT 0,
                 beverage_options_enabled  TINYINT(1)          NOT NULL DEFAULT 0,
+                newsletter_page_id        BIGINT(20) UNSIGNED NULL DEFAULT NULL,
                 max_invitees              SMALLINT UNSIGNED   NULL DEFAULT NULL,
                 created_at                DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at                DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -184,11 +185,13 @@ final class DatabaseManager
                 invitee_id         BIGINT(20) UNSIGNED NOT NULL,
                 rsvp_status        VARCHAR(10)         NOT NULL DEFAULT 'pending',
                 registered_at      DATETIME,
-                food_option_id     BIGINT(20) UNSIGNED NULL DEFAULT NULL,
-                beverage_option_id BIGINT(20) UNSIGNED NULL DEFAULT NULL,
-                dietary_notes      VARCHAR(500)        NOT NULL DEFAULT '',
-                created_at         DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at         DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                food_option_id        BIGINT(20) UNSIGNED NULL DEFAULT NULL,
+                beverage_option_id    BIGINT(20) UNSIGNED NULL DEFAULT NULL,
+                dietary_notes         VARCHAR(500)        NOT NULL DEFAULT '',
+                food_confirmed_at     DATETIME            NULL DEFAULT NULL,
+                beverage_confirmed_at DATETIME            NULL DEFAULT NULL,
+                created_at            DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at            DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (id),
                 UNIQUE KEY group_member (group_id, invitee_id),
                 KEY group_id (group_id),
@@ -326,12 +329,20 @@ final class DatabaseManager
         update_option('eim_db_version', self::SCHEMA_VERSION, false);
     }
 
+    /**
+     * Runs any pending schema upgrades then records the new version.
+     *
+     * Called on every admin page load via the plugin bootstrap. The version
+     * check short-circuits the method on the happy path so there is no
+     * database round-trip beyond the option read.
+     */
     public static function maybeUpgrade(): void
     {
         if ((string) get_option('eim_db_version', '0') === self::SCHEMA_VERSION) {
             return;
         }
 
+        self::maybeAddV15Columns();
         self::createTables();
     }
 
@@ -580,6 +591,37 @@ final class DatabaseManager
                 KEY tag_id (tag_id)
             ) ENGINE=InnoDB {$charset};");
         }
+    }
+
+    /**
+     * Ensures the v15 completion-tracking columns exist on the invitation group members
+     * table and the newsletter_page_id column exists on the events table.
+     *
+     * Uses explicit ALTER TABLE rather than relying solely on dbDelta so that the
+     * upgrade is applied safely to installations that already ran schema v14.
+     * Each column is checked for existence before attempting to add it.
+     */
+    public static function maybeAddV15Columns(): void
+    {
+        global $wpdb;
+
+        $membersTable = $wpdb->prefix . self::INVITATION_GROUP_MEMBERS_TABLE;
+        $eventsTable  = $wpdb->prefix . self::EVENTS_TABLE;
+
+        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $existingMemberCols = $wpdb->get_col("SHOW COLUMNS FROM {$membersTable}");
+        if (!in_array('food_confirmed_at', $existingMemberCols, true)) {
+            $wpdb->query("ALTER TABLE {$membersTable} ADD COLUMN food_confirmed_at DATETIME NULL DEFAULT NULL");
+        }
+        if (!in_array('beverage_confirmed_at', $existingMemberCols, true)) {
+            $wpdb->query("ALTER TABLE {$membersTable} ADD COLUMN beverage_confirmed_at DATETIME NULL DEFAULT NULL");
+        }
+
+        $existingEventCols = $wpdb->get_col("SHOW COLUMNS FROM {$eventsTable}");
+        if (!in_array('newsletter_page_id', $existingEventCols, true)) {
+            $wpdb->query("ALTER TABLE {$eventsTable} ADD COLUMN newsletter_page_id BIGINT(20) UNSIGNED NULL DEFAULT NULL");
+        }
+        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
     }
 
     /**

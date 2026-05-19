@@ -14,6 +14,13 @@
 
     const config = window.eimInviteesAdmin ?? {};
 
+    /**
+     * Build an absolute WordPress AJAX URL for the given action and params.
+     *
+     * @param {string}                       action The wp_ajax_* action name.
+     * @param {Record<string,string|number>} params Additional query-string parameters.
+     * @returns {URL} The fully constructed URL object.
+     */
     const ajaxUrl = (action, params = {}) => {
         const url = new URL(ajaxurl, window.location.href);
         url.searchParams.set('action', action);
@@ -23,6 +30,14 @@
         return url;
     };
 
+    /**
+     * Returns a debounced version of the given function that delays invocation
+     * until after `delay` milliseconds have elapsed since the last call.
+     *
+     * @param {Function} fn    The function to debounce.
+     * @param {number}   delay Milliseconds to wait before invoking (default 250).
+     * @returns {Function} A new debounced function.
+     */
     const debounce = (fn, delay = 250) => {
         let timer = 0;
         return (...args) => {
@@ -31,6 +46,13 @@
         };
     };
 
+    /**
+     * Escapes special HTML characters in a string to prevent XSS when
+     * inserting user-supplied text into innerHTML.
+     *
+     * @param {string} str The raw string to escape.
+     * @returns {string} The HTML-escaped string.
+     */
     const escHtml = (str) => {
         const d = document.createElement('div');
         d.appendChild(document.createTextNode(String(str)));
@@ -40,9 +62,39 @@
     // -----------------------------------------------------------------------
     // InviteeTable — global Invitees list search/sort
     // -----------------------------------------------------------------------
-    class InviteeTable {
-        #table; #tbody; #search; #field; #count; #spinner; #sort; #order;
 
+    /**
+     * Manages the AJAX search and sort behaviour for the global invitees list table.
+     */
+    class InviteeTable {
+        /** @type {HTMLTableElement|null} */
+        #table;
+
+        /** @type {HTMLTableSectionElement|null} */
+        #tbody;
+
+        /** @type {HTMLInputElement|null} */
+        #search;
+
+        /** @type {HTMLSelectElement|null} */
+        #field;
+
+        /** @type {HTMLElement|null} */
+        #count;
+
+        /** @type {HTMLElement|null} */
+        #spinner;
+
+        /** @type {string} */
+        #sort;
+
+        /** @type {string} */
+        #order;
+
+        /**
+         * Binds the table, search input, field dropdown, and sort links found in
+         * the DOM, then wires up all event listeners.
+         */
         constructor() {
             this.#table   = document.getElementById('eim-invitees-table');
             this.#tbody   = document.getElementById('eim-invitees-table-body');
@@ -69,6 +121,12 @@
             }
         }
 
+        /**
+         * Fetches fresh table rows from the server using the current search query,
+         * field, sort column, and sort direction, then replaces the tbody contents.
+         *
+         * @returns {Promise<void>}
+         */
         async #refresh() {
             if (this.#spinner) this.#spinner.classList.add('is-active');
             try {
@@ -91,6 +149,12 @@
             }
         }
 
+        /**
+         * Refreshes the sort-link indicators and their `data-order` attributes to
+         * reflect the current sort column and direction.
+         *
+         * @returns {void}
+         */
         #updateSortLinks() {
             if (!this.#table) return;
             this.#table.dataset.sort  = this.#sort;
@@ -107,9 +171,39 @@
     // -----------------------------------------------------------------------
     // ConnectionGroupTable — Connection Groups list live search
     // -----------------------------------------------------------------------
-    class ConnectionGroupTable {
-        #table; #tbody; #search; #field; #count; #spinner; #sort; #order;
 
+    /**
+     * Manages the AJAX search and sort behaviour for the connection groups list table.
+     */
+    class ConnectionGroupTable {
+        /** @type {HTMLTableElement|null} */
+        #table;
+
+        /** @type {HTMLTableSectionElement|null} */
+        #tbody;
+
+        /** @type {HTMLInputElement|null} */
+        #search;
+
+        /** @type {HTMLSelectElement|null} */
+        #field;
+
+        /** @type {HTMLElement|null} */
+        #count;
+
+        /** @type {HTMLElement|null} */
+        #spinner;
+
+        /** @type {string} */
+        #sort;
+
+        /** @type {string} */
+        #order;
+
+        /**
+         * Binds the table, search input, field dropdown, and sort links found in
+         * the DOM, then wires up all event listeners.
+         */
         constructor() {
             this.#table   = document.getElementById('eim-connection-groups-table');
             this.#tbody   = document.getElementById('eim-connection-groups-table-body');
@@ -137,6 +231,12 @@
             }
         }
 
+        /**
+         * Fetches fresh table rows from the server using the current search query,
+         * field, sort column, and sort direction, then replaces the tbody contents.
+         *
+         * @returns {Promise<void>}
+         */
         async #refresh() {
             if (this.#spinner) this.#spinner.classList.add('is-active');
 
@@ -161,6 +261,12 @@
             }
         }
 
+        /**
+         * Refreshes the sort-link indicators and their `data-order` attributes to
+         * reflect the current sort column and direction.
+         *
+         * @returns {void}
+         */
         #updateSortLinks() {
             if (!this.#table) return;
             this.#table.dataset.sort  = this.#sort;
@@ -178,9 +284,34 @@
     // -----------------------------------------------------------------------
     // EventInviteePicker — event edit add-invitee flow with group checkboxes
     // -----------------------------------------------------------------------
-    class EventInviteePicker {
-        #input; #hidden; #selected; #dropdown; #connectWrap; #connectList;
 
+    /**
+     * Handles the add-invitee search flow on the event edit screen, including
+     * connected-invitees checkboxes that appear after an invitee is selected.
+     */
+    class EventInviteePicker {
+        /** @type {HTMLInputElement|null} */
+        #input;
+
+        /** @type {HTMLInputElement|null} */
+        #hidden;
+
+        /** @type {HTMLElement|null} */
+        #selected;
+
+        /** @type {HTMLUListElement} */
+        #dropdown;
+
+        /** @type {HTMLElement|null} */
+        #connectWrap;
+
+        /** @type {HTMLElement|null} */
+        #connectList;
+
+        /**
+         * Locates all required DOM elements and registers input, blur, and form
+         * submit listeners. Aborts silently if the picker is not present on the page.
+         */
         constructor() {
             this.#input       = document.getElementById('eim_event_invitee_search');
             this.#hidden      = document.getElementById('eim_event_invitee_id');
@@ -210,6 +341,12 @@
             });
         }
 
+        /**
+         * Queries the server for invitees matching the current input value and
+         * renders the results into the suggestion dropdown.
+         *
+         * @returns {Promise<void>}
+         */
         async #search() {
             const query   = this.#input?.value.trim() || '';
             const eventId = this.#input?.dataset.eventId || config.event?.id || 0;
@@ -226,6 +363,12 @@
             }
         }
 
+        /**
+         * Populates the suggestion dropdown with the given invitee objects.
+         *
+         * @param {Array<object>} invitees Array of invitee result objects from the server.
+         * @returns {void}
+         */
         #renderDropdown(invitees) {
             this.#dropdown.replaceChildren();
             if (!invitees.length) {
@@ -250,6 +393,13 @@
             this.#dropdown.style.display = 'block';
         }
 
+        /**
+         * Commits the chosen invitee to the hidden field, updates the visible
+         * selection label, closes the dropdown, and fetches any connections.
+         *
+         * @param {object} inv The invitee object returned by the server.
+         * @returns {void}
+         */
         #select(inv) {
             if (this.#hidden)   this.#hidden.value = String(inv.id || '');
             if (this.#input)    this.#input.value  = inv.name || inv.label || '';
@@ -258,6 +408,13 @@
             this.#fetchConnections(inv.id);
         }
 
+        /**
+         * Fetches the connections associated with the given invitee for the current
+         * event and renders them as checkboxes.
+         *
+         * @param {number} inviteeId The ID of the selected invitee.
+         * @returns {Promise<void>}
+         */
         async #fetchConnections(inviteeId) {
             if (!inviteeId || !this.#connectWrap || !this.#connectList) return;
             const eventId = this.#input?.dataset.eventId || config.event?.id || 0;
@@ -275,6 +432,13 @@
             }
         }
 
+        /**
+         * Renders the connected-invitee rows as labelled checkboxes inside the
+         * connections wrapper, then makes the wrapper visible.
+         *
+         * @param {Array<object>} connections Array of connection objects from the server.
+         * @returns {void}
+         */
         #renderConnections(connections) {
             this.#connectList.replaceChildren();
             for (const conn of connections) {
@@ -299,11 +463,22 @@
             this.#connectWrap.style.display = 'block';
         }
 
+        /**
+         * Hides the connected-invitees wrapper and clears its contents.
+         *
+         * @returns {void}
+         */
         #hideConnections() {
             if (this.#connectWrap) this.#connectWrap.style.display = 'none';
             if (this.#connectList) this.#connectList.replaceChildren();
         }
 
+        /**
+         * Creates and returns a styled, hidden `<ul>` element to serve as the
+         * autocomplete suggestion dropdown.
+         *
+         * @returns {HTMLUListElement} The newly created dropdown list element.
+         */
         #makeList() {
             const ul = document.createElement('ul');
             ul.className = 'eim-invitee-suggestions';
@@ -316,9 +491,33 @@
     // -----------------------------------------------------------------------
     // ConnectionGroupMemberPicker — member autocomplete on group edit page
     // -----------------------------------------------------------------------
-    class ConnectionGroupMemberPicker {
-        #input; #hidden; #selected; #dropdown; #groupId; #existingIds;
 
+    /**
+     * Handles member autocomplete on the connection group edit page.
+     */
+    class ConnectionGroupMemberPicker {
+        /** @type {HTMLInputElement|null} */
+        #input;
+
+        /** @type {HTMLInputElement|null} */
+        #hidden;
+
+        /** @type {HTMLElement|null} */
+        #selected;
+
+        /** @type {HTMLUListElement} */
+        #dropdown;
+
+        /** @type {number} */
+        #groupId;
+
+        /** @type {number[]} */
+        #existingIds;
+
+        /**
+         * Locates all required DOM elements, reads the group ID and existing member
+         * IDs from data attributes, then wires up input, blur, and submit listeners.
+         */
         constructor() {
             this.#input    = document.getElementById('eim_cg_member_search');
             this.#hidden   = document.getElementById('eim_cg_member_invitee_id');
@@ -348,6 +547,12 @@
             });
         }
 
+        /**
+         * Queries the server for invitees matching the current input value,
+         * excluding already-existing members, then renders the dropdown.
+         *
+         * @returns {Promise<void>}
+         */
         async #search() {
             const query = this.#input?.value.trim() || '';
             if (query.length < 2) { this.#dropdown.style.display = 'none'; return; }
@@ -367,6 +572,12 @@
             }
         }
 
+        /**
+         * Populates the suggestion dropdown with the given invitee objects.
+         *
+         * @param {Array<object>} invitees Array of invitee result objects from the server.
+         * @returns {void}
+         */
         #render(invitees) {
             this.#dropdown.replaceChildren();
             if (!invitees.length) {
@@ -390,6 +601,13 @@
             this.#dropdown.style.display = 'block';
         }
 
+        /**
+         * Commits the chosen invitee to the hidden field and updates the visible
+         * selection label, then closes the dropdown.
+         *
+         * @param {object} inv The invitee object returned by the server.
+         * @returns {void}
+         */
         #select(inv) {
             if (this.#hidden)   this.#hidden.value = String(inv.id || '');
             if (this.#input)    this.#input.value  = inv.name || inv.label || '';
@@ -402,9 +620,25 @@
     // EventGroupManager — member dropdown + add-member per group row
     // Uses full event delegation so it works after AJAX tbody replacement.
     // -----------------------------------------------------------------------
+
+    /**
+     * Handles the member dropdown toggle, add-member search, and add-connection
+     * flows on the groups table using full event delegation so all interactions
+     * survive AJAX tbody replacements.
+     */
     class EventGroupManager {
+        /**
+         * Per-input debounce timer handles keyed by the input element itself,
+         * so concurrent searches on different rows don't interfere.
+         *
+         * @type {WeakMap}
+         */
         #debounceMap = new WeakMap();
 
+        /**
+         * Registers document-level delegated listeners for click, focusout,
+         * input, and submit events. Aborts if the groups table is not on the page.
+         */
         constructor() {
             if (!document.getElementById('eim-event-groups-table')) return;
 
@@ -414,6 +648,14 @@
             document.addEventListener('submit',   (e) => this.#handleSubmit(e));
         }
 
+        /**
+         * Delegated click handler — routes clicks on dropdown triggers, add-member
+         * toggles/cancels, and add-connection toggles/cancels to the appropriate
+         * private method. Falls through to `#closeAll` for unrelated clicks.
+         *
+         * @param {MouseEvent} e The native click event.
+         * @returns {void}
+         */
         #handleClick(e) {
             const trigger = e.target.closest('.eim-member-dropdown-trigger');
             if (trigger) { this.#toggleDropdown(e, trigger); return; }
@@ -433,6 +675,13 @@
             this.#closeAll();
         }
 
+        /**
+         * Delegated focusout handler — hides the member-search suggestion dropdown
+         * when focus leaves a `.eim-group-member-search` input.
+         *
+         * @param {FocusEvent} e The native focusout event.
+         * @returns {void}
+         */
         #handleFocusOut(e) {
             const input = e.target.closest('.eim-group-member-search');
             if (!input) return;
@@ -442,11 +691,25 @@
             }, 150);
         }
 
+        /**
+         * Delegated input handler — triggers a debounced member search when the
+         * user types into a `.eim-group-member-search` input.
+         *
+         * @param {InputEvent} e The native input event.
+         * @returns {void}
+         */
         #handleInput(e) {
             const input = e.target.closest('.eim-group-member-search');
             if (input) this.#debouncedSearch(input);
         }
 
+        /**
+         * Delegated submit handler — prevents form submission when an add-member
+         * or add-connection form is submitted without a valid selection.
+         *
+         * @param {SubmitEvent} e The native submit event.
+         * @returns {void}
+         */
         #handleSubmit(e) {
             const form = e.target.closest('.eim-add-member-form');
             if (!form) return;
@@ -461,6 +724,14 @@
             }
         }
 
+        /**
+         * Toggles the member dropdown menu for the given trigger button, closing
+         * all other open dropdowns first.
+         *
+         * @param {MouseEvent}  e   The originating click event (used to stop propagation).
+         * @param {HTMLElement} btn The dropdown trigger button that was clicked.
+         * @returns {void}
+         */
         #toggleDropdown(e, btn) {
             e.stopPropagation();
             const menu   = btn.nextElementSibling;
@@ -473,6 +744,12 @@
             }
         }
 
+        /**
+         * Closes all open member dropdown menus and resets their trigger
+         * `aria-expanded` attributes to "false".
+         *
+         * @returns {void}
+         */
         #closeAll() {
             document.querySelectorAll('.eim-member-dropdown-menu').forEach(m => {
                 m.hidden = true;
@@ -480,6 +757,15 @@
             });
         }
 
+        /**
+         * Makes the row identified by `rowId` visible and focuses an element
+         * within it, either by ID or by CSS selector.
+         *
+         * @param {string}      rowId         The `id` attribute of the row to show.
+         * @param {string|null} focusId       The `id` of the element to focus, or null.
+         * @param {string|null} focusSelector A CSS selector within the row to focus, or null.
+         * @returns {void}
+         */
         #showRow(rowId, focusId, focusSelector) {
             const row = document.getElementById(rowId);
             if (!row) return;
@@ -488,6 +774,12 @@
             else if (focusSelector) row.querySelector(focusSelector)?.focus();
         }
 
+        /**
+         * Hides the add-member inline row for the given group and clears its inputs.
+         *
+         * @param {string|number} groupId The group ID whose add-member row should be hidden.
+         * @returns {void}
+         */
         #hideAddMember(groupId) {
             const row = document.getElementById(`eim-add-member-row-${groupId}`);
             if (row) row.style.display = 'none';
@@ -497,6 +789,12 @@
             if (hidden) hidden.value = '';
         }
 
+        /**
+         * Hides the add-connection inline row for the given group and resets its select.
+         *
+         * @param {string|number} groupId The group ID whose add-connection row should be hidden.
+         * @returns {void}
+         */
         #hideAddConnection(groupId) {
             const row = document.getElementById(`eim-add-connection-row-${groupId}`);
             if (!row) return;
@@ -505,11 +803,25 @@
             if (sel) sel.value = '';
         }
 
+        /**
+         * Schedules a debounced member search for the given input, cancelling any
+         * pending search for that same input.
+         *
+         * @param {HTMLInputElement} input The search input that received the keystroke.
+         * @returns {void}
+         */
         #debouncedSearch(input) {
             clearTimeout(this.#debounceMap.get(input) || 0);
             this.#debounceMap.set(input, setTimeout(() => this.#searchMember(input), 250));
         }
 
+        /**
+         * Performs an AJAX invitee search scoped to the current event and renders
+         * results into a lazily-created dropdown beneath the given input.
+         *
+         * @param {HTMLInputElement} input The search input whose value drives the query.
+         * @returns {Promise<void>}
+         */
         async #searchMember(input) {
             const query   = input.value.trim();
             const eventId = input.dataset.eventId || 0;
@@ -569,9 +881,40 @@
     // -----------------------------------------------------------------------
     // EventGroupsTable — AJAX search/filter + column sort for the Invited Invitees table
     // -----------------------------------------------------------------------
-    class EventGroupsTable {
-        #table; #tbody; #search; #field; #count; #spinner; #sort; #order;
 
+    /**
+     * Manages the AJAX search and sort behaviour for the invited-groups table
+     * on the event edit screen.
+     */
+    class EventGroupsTable {
+        /** @type {HTMLTableElement|null} */
+        #table;
+
+        /** @type {HTMLTableSectionElement|null} */
+        #tbody;
+
+        /** @type {HTMLInputElement|null} */
+        #search;
+
+        /** @type {HTMLSelectElement|null} */
+        #field;
+
+        /** @type {HTMLElement|null} */
+        #count;
+
+        /** @type {HTMLElement|null} */
+        #spinner;
+
+        /** @type {string} */
+        #sort;
+
+        /** @type {string} */
+        #order;
+
+        /**
+         * Binds the table, search input, field dropdown, and sort links found in
+         * the DOM, then wires up all event listeners.
+         */
         constructor() {
             this.#table   = document.getElementById('eim-event-groups-table');
             this.#tbody   = document.getElementById('eim-event-groups-table-body');
@@ -599,6 +942,12 @@
             }
         }
 
+        /**
+         * Fetches fresh table rows from the server using the current search query,
+         * field, sort column, and sort direction, then replaces the tbody contents.
+         *
+         * @returns {Promise<void>}
+         */
         async #refresh() {
             if (this.#spinner) this.#spinner.classList.add('is-active');
             try {
@@ -621,6 +970,12 @@
             }
         }
 
+        /**
+         * Refreshes the sort-link indicators and their `data-order` attributes to
+         * reflect the current sort column and direction.
+         *
+         * @returns {void}
+         */
         #updateSortLinks() {
             if (!this.#table) return;
             this.#table.dataset.sort  = this.#sort;
@@ -638,12 +993,28 @@
     // -----------------------------------------------------------------------
     // EventMenuItemFilter — client-side search for the event's assigned food/beverage tables
     // -----------------------------------------------------------------------
+
+    /**
+     * Provides client-side filtering for the event's assigned food and beverage tables.
+     * No server round-trip is required — rows are shown or hidden by matching
+     * `data-label` and `data-description` attributes against the search query.
+     */
     class EventMenuItemFilter {
+        /**
+         * Initialises filters for both the "food" and "beverage" table types.
+         */
         constructor() {
             this.#initType('food');
             this.#initType('beverage');
         }
 
+        /**
+         * Wires up the search input and field dropdown for the given item type,
+         * binding them to the `#filter` method via debounce.
+         *
+         * @param {string} type The item type to initialise — "food" or "beverage".
+         * @returns {void}
+         */
         #initType(type) {
             const search  = document.getElementById(`eim-event-${type}-item-search`);
             const field   = document.getElementById(`eim-event-${type}-item-search-field`);
@@ -657,6 +1028,16 @@
             field?.addEventListener('change', run);
         }
 
+        /**
+         * Filters table rows in-place by matching the search query against the
+         * relevant column data attributes, then updates the visible result count.
+         *
+         * @param {HTMLInputElement}         search The search text input.
+         * @param {HTMLSelectElement|null}   field  The column-select dropdown, or null for all columns.
+         * @param {HTMLElement|null}         count  The element that displays the result count.
+         * @param {HTMLTableSectionElement}  tbody  The table body whose rows will be toggled.
+         * @returns {void}
+         */
         #filter(search, field, count, tbody) {
             const query = search.value.toLowerCase().trim();
             const col   = field?.value || '';
@@ -702,7 +1083,16 @@
     // -----------------------------------------------------------------------
     // EventAssignmentSorter — drag/order + column sort for event lodging/menu tables
     // -----------------------------------------------------------------------
+
+    /**
+     * Enables drag-to-reorder and column-sort for event lodging and menu item
+     * assignment tables. Persists the new order to the server after each drag.
+     */
     class EventAssignmentSorter {
+        /**
+         * Finds all `.eim-sortable-assignment-list` tables on the page and
+         * initialises drag-and-drop and column sort for each one.
+         */
         constructor() {
             if (!config.event?.assignmentSortNonce) return;
 
@@ -711,6 +1101,13 @@
             }
         }
 
+        /**
+         * Attaches sort-link click listeners and drag-and-drop row listeners to a
+         * single sortable assignment table.
+         *
+         * @param {HTMLTableElement} table The table element to initialise.
+         * @returns {void}
+         */
         #initTable(table) {
             const tbody = table.tBodies?.[0];
             if (!tbody) return;
@@ -777,6 +1174,14 @@
             });
         }
 
+        /**
+         * Returns the closest non-dragging row below the given vertical cursor
+         * position, or `null` if the dragged item should be appended at the end.
+         *
+         * @param {HTMLTableSectionElement} tbody The table body being reordered.
+         * @param {number}                  y     The current clientY cursor coordinate.
+         * @returns {HTMLElement|null} The row to insert before, or null to append.
+         */
         #dragAfterElement(tbody, y) {
             const rows = [...tbody.querySelectorAll('.eim-sortable-row:not(.is-dragging)')]
                 .filter((row) => row.style.display !== 'none');
@@ -793,6 +1198,13 @@
             }, { offset: Number.NEGATIVE_INFINITY, row: null }).row;
         }
 
+        /**
+         * Updates the `data-order` dataset attribute and visible order cell of
+         * every sortable row to reflect their current DOM positions.
+         *
+         * @param {HTMLTableSectionElement} tbody The table body whose rows should be renumbered.
+         * @returns {void}
+         */
         #renumberRows(tbody) {
             const rows = [...tbody.querySelectorAll('.eim-sortable-row')];
 
@@ -805,6 +1217,15 @@
             });
         }
 
+        /**
+         * Sorts the sortable rows within the table's first tbody by the given
+         * column key and direction, reappending them to the tbody in sorted order.
+         *
+         * @param {HTMLTableElement} table The table whose rows should be sorted.
+         * @param {string}           sort  The `data-*` key on each row to sort by.
+         * @param {string}           order "asc" for ascending, "desc" for descending.
+         * @returns {void}
+         */
         #sortRows(table, sort, order) {
             const tbody = table.tBodies?.[0];
             if (!tbody) return;
@@ -828,6 +1249,15 @@
             }
         }
 
+        /**
+         * Updates each sort link's `data-order` attribute and indicator glyph to
+         * reflect the newly active sort column and direction.
+         *
+         * @param {HTMLTableElement} table The table whose sort links should be updated.
+         * @param {string}           sort  The active sort column key.
+         * @param {string}           order The active sort direction ("asc" or "desc").
+         * @returns {void}
+         */
         #updateSortLinks(table, sort, order) {
             table.dataset.sort  = sort;
             table.dataset.order = order;
@@ -841,6 +1271,13 @@
             }
         }
 
+        /**
+         * Persists the current row order of the given table to the server via AJAX.
+         * Handles both lodging and menu-item table types.
+         *
+         * @param {HTMLTableElement} table The table whose row order should be saved.
+         * @returns {Promise<void>}
+         */
         async #saveOrder(table) {
             const rows = [...(table.tBodies?.[0]?.querySelectorAll('.eim-sortable-row') ?? [])];
             const ids  = rows.map((row) => row.dataset.id).filter(Boolean);
@@ -886,9 +1323,24 @@
     // -----------------------------------------------------------------------
     // MenuItemPicker — autocomplete for food/beverage pickers on the event edit page
     // -----------------------------------------------------------------------
+
+    /**
+     * Autocomplete picker for assigning food/beverage items to an event from the
+     * menu library. One instance handles all `.eim-menu-item-search` inputs on the page.
+     */
     class MenuItemPicker {
+        /**
+         * Stores metadata for each initialised search input so they can be
+         * referenced independently during search and render operations.
+         *
+         * @type {Array<object>}
+         */
         #inputs = [];
 
+        /**
+         * Finds all `.eim-menu-item-search` inputs on the page and initialises
+         * an autocomplete dropdown for each one. Aborts if the suggest nonce is absent.
+         */
         constructor() {
             if (!config.suggestMenuItemsNonce) return;
 
@@ -897,6 +1349,13 @@
             }
         }
 
+        /**
+         * Creates a suggestion dropdown for the given input, wires up input, blur,
+         * and form-submit listeners, and stores the input metadata in `#inputs`.
+         *
+         * @param {HTMLInputElement} input The menu-item search input to initialise.
+         * @returns {void}
+         */
         #initInput(input) {
             const type     = input.dataset.type || 'food';
             const hiddenId = `eim_${type}_item_id`;
@@ -928,6 +1387,17 @@
             this.#inputs.push({ input, type, dropdown, hidden, label });
         }
 
+        /**
+         * Queries the server for menu items of the given type matching the input
+         * value, then delegates rendering to `#renderDropdown`.
+         *
+         * @param {HTMLInputElement}      input    The search input providing the query.
+         * @param {string}               type     The item type ("food" or "beverage").
+         * @param {HTMLUListElement}      dropdown The suggestion list to populate.
+         * @param {HTMLInputElement|null} hidden   The hidden ID field to populate on selection.
+         * @param {HTMLElement|null}      label    The element showing the selected item label.
+         * @returns {Promise<void>}
+         */
         async #search(input, type, dropdown, hidden, label) {
             const query = input.value.trim();
             if (query.length < 1) { dropdown.style.display = 'none'; return; }
@@ -946,6 +1416,17 @@
             }
         }
 
+        /**
+         * Populates the suggestion dropdown with the given menu item objects and
+         * makes it visible.
+         *
+         * @param {Array<object>}         items    Array of menu item result objects from the server.
+         * @param {HTMLUListElement}      dropdown The suggestion list to populate.
+         * @param {HTMLInputElement}      input    The search input (used to fill on selection).
+         * @param {HTMLInputElement|null} hidden   The hidden ID field to populate on selection.
+         * @param {HTMLElement|null}      label    The element showing the selected item label.
+         * @returns {void}
+         */
         #renderDropdown(items, dropdown, input, hidden, label) {
             dropdown.replaceChildren();
             if (!items.length) {
@@ -977,6 +1458,123 @@
     }
 
     // -----------------------------------------------------------------------
+    // -----------------------------------------------------------------------
+    // ConnectionGroupMembersTable — client-side sort + filter for group edit page
+    // -----------------------------------------------------------------------
+
+    /**
+     * Adds client-side text filtering and column sorting to the connection group
+     * members table on the group edit page. Activates only when the table exists.
+     */
+    class ConnectionGroupMembersTable {
+        /** @type {HTMLTableElement|null} */
+        #table;
+
+        /** @type {HTMLTableSectionElement|null} */
+        #tbody;
+
+        /** @type {HTMLInputElement|null} */
+        #search;
+
+        /** @type {HTMLElement|null} */
+        #count;
+
+        /** @type {string} */
+        #sort;
+
+        /** @type {string} */
+        #order;
+
+        /**
+         * Locates the members table and binds event listeners. Silently aborts
+         * when the table is not present (i.e. the list view or add form).
+         */
+        constructor() {
+            this.#table  = document.getElementById('eim-cg-members-table');
+            this.#tbody  = document.getElementById('eim-cg-members-tbody');
+            this.#search = document.getElementById('eim-cg-members-search');
+            this.#count  = document.getElementById('eim-cg-members-count');
+
+            if (!this.#table || !this.#tbody) return;
+
+            this.#sort  = this.#table.dataset.sort  || 'name';
+            this.#order = this.#table.dataset.order || 'asc';
+
+            this.#search?.addEventListener('input', debounce(() => this.#applyFilter(), 150));
+
+            for (const link of this.#table.querySelectorAll('.eim-cg-member-sort')) {
+                link.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    this.#sort  = link.dataset.sort  || 'name';
+                    this.#order = link.dataset.order || 'asc';
+                    this.#sortRows();
+                    this.#updateSortLinks();
+                });
+            }
+        }
+
+        /**
+         * Filters visible rows by the current search-input value, matching against
+         * the data-name and data-email attributes on each row.
+         *
+         * @returns {void}
+         */
+        #applyFilter() {
+            const query = (this.#search?.value || '').toLowerCase().trim();
+            let visible = 0;
+
+            for (const row of this.#tbody.querySelectorAll('tr[data-name]')) {
+                const matches = !query
+                    || (row.dataset.name  || '').includes(query)
+                    || (row.dataset.email || '').includes(query);
+                row.style.display = matches ? '' : 'none';
+                if (matches) visible++;
+            }
+
+            if (this.#count) {
+                this.#count.textContent = `${visible} member${visible === 1 ? '' : 's'}`;
+            }
+        }
+
+        /**
+         * Sorts the tbody rows in-place by the current sort key (name or email).
+         *
+         * @returns {void}
+         */
+        #sortRows() {
+            const rows = [...this.#tbody.querySelectorAll('tr[data-name]')];
+            const mul  = this.#order === 'desc' ? -1 : 1;
+            const key  = this.#sort;
+
+            rows.sort((a, b) => {
+                const aVal = a.dataset[key] || '';
+                const bVal = b.dataset[key] || '';
+                return mul * aVal.localeCompare(bVal, undefined, { sensitivity: 'base' });
+            });
+
+            for (const row of rows) this.#tbody.appendChild(row);
+            this.#applyFilter();
+        }
+
+        /**
+         * Refreshes the sort-link `data-order` attributes and indicator arrows
+         * to reflect the current sort column and direction.
+         *
+         * @returns {void}
+         */
+        #updateSortLinks() {
+            this.#table.dataset.sort  = this.#sort;
+            this.#table.dataset.order = this.#order;
+
+            for (const link of this.#table.querySelectorAll('.eim-cg-member-sort')) {
+                const isCurrent = link.dataset.sort === this.#sort;
+                link.dataset.order = isCurrent && this.#order === 'asc' ? 'desc' : 'asc';
+                const ind = link.querySelector('span');
+                if (ind) ind.textContent = isCurrent ? (this.#order === 'asc' ? '^' : 'v') : '';
+            }
+        }
+    }
+
     // Boot
     // -----------------------------------------------------------------------
     document.addEventListener('DOMContentLoaded', () => {
@@ -985,6 +1583,7 @@
         if (config.event?.enabled)                new EventInviteePicker();
         if (config.connectionGroup?.enabled)      new ConnectionGroupMemberPicker();
         new EventGroupManager();
+        new ConnectionGroupMembersTable();
         if (config.event?.enabled) {
             new EventGroupsTable();
             new MenuItemPicker();

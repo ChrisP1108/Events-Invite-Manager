@@ -3,7 +3,10 @@
     "allow": [
       "Bash(composer install *)",
       "Bash(mkdir -p \"/Users/chrisp1108gmail.com/Local Sites/chris-jamie-wedding/app/public/wp-content/plugins/events-invite-manager/assets/qr_codes\")",
-      "Bash(touch \"/Users/chrisp1108gmail.com/Local Sites/chris-jamie-wedding/app/public/wp-content/plugins/events-invite-manager/assets/qr_codes/.gitkeep\")"
+      "Bash(touch \"/Users/chrisp1108gmail.com/Local Sites/chris-jamie-wedding/app/public/wp-content/plugins/events-invite-manager/assets/qr_codes/.gitkeep\")",
+      "Bash(ls -t ~/.claude/projects/ | head -20 *)",
+      "Read(//Users/chrisp1108gmail.com/.claude/projects/**)",
+      "Bash(xargs ls -t)"
     ]
   }
 }

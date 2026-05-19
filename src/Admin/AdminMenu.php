@@ -24,27 +24,63 @@ use EventsInviteManager\Services\QrCodeService;
  */
 final class AdminMenu
 {
+    /** @var string Admin page slug for the main Events Manager hub. */
     public const PAGE_EVENTS_MANAGER    = 'eim-events-manager';
+
+    /** @var string Admin page slug for the About page. */
     public const PAGE_ABOUT             = 'eim-about';
 
+    /** @var string Tab slug for the Events sub-page. */
     public const TAB_EVENTS             = 'events';
+
+    /** @var string Tab slug for the Invitees sub-page. */
     public const TAB_INVITEES           = 'invitees';
+
+    /** @var string Tab slug for the Connection Groups sub-page. */
     public const TAB_CONNECTION_GROUPS  = 'connection-groups';
+
+    /** @var string Tab slug for the Locations sub-page. */
     public const TAB_LOCATIONS          = 'locations';
+
+    /** @var string Tab slug for the Food & Beverages sub-page. */
     public const TAB_MENU_ITEMS         = 'food-beverages';
+
+    /** @var string Tab slug for the Budget sub-page. */
     public const TAB_BUDGET             = 'budget';
+
+    /** @var string Tab slug for the Newsletters sub-page. */
     public const TAB_NEWSLETTERS        = 'newsletters';
 
+    /** @var AboutPage About / plugin-info page. */
     private AboutPage            $aboutPage;
+
+    /** @var EventsManagerPage Tab-dispatcher for all Events Manager sub-pages. */
     private EventsManagerPage    $eventsManagerPage;
+
+    /** @var EventsPage Events sub-page handler. */
     private EventsPage           $eventsPage;
+
+    /** @var InviteesPage Invitees sub-page handler. */
     private InviteesPage         $inviteesPage;
+
+    /** @var ConnectionGroupsPage Connection Groups sub-page handler. */
     private ConnectionGroupsPage $connectionGroupsPage;
+
+    /** @var LocationsPage Locations sub-page handler. */
     private LocationsPage        $locationsPage;
+
+    /** @var MenuItemsPage Food & Beverages sub-page handler. */
     private MenuItemsPage        $menuItemsPage;
+
+    /** @var BudgetPage Budget sub-page handler. */
     private BudgetPage           $budgetPage;
+
+    /** @var NewslettersPage Newsletters sub-page handler. */
     private NewslettersPage      $newslettersPage;
 
+    /**
+     * Instantiates all sub-page handlers and shared services.
+     */
     public function __construct()
     {
         $emailService  = new EmailService(new TemplateRenderer());
@@ -84,6 +120,13 @@ final class AdminMenu
         );
     }
 
+    /**
+     * Registers admin menu hooks and all wp_ajax_* AJAX action hooks.
+     *
+     * Called once from the plugin bootstrap after instantiation.
+     *
+     * @return void
+     */
     public function register(): void
     {
         add_action('admin_menu',            [$this, 'addMenuPages']);
@@ -107,6 +150,7 @@ final class AdminMenu
         add_action('wp_ajax_eim_sort_event_lodging',       [$this->eventsPage,            'handleAjaxSortLodging']);
         add_action('wp_ajax_eim_sort_event_menu_items',    [$this->eventsPage,            'handleAjaxSortMenuItems']);
         add_action('wp_ajax_eim_suggest_cg_members',    [$this->connectionGroupsPage, 'handleAjaxSuggestMembers']);
+        add_action('wp_ajax_eim_suggest_events',           [$this->eventsPage, 'handleAjaxSuggestEvents']);
         add_action('wp_ajax_eim_search_budget_plans',      [$this->budgetPage, 'handleAjaxSearchPlans']);
         add_action('wp_ajax_eim_search_budget_line_items', [$this->budgetPage, 'handleAjaxSearchLineItems']);
         add_action('wp_ajax_eim_search_newsletters',       [$this->newslettersPage, 'handleAjaxSearchNewsletters']);
@@ -114,6 +158,15 @@ final class AdminMenu
         add_filter('script_loader_tag', [$this, 'addModuleTypeToScript'], 10, 2);
     }
 
+    /**
+     * Adds type="module" to the eim-location-autocomplete script tag.
+     *
+     * Hooked onto script_loader_tag at priority 10 so dynamic import() works correctly.
+     *
+     * @param string $tag    The full HTML <script> tag being output.
+     * @param string $handle The script handle registered with wp_enqueue_script.
+     * @return string
+     */
     public function addModuleTypeToScript(string $tag, string $handle): string
     {
         if ($handle !== 'eim-location-autocomplete') {
@@ -124,6 +177,14 @@ final class AdminMenu
         return str_replace('<script ', '<script type="module" ', $tag);
     }
 
+    /**
+     * Enqueues page-specific CSS and JS assets and localises configuration objects.
+     *
+     * Only fires on plugin admin pages; returns early for all other screens.
+     *
+     * @param string $_hookSuffix The current admin page hook suffix (unused but required by WP).
+     * @return void
+     */
     public function enqueueScripts(string $_hookSuffix): void
     {
         $page   = $_GET['page'] ?? '';
@@ -145,8 +206,9 @@ final class AdminMenu
         if ($tab === self::TAB_BUDGET) {
             wp_enqueue_script('eim-admin-budget', EIM_PLUGIN_URL . 'assets/js/admin-budget.js', [], EIM_VERSION, true);
             wp_localize_script('eim-admin-budget', 'eimBudgetAdmin', [
-                'searchNonce'    => wp_create_nonce('eim_search_budget_plans_nonce'),
-                'lineItemNonce'  => wp_create_nonce('eim_search_budget_line_items_nonce'),
+                'searchNonce'       => wp_create_nonce('eim_search_budget_plans_nonce'),
+                'lineItemNonce'     => wp_create_nonce('eim_search_budget_line_items_nonce'),
+                'suggestEventsNonce' => wp_create_nonce('eim_suggest_events_nonce'),
                 'planId'         => $action === 'edit' ? (int) ($_GET['id'] ?? 0) : 0,
                 'table'          => [
                     'enabled' => $action !== 'edit',
@@ -214,12 +276,13 @@ final class AdminMenu
             ]);
         }
 
-        if ($tab === self::TAB_NEWSLETTERS && !in_array($action, ['add', 'edit'], true)) {
+        if ($tab === self::TAB_NEWSLETTERS) {
             wp_enqueue_script('eim-admin-newsletters', EIM_PLUGIN_URL . 'assets/js/admin-newsletters.js', [], EIM_VERSION, true);
             wp_localize_script('eim-admin-newsletters', 'eimNewslettersAdmin', [
-                'searchNonce' => wp_create_nonce('eim_search_newsletters_nonce'),
-                'table'       => [
-                    'enabled' => true,
+                'searchNonce'        => wp_create_nonce('eim_search_newsletters_nonce'),
+                'suggestEventsNonce' => wp_create_nonce('eim_suggest_events_nonce'),
+                'table'              => [
+                    'enabled' => !in_array($action, ['add', 'edit'], true),
                     'sort'    => sanitize_key($_GET['sort'] ?? 'title'),
                     'order'   => strtolower((string) ($_GET['order'] ?? 'asc')) === 'desc' ? 'desc' : 'asc',
                 ],
@@ -252,6 +315,13 @@ final class AdminMenu
         ]);
     }
 
+    /**
+     * Registers the top-level menu page and its sub-menu pages with WordPress.
+     *
+     * Hooked onto admin_menu.
+     *
+     * @return void
+     */
     public function addMenuPages(): void
     {
         add_menu_page(
@@ -268,6 +338,14 @@ final class AdminMenu
         add_submenu_page(self::PAGE_EVENTS_MANAGER, 'About',          'About',          'manage_options', self::PAGE_ABOUT,           [$this, 'renderAboutPage']);
     }
 
+    /**
+     * Dispatches POST/GET form actions to the appropriate sub-page handler.
+     *
+     * Hooked onto admin_init. Returns early when the current user lacks manage_options
+     * or when the request targets a non-plugin page.
+     *
+     * @return void
+     */
     public function processFormSubmissions(): void
     {
         if (!current_user_can('manage_options')) {
@@ -292,6 +370,17 @@ final class AdminMenu
         }
     }
 
+    /**
+     * Renders the About / plugin-info page.
+     *
+     * @return void
+     */
     public function renderAboutPage(): void        { $this->aboutPage->renderPage(); }
+
+    /**
+     * Renders the Events Manager hub page (delegates to EventsManagerPage).
+     *
+     * @return void
+     */
     public function renderEventsManagerPage(): void { $this->eventsManagerPage->renderPage(); }
 }

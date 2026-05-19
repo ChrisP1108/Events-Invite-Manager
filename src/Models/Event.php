@@ -22,24 +22,25 @@ use EventsInviteManager\Models\QrCode;
 final class Event
 {
     /**
-     * @param int     $id                  Primary key.
-     * @param string  $name                Event name.
-     * @param string  $description         Optional free-text description.
-     * @param ?int    $rsvpPageId          WordPress page ID for the front-end RSVP page, or null if not set.
-     * @param ?int    $venueId             FK to eim_locations for the event venue, or null if not set.
-     * @param string  $fromName            Display name used in the From header of outgoing emails.
-     * @param string  $fromEmail           Email address used in the From header of outgoing emails.
-     * @param string  $inviteEmailSubject  Subject line for the invite email.
-     * @param string  $inviteEmailTemplate HTML body template for the invite email.
-     * @param ?string $startDatetime       MySQL DATETIME string (Y-m-d H:i:s) for the event start, or null.
-     * @param ?string $endDatetime         MySQL DATETIME string (Y-m-d H:i:s) for the event end, or null.
-     * @param string  $timezone            IANA timezone identifier (e.g. "America/New_York"), or empty string.
-     * @param bool    $lodgingEnabled          Whether lodging options are offered for this event.
-     * @param bool    $foodOptionsEnabled      Whether food menu options are enabled for this event.
-     * @param bool    $beverageOptionsEnabled  Whether beverage menu options are enabled for this event.
-     * @param ?int    $maxInvitees             Maximum number of invitees allowed, or null for unlimited.
-     * @param string  $createdAt           MySQL datetime string.
-     * @param string  $updatedAt           MySQL datetime string.
+     * @param int     $id                     Primary key.
+     * @param string  $name                   Event name.
+     * @param string  $description            Optional free-text description.
+     * @param ?int    $rsvpPageId             WordPress page ID for the front-end RSVP page, or null if not set.
+     * @param ?int    $venueId                FK to eim_locations for the event venue, or null if not set.
+     * @param string  $fromName               Display name used in the From header of outgoing emails.
+     * @param string  $fromEmail              Email address used in the From header of outgoing emails.
+     * @param string  $inviteEmailSubject     Subject line for the invite email.
+     * @param string  $inviteEmailTemplate    HTML body template for the invite email.
+     * @param ?string $startDatetime          MySQL DATETIME string (Y-m-d H:i:s) for the event start, or null.
+     * @param ?string $endDatetime            MySQL DATETIME string (Y-m-d H:i:s) for the event end, or null.
+     * @param string  $timezone               IANA timezone identifier (e.g. "America/New_York"), or empty string.
+     * @param bool    $lodgingEnabled         Whether lodging options are offered for this event.
+     * @param bool    $foodOptionsEnabled     Whether food menu options are enabled for this event.
+     * @param bool    $beverageOptionsEnabled Whether beverage menu options are enabled for this event.
+     * @param ?int    $newsletterPageId       WordPress page ID for the post-RSVP newsletter page, or null if not set.
+     * @param ?int    $maxInvitees            Maximum number of invitees allowed, or null for unlimited.
+     * @param string  $createdAt              MySQL datetime string.
+     * @param string  $updatedAt              MySQL datetime string.
      */
     public function __construct(
         public readonly int     $id,
@@ -57,6 +58,7 @@ final class Event
         public readonly bool    $lodgingEnabled,
         public readonly bool    $foodOptionsEnabled,
         public readonly bool    $beverageOptionsEnabled,
+        public readonly ?int    $newsletterPageId,
         public readonly ?int    $maxInvitees,
         public readonly string  $createdAt,
         public readonly string  $updatedAt,
@@ -118,6 +120,7 @@ final class Event
             'lodging_enabled'          => isset($data['lodging_enabled']) ? (int) $data['lodging_enabled'] : 0,
             'food_options_enabled'     => isset($data['food_options_enabled']) ? (int) $data['food_options_enabled'] : 0,
             'beverage_options_enabled' => isset($data['beverage_options_enabled']) ? (int) $data['beverage_options_enabled'] : 0,
+            'newsletter_page_id'       => isset($data['newsletter_page_id']) && (int) $data['newsletter_page_id'] > 0 ? (int) $data['newsletter_page_id'] : null,
             'max_invitees'             => isset($data['max_invitees']) && $data['max_invitees'] > 0 ? (int) $data['max_invitees'] : null,
         ]);
 
@@ -152,6 +155,7 @@ final class Event
                 'lodging_enabled'          => isset($data['lodging_enabled']) ? (int) $data['lodging_enabled'] : 0,
                 'food_options_enabled'     => isset($data['food_options_enabled']) ? (int) $data['food_options_enabled'] : 0,
                 'beverage_options_enabled' => isset($data['beverage_options_enabled']) ? (int) $data['beverage_options_enabled'] : 0,
+                'newsletter_page_id'       => isset($data['newsletter_page_id']) && (int) $data['newsletter_page_id'] > 0 ? (int) $data['newsletter_page_id'] : null,
                 'max_invitees'             => isset($data['max_invitees']) && $data['max_invitees'] > 0 ? (int) $data['max_invitees'] : null,
             ],
             ['id' => $id]
@@ -402,6 +406,24 @@ final class Event
      * @param object $row
      * @return self
      */
+    /**
+     * Returns the public permalink of the newsletter page assigned to this event, or null if none.
+     *
+     * Returns null when no newsletter_page_id is set or get_permalink() cannot resolve the page.
+     *
+     * @return string|null
+     */
+    public function newsletterUrl(): ?string
+    {
+        if ($this->newsletterPageId === null || $this->newsletterPageId <= 0) {
+            return null;
+        }
+
+        $url = get_permalink($this->newsletterPageId);
+
+        return ($url !== false && $url !== '') ? $url : null;
+    }
+
     private static function fromRow(object $row): self
     {
         return new self(
@@ -420,6 +442,7 @@ final class Event
             lodgingEnabled:          (bool) ($row->lodging_enabled           ?? false),
             foodOptionsEnabled:      (bool) ($row->food_options_enabled      ?? false),
             beverageOptionsEnabled:  (bool) ($row->beverage_options_enabled  ?? false),
+            newsletterPageId:    isset($row->newsletter_page_id) && $row->newsletter_page_id !== null ? (int) $row->newsletter_page_id : null,
             maxInvitees:              isset($row->max_invitees) && $row->max_invitees !== null ? (int) $row->max_invitees : null,
             createdAt:                 $row->created_at            ?? '',
             updatedAt:                 $row->updated_at            ?? '',

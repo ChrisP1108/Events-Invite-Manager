@@ -20,8 +20,12 @@ use EventsInviteManager\Models\Invitee;
  */
 final class EmailService
 {
+    /** @var TemplateRenderer Template renderer used to interpolate email variables. */
     private TemplateRenderer $renderer;
 
+    /**
+     * @param TemplateRenderer $renderer Renderer that resolves {{ tag }} placeholders in email templates.
+     */
     public function __construct(TemplateRenderer $renderer)
     {
         $this->renderer = $renderer;
@@ -79,6 +83,15 @@ final class EmailService
         return $this->dispatchHtml($primaryInvitee->email, $subject, $body, $this->buildFromHeader($event));
     }
 
+    /**
+     * Sends an HTML email via wp_mail().
+     *
+     * @param string $to          Recipient email address.
+     * @param string $subject     Email subject line.
+     * @param string $body        Full HTML body.
+     * @param string $fromHeader  Optional "From: ..." header string; omitted when empty.
+     * @return bool True if wp_mail() accepted the message.
+     */
     private function dispatchHtml(string $to, string $subject, string $body, string $fromHeader = ''): bool
     {
         $headers = ['Content-Type: text/html; charset=UTF-8'];
@@ -90,6 +103,15 @@ final class EmailService
         return wp_mail($to, $subject, $body, $headers);
     }
 
+    /**
+     * Builds a "From: ..." mail header from the event's from_email and from_name fields.
+     *
+     * Resolves the {{ current_domain }} tag in from_email before sanitizing.
+     * Returns an empty string when from_email is blank or invalid.
+     *
+     * @param Event $event The event whose sender fields should be used.
+     * @return string e.g. "From: Wedding Team <no-reply@example.com>" or "".
+     */
     private function buildFromHeader(Event $event): string
     {
         $fromEmail = sanitize_email($this->resolveCurrentDomainTag($event->fromEmail));
@@ -107,6 +129,14 @@ final class EmailService
         return 'From: ' . $fromEmail;
     }
 
+    /**
+     * Replaces any {{ current_domain }} placeholder in a string with the site's hostname.
+     *
+     * If the hostname cannot be determined the original string is returned unchanged.
+     *
+     * @param string $value The string that may contain {{ current_domain }}.
+     * @return string The string with the placeholder replaced.
+     */
     private function resolveCurrentDomainTag(string $value): string
     {
         $domain = (string) wp_parse_url(home_url('/'), PHP_URL_HOST);

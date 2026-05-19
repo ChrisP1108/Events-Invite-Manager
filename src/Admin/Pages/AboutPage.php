@@ -19,8 +19,14 @@ use EventsInviteManager\Admin\AdminMenu;
  */
 final class AboutPage extends AbstractAdminPage
 {
+    /**
+     * No-op: the About page processes no form actions.
+     *
+     * @param string $_action The action slug (unused).
+     */
     public function handleAction(string $_action): void {}
 
+    /** Renders the About admin page. */
     public function renderPage(): void
     {
         ?>
@@ -75,6 +81,7 @@ final class AboutPage extends AbstractAdminPage
 
     // ── Private ──────────────────────────────────────────────────────────────
 
+    /** Renders the branded plugin header banner. */
     private function renderHeader(): void
     {
         ?>
@@ -91,6 +98,7 @@ final class AboutPage extends AbstractAdminPage
         <?php
     }
 
+    /** Renders the numbered getting-started steps section. */
     private function renderGettingStarted(): void
     {
         $locationsUrl    = AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS, ['action' => 'add']);
@@ -223,6 +231,7 @@ final class AboutPage extends AbstractAdminPage
         <?php
     }
 
+    /** Renders the feature card grid. */
     private function renderFeatures(): void
     {
         $features = [
@@ -315,6 +324,7 @@ final class AboutPage extends AbstractAdminPage
         <?php
     }
 
+    /** Renders the email template-tag reference table. */
     private function renderTemplateTags(): void
     {
         ?>
@@ -366,6 +376,7 @@ final class AboutPage extends AbstractAdminPage
         <?php
     }
 
+    /** Renders the REST API endpoint reference section. */
     private function renderRestApi(): void
     {
         $baseUrl = rest_url('eim/v1');
