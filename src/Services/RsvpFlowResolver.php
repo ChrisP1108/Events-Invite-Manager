@@ -7,6 +7,7 @@ namespace EventsInviteManager\Services;
 if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Models\Event;
+use EventsInviteManager\Models\EventLodging;
 use EventsInviteManager\Models\InvitationGroup;
 use EventsInviteManager\Models\Invitee;
 use EventsInviteManager\Models\MenuItem;
@@ -65,6 +66,7 @@ final class RsvpFlowResolver
         $pendingMembers   = array_values(array_filter($members, static fn(Invitee $m) => $m->rsvpStatus === InvitationGroup::RSVP_PENDING));
         $attendingMembers = array_values(array_filter($members, static fn(Invitee $m) => $m->rsvpStatus === InvitationGroup::RSVP_ATTENDING));
 
+        $requiresLodging             = $this->resolveLodgingRequirement($event);
         [$requiresFood, $requiresBeverage] = $this->resolveMenuRequirements($event);
 
         if (!empty($pendingMembers)) {
@@ -74,6 +76,7 @@ final class RsvpFlowResolver
                 event:            $event,
                 group:            $group,
                 members:          $members,
+                requiresLodging:  $requiresLodging,
                 requiresFood:     $requiresFood,
                 requiresBeverage: $requiresBeverage,
                 newsletterUrl:    null,
@@ -89,6 +92,7 @@ final class RsvpFlowResolver
                 event:            $event,
                 group:            $group,
                 members:          $members,
+                requiresLodging:  false,
                 requiresFood:     false,
                 requiresBeverage: false,
                 newsletterUrl:    null,
@@ -96,7 +100,35 @@ final class RsvpFlowResolver
             );
         }
 
-        // ── Step 5: menu completion check ────────────────────────────────────
+        // ── Step 5: lodging completion check ─────────────────────────────────
+        // Lodging is confirmed at the group level (one selection per group).
+        // We check whether any attending member has lodging_confirmed_at set;
+        // if none do and lodging is required, the guest needs to choose.
+        if ($requiresLodging) {
+            $lodgingConfirmed = false;
+            foreach ($attendingMembers as $member) {
+                if ($member->lodgingConfirmedAt !== null) {
+                    $lodgingConfirmed = true;
+                    break;
+                }
+            }
+            if (!$lodgingConfirmed) {
+                return new RsvpFlowResult(
+                    success:          true,
+                    nextAction:       RsvpFlowResult::ACTION_LODGING_REQUIRED,
+                    event:            $event,
+                    group:            $group,
+                    members:          $members,
+                    requiresLodging:  true,
+                    requiresFood:     $requiresFood,
+                    requiresBeverage: $requiresBeverage,
+                    newsletterUrl:    $event->newsletterUrl($code),
+                    message:          null,
+                );
+            }
+        }
+
+        // ── Step 6: menu completion check ────────────────────────────────────
         // Only attending members need to have confirmed their menu selections.
         if ($requiresFood || $requiresBeverage) {
             foreach ($attendingMembers as $member) {
@@ -107,9 +139,10 @@ final class RsvpFlowResolver
                         event:            $event,
                         group:            $group,
                         members:          $members,
+                        requiresLodging:  $requiresLodging,
                         requiresFood:     $requiresFood,
                         requiresBeverage: $requiresBeverage,
-                        newsletterUrl:    $event->newsletterUrl(),
+                        newsletterUrl:    $event->newsletterUrl($code),
                         message:          null,
                     );
                 }
@@ -120,30 +153,47 @@ final class RsvpFlowResolver
                         event:            $event,
                         group:            $group,
                         members:          $members,
+                        requiresLodging:  $requiresLodging,
                         requiresFood:     $requiresFood,
                         requiresBeverage: $requiresBeverage,
-                        newsletterUrl:    $event->newsletterUrl(),
+                        newsletterUrl:    $event->newsletterUrl($code),
                         message:          null,
                     );
                 }
             }
         }
 
-        // ── Step 6: everything complete ───────────────────────────────────────
+        // ── Step 7: everything complete ───────────────────────────────────────
         return new RsvpFlowResult(
             success:          true,
             nextAction:       RsvpFlowResult::ACTION_NEWSLETTER_REDIRECT,
             event:            $event,
             group:            $group,
             members:          $members,
+            requiresLodging:  $requiresLodging,
             requiresFood:     $requiresFood,
             requiresBeverage: $requiresBeverage,
-            newsletterUrl:    $event->newsletterUrl(),
+            newsletterUrl:    $event->newsletterUrl($code),
             message:          null,
         );
     }
 
     // ── Testable public helpers ───────────────────────────────────────────────
+
+    /**
+     * Determines whether lodging selection is required for an event.
+     *
+     * "Required" means lodging is enabled AND at least one lodging option is
+     * assigned to the event. If no options exist the step is skipped.
+     *
+     * @param Event $event
+     * @return bool
+     */
+    public function resolveLodgingRequirement(Event $event): bool
+    {
+        return $event->lodgingEnabled
+            && !empty(EventLodging::forEvent($event->id));
+    }
 
     /**
      * Determines whether food and/or beverage selection is required for an event.
@@ -213,6 +263,7 @@ final class RsvpFlowResolver
             event:            null,
             group:            null,
             members:          [],
+            requiresLodging:  false,
             requiresFood:     false,
             requiresBeverage: false,
             newsletterUrl:    null,

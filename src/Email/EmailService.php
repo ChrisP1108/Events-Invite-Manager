@@ -9,6 +9,7 @@ if (!defined('ABSPATH')) exit;
 use EventsInviteManager\Models\Event;
 use EventsInviteManager\Models\InvitationGroup;
 use EventsInviteManager\Models\Invitee;
+use EventsInviteManager\Models\Newsletter;
 
 /**
  * Handles sending invite emails via wp_mail().
@@ -81,6 +82,55 @@ final class EmailService
         $body    = $this->renderer->render($event->inviteEmailTemplate, $variables);
 
         return $this->dispatchHtml($primaryInvitee->email, $subject, $body, $this->buildFromHeader($event));
+    }
+
+    /**
+     * Sends a newsletter to a single invitee, personalizing {{ first_name }},
+     * {{ last_name }}, {{ full_name }}, and {{ email }} template tags.
+     * The newsletter title is used as the email subject.
+     *
+     * @param Newsletter $newsletter
+     * @param Invitee    $invitee
+     * @param string     $fromHeader Optional "From: ..." header string.
+     * @return bool True if wp_mail() accepted the message.
+     */
+    public function sendNewsletterToInvitee(Newsletter $newsletter, Invitee $invitee, string $fromHeader = ''): bool
+    {
+        $variables = [
+            'first_name' => esc_html($invitee->firstName),
+            'last_name'  => esc_html($invitee->lastName),
+            'full_name'  => esc_html($invitee->fullName()),
+            'email'      => esc_html($invitee->email),
+        ];
+
+        $subject = $this->renderer->render($newsletter->title, $variables);
+        $body    = $this->renderer->render($newsletter->content, $variables);
+
+        return $this->dispatchHtml($invitee->email, $subject, $body, $fromHeader);
+    }
+
+    /**
+     * Sends a newsletter to a single arbitrary email address (for test sends).
+     * Template tags are replaced with placeholder values so the layout renders correctly.
+     *
+     * @param Newsletter $newsletter
+     * @param string     $toEmail
+     * @param string     $fromHeader Optional "From: ..." header string.
+     * @return bool True if wp_mail() accepted the message.
+     */
+    public function sendNewsletterTest(Newsletter $newsletter, string $toEmail, string $fromHeader = ''): bool
+    {
+        $variables = [
+            'first_name' => 'Test',
+            'last_name'  => 'User',
+            'full_name'  => 'Test User',
+            'email'      => esc_html($toEmail),
+        ];
+
+        $subject = '[TEST] ' . $this->renderer->render($newsletter->title, $variables);
+        $body    = $this->renderer->render($newsletter->content, $variables);
+
+        return $this->dispatchHtml($toEmail, $subject, $body, $fromHeader);
     }
 
     /**

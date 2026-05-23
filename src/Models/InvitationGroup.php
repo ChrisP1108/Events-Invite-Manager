@@ -425,7 +425,9 @@ final class InvitationGroup
      * @param array  $extras    Optional keys:
      *                            food_option_id (int|null), beverage_option_id (int|null),
      *                            dietary_notes (string), food_confirmed_at (string|null),
-     *                            beverage_confirmed_at (string|null).
+     *                            beverage_confirmed_at (string|null),
+     *                            lodging_id (int|null), lodging_is_other (bool),
+     *                            lodging_undisclosed (bool), lodging_confirmed_at (string|null).
      * @return bool
      */
     public static function updateMemberRsvp(int $groupId, int $inviteeId, string $status, array $extras = []): bool
@@ -455,6 +457,18 @@ final class InvitationGroup
         }
         if (array_key_exists('beverage_confirmed_at', $extras)) {
             $fields['beverage_confirmed_at'] = $extras['beverage_confirmed_at'];
+        }
+        if (array_key_exists('lodging_id', $extras)) {
+            $fields['lodging_id'] = $extras['lodging_id'] !== null ? (int) $extras['lodging_id'] : null;
+        }
+        if (array_key_exists('lodging_is_other', $extras)) {
+            $fields['lodging_is_other'] = (int) (bool) $extras['lodging_is_other'];
+        }
+        if (array_key_exists('lodging_undisclosed', $extras)) {
+            $fields['lodging_undisclosed'] = (int) (bool) $extras['lodging_undisclosed'];
+        }
+        if (array_key_exists('lodging_confirmed_at', $extras)) {
+            $fields['lodging_confirmed_at'] = $extras['lodging_confirmed_at'];
         }
 
         $result = $wpdb->update(
@@ -536,7 +550,11 @@ final class InvitationGroup
                         egm.beverage_option_id    AS invitation_beverage_option_id,
                         egm.dietary_notes         AS invitation_dietary_notes,
                         egm.food_confirmed_at     AS invitation_food_confirmed_at,
-                        egm.beverage_confirmed_at AS invitation_beverage_confirmed_at
+                        egm.beverage_confirmed_at AS invitation_beverage_confirmed_at,
+                        egm.lodging_id            AS invitation_lodging_id,
+                        egm.lodging_is_other      AS invitation_lodging_is_other,
+                        egm.lodging_undisclosed   AS invitation_lodging_undisclosed,
+                        egm.lodging_confirmed_at  AS invitation_lodging_confirmed_at
                  FROM {$membersTable} egm
                  INNER JOIN {$inviteesTable} i   ON i.id   = egm.invitee_id
                  INNER JOIN {$groupsTable}   eig ON eig.id = egm.group_id

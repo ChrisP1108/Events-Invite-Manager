@@ -8,7 +8,7 @@ if (!defined('ABSPATH')) exit;
 
 final class DatabaseManager
 {
-    private const SCHEMA_VERSION = '15';
+    private const SCHEMA_VERSION = '16';
 
     private const EVENTS_TABLE                           = 'eim_events';
     private const INVITEES_TABLE                         = 'eim_invitees';
@@ -190,6 +190,10 @@ final class DatabaseManager
                 dietary_notes         VARCHAR(500)        NOT NULL DEFAULT '',
                 food_confirmed_at     DATETIME            NULL DEFAULT NULL,
                 beverage_confirmed_at DATETIME            NULL DEFAULT NULL,
+                lodging_id            BIGINT(20) UNSIGNED NULL DEFAULT NULL,
+                lodging_is_other      TINYINT(1)          NOT NULL DEFAULT 0,
+                lodging_undisclosed   TINYINT(1)          NOT NULL DEFAULT 0,
+                lodging_confirmed_at  DATETIME            NULL DEFAULT NULL,
                 created_at            DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at            DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (id),
@@ -343,6 +347,7 @@ final class DatabaseManager
         }
 
         self::maybeAddV15Columns();
+        self::maybeAddV16Columns();
         self::createTables();
     }
 
@@ -620,6 +625,36 @@ final class DatabaseManager
         $existingEventCols = $wpdb->get_col("SHOW COLUMNS FROM {$eventsTable}");
         if (!in_array('newsletter_page_id', $existingEventCols, true)) {
             $wpdb->query("ALTER TABLE {$eventsTable} ADD COLUMN newsletter_page_id BIGINT(20) UNSIGNED NULL DEFAULT NULL");
+        }
+        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+    }
+
+    /**
+     * Ensures the v16 lodging-selection columns exist on the invitation group members table.
+     *
+     * Uses explicit ALTER TABLE so the upgrade applies safely to installations
+     * already running schema v15. Each column is checked before adding.
+     */
+    public static function maybeAddV16Columns(): void
+    {
+        global $wpdb;
+
+        $membersTable = $wpdb->prefix . self::INVITATION_GROUP_MEMBERS_TABLE;
+
+        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $existingCols = $wpdb->get_col("SHOW COLUMNS FROM {$membersTable}");
+
+        if (!in_array('lodging_id', $existingCols, true)) {
+            $wpdb->query("ALTER TABLE {$membersTable} ADD COLUMN lodging_id BIGINT(20) UNSIGNED NULL DEFAULT NULL");
+        }
+        if (!in_array('lodging_is_other', $existingCols, true)) {
+            $wpdb->query("ALTER TABLE {$membersTable} ADD COLUMN lodging_is_other TINYINT(1) NOT NULL DEFAULT 0");
+        }
+        if (!in_array('lodging_undisclosed', $existingCols, true)) {
+            $wpdb->query("ALTER TABLE {$membersTable} ADD COLUMN lodging_undisclosed TINYINT(1) NOT NULL DEFAULT 0");
+        }
+        if (!in_array('lodging_confirmed_at', $existingCols, true)) {
+            $wpdb->query("ALTER TABLE {$membersTable} ADD COLUMN lodging_confirmed_at DATETIME NULL DEFAULT NULL");
         }
         // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
     }

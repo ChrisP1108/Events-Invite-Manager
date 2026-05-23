@@ -37,10 +37,14 @@ final class Invitee
      * @param ?int    $foodOptionId     Selected food menu item ID, or null.
      * @param ?int    $beverageOptionId Selected beverage menu item ID, or null.
      * @param string  $dietaryNotes     Free-text dietary notes.
-     * @param ?string $foodConfirmedAt  MySQL datetime when the food selection was finalised, or null.
+     * @param ?string $foodConfirmedAt     MySQL datetime when the food selection was finalised, or null.
      * @param ?string $beverageConfirmedAt MySQL datetime when the beverage selection was finalised, or null.
-     * @param string  $createdAt        MySQL datetime of row creation.
-     * @param string  $updatedAt        MySQL datetime of last update.
+     * @param ?int    $lodgingId           Selected lodging (EventLodging) ID, or null.
+     * @param bool    $lodgingIsOther      True when the invitee chose the "Other" lodging option.
+     * @param bool    $lodgingUndisclosed  True when the invitee chose not to disclose their lodging.
+     * @param ?string $lodgingConfirmedAt  MySQL datetime when the lodging selection was confirmed, or null.
+     * @param string  $createdAt           MySQL datetime of row creation.
+     * @param string  $updatedAt           MySQL datetime of last update.
      */
     public function __construct(
         public readonly int     $id,
@@ -63,6 +67,10 @@ final class Invitee
         public readonly string  $dietaryNotes,
         public readonly ?string $foodConfirmedAt,
         public readonly ?string $beverageConfirmedAt,
+        public readonly ?int    $lodgingId,
+        public readonly bool    $lodgingIsOther,
+        public readonly bool    $lodgingUndisclosed,
+        public readonly ?string $lodgingConfirmedAt,
         public readonly string  $createdAt,
         public readonly string  $updatedAt,
     ) {}
@@ -94,15 +102,23 @@ final class Invitee
                         gd.invite_sent_at      AS invitation_invite_sent_at,
                         COALESCE(gd.rsvp_status, 'pending') AS invitation_rsvp_status,
                         gd.registered_at       AS invitation_registered_at,
-                        gd.food_option_id      AS invitation_food_option_id,
-                        gd.beverage_option_id  AS invitation_beverage_option_id,
-                        gd.dietary_notes       AS invitation_dietary_notes
+                        gd.food_option_id        AS invitation_food_option_id,
+                        gd.beverage_option_id    AS invitation_beverage_option_id,
+                        gd.dietary_notes         AS invitation_dietary_notes,
+                        gd.food_confirmed_at     AS invitation_food_confirmed_at,
+                        gd.beverage_confirmed_at AS invitation_beverage_confirmed_at,
+                        gd.lodging_id            AS invitation_lodging_id,
+                        gd.lodging_is_other      AS invitation_lodging_is_other,
+                        gd.lodging_undisclosed   AS invitation_lodging_undisclosed,
+                        gd.lodging_confirmed_at  AS invitation_lodging_confirmed_at
                  FROM {$eiTable} ei
                  INNER JOIN {$inviteesTable} i ON i.id = ei.invitee_id
                  LEFT JOIN (
                      SELECT egm.invitee_id, egm.group_id, egm.rsvp_status,
                             egm.registered_at, eig.invite_sent_at,
-                            egm.food_option_id, egm.beverage_option_id, egm.dietary_notes
+                            egm.food_option_id, egm.beverage_option_id, egm.dietary_notes,
+                            egm.food_confirmed_at, egm.beverage_confirmed_at,
+                            egm.lodging_id, egm.lodging_is_other, egm.lodging_undisclosed, egm.lodging_confirmed_at
                      FROM {$membersTable} egm
                      INNER JOIN {$groupsTable} eig ON eig.id = egm.group_id
                      WHERE eig.event_id = %d
@@ -157,15 +173,23 @@ final class Invitee
                         gd.invite_sent_at      AS invitation_invite_sent_at,
                         COALESCE(gd.rsvp_status, 'pending') AS invitation_rsvp_status,
                         gd.registered_at       AS invitation_registered_at,
-                        gd.food_option_id      AS invitation_food_option_id,
-                        gd.beverage_option_id  AS invitation_beverage_option_id,
-                        gd.dietary_notes       AS invitation_dietary_notes
+                        gd.food_option_id        AS invitation_food_option_id,
+                        gd.beverage_option_id    AS invitation_beverage_option_id,
+                        gd.dietary_notes         AS invitation_dietary_notes,
+                        gd.food_confirmed_at     AS invitation_food_confirmed_at,
+                        gd.beverage_confirmed_at AS invitation_beverage_confirmed_at,
+                        gd.lodging_id            AS invitation_lodging_id,
+                        gd.lodging_is_other      AS invitation_lodging_is_other,
+                        gd.lodging_undisclosed   AS invitation_lodging_undisclosed,
+                        gd.lodging_confirmed_at  AS invitation_lodging_confirmed_at
                  FROM {$eiTable} ei
                  INNER JOIN {$inviteesTable} i ON i.id = ei.invitee_id
                  LEFT JOIN (
                      SELECT egm.invitee_id, egm.group_id, egm.rsvp_status,
                             egm.registered_at, eig.invite_sent_at,
-                            egm.food_option_id, egm.beverage_option_id, egm.dietary_notes
+                            egm.food_option_id, egm.beverage_option_id, egm.dietary_notes,
+                            egm.food_confirmed_at, egm.beverage_confirmed_at,
+                            egm.lodging_id, egm.lodging_is_other, egm.lodging_undisclosed, egm.lodging_confirmed_at
                      FROM {$membersTable} egm
                      INNER JOIN {$groupsTable} eig ON eig.id = egm.group_id
                      WHERE eig.event_id = %d
@@ -205,15 +229,23 @@ final class Invitee
                         gd.invite_sent_at      AS invitation_invite_sent_at,
                         COALESCE(gd.rsvp_status, 'pending') AS invitation_rsvp_status,
                         gd.registered_at       AS invitation_registered_at,
-                        gd.food_option_id      AS invitation_food_option_id,
-                        gd.beverage_option_id  AS invitation_beverage_option_id,
-                        gd.dietary_notes       AS invitation_dietary_notes
+                        gd.food_option_id        AS invitation_food_option_id,
+                        gd.beverage_option_id    AS invitation_beverage_option_id,
+                        gd.dietary_notes         AS invitation_dietary_notes,
+                        gd.food_confirmed_at     AS invitation_food_confirmed_at,
+                        gd.beverage_confirmed_at AS invitation_beverage_confirmed_at,
+                        gd.lodging_id            AS invitation_lodging_id,
+                        gd.lodging_is_other      AS invitation_lodging_is_other,
+                        gd.lodging_undisclosed   AS invitation_lodging_undisclosed,
+                        gd.lodging_confirmed_at  AS invitation_lodging_confirmed_at
                  FROM {$eiTable} ei
                  INNER JOIN {$inviteesTable} i ON i.id = ei.invitee_id
                  LEFT JOIN (
                      SELECT egm.invitee_id, egm.group_id, egm.rsvp_status,
                             egm.registered_at, eig.invite_sent_at,
-                            egm.food_option_id, egm.beverage_option_id, egm.dietary_notes
+                            egm.food_option_id, egm.beverage_option_id, egm.dietary_notes,
+                            egm.food_confirmed_at, egm.beverage_confirmed_at,
+                            egm.lodging_id, egm.lodging_is_other, egm.lodging_undisclosed, egm.lodging_confirmed_at
                      FROM {$membersTable} egm
                      INNER JOIN {$groupsTable} eig ON eig.id = egm.group_id
                      WHERE eig.event_id = %d
@@ -596,6 +628,10 @@ final class Invitee
             dietaryNotes:               $row->invitation_dietary_notes ?? '',
             foodConfirmedAt:            $row->invitation_food_confirmed_at     ?? null,
             beverageConfirmedAt:        $row->invitation_beverage_confirmed_at ?? null,
+            lodgingId:                  isset($row->invitation_lodging_id) && $row->invitation_lodging_id !== null ? (int) $row->invitation_lodging_id : null,
+            lodgingIsOther:             (bool) ($row->invitation_lodging_is_other    ?? false),
+            lodgingUndisclosed:         (bool) ($row->invitation_lodging_undisclosed ?? false),
+            lodgingConfirmedAt:         $row->invitation_lodging_confirmed_at ?? null,
             createdAt:                  $row->created_at ?? '',
             updatedAt:                  $row->updated_at ?? '',
         );
@@ -677,6 +713,10 @@ final class Invitee
             dietaryNotes:               $row->invitation_dietary_notes ?? '',
             foodConfirmedAt:            $row->invitation_food_confirmed_at     ?? null,
             beverageConfirmedAt:        $row->invitation_beverage_confirmed_at ?? null,
+            lodgingId:                  isset($row->invitation_lodging_id) && $row->invitation_lodging_id !== null ? (int) $row->invitation_lodging_id : null,
+            lodgingIsOther:             (bool) ($row->invitation_lodging_is_other    ?? false),
+            lodgingUndisclosed:         (bool) ($row->invitation_lodging_undisclosed ?? false),
+            lodgingConfirmedAt:         $row->invitation_lodging_confirmed_at ?? null,
             createdAt:                  $row->created_at ?? '',
             updatedAt:                  $row->updated_at ?? '',
         );

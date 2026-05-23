@@ -37,6 +37,9 @@ final class QrCodeService
     /** @var int Number of characters in each random confirmation code. */
     private const QR_CODE_LENGTH  = 16;
 
+    /** @var int Maximum generation attempts before giving up on uniqueness. */
+    private const MAX_CODE_ATTEMPTS = 10;
+
     /**
      * Returns the existing QR code for the invitation group, or generates a new one.
      *
@@ -123,20 +126,36 @@ final class QrCodeService
     }
 
     /**
-     * Generates a cryptographically random alphanumeric confirmation code.
+     * Generates a cryptographically random alphanumeric confirmation code that
+     * does not already exist in the eim_qr_codes table.
+     *
+     * Retries up to MAX_CODE_ATTEMPTS times. A collision is astronomically
+     * unlikely (62^16 ≈ 4.7 × 10^28 possibilities), so this is purely a
+     * belt-and-suspenders guard.
      *
      * @return string 16-character string composed of A-Z, a-z, 0-9.
+     * @throws \RuntimeException If a unique code cannot be generated after MAX_CODE_ATTEMPTS tries.
      */
     private function generateCode(): string
     {
         $chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-        $code  = '';
+        $charsLength = strlen($chars);
 
-        for ($i = 0; $i < self::QR_CODE_LENGTH; $i++) {
-            $code .= $chars[random_int(0, strlen($chars) - 1)];
+        for ($attempt = 0; $attempt < self::MAX_CODE_ATTEMPTS; $attempt++) {
+            $code = '';
+
+            for ($i = 0; $i < self::QR_CODE_LENGTH; $i++) {
+                $code .= $chars[random_int(0, $charsLength - 1)];
+            }
+
+            if (QrCode::findByCode($code) === null) {
+                return $code;
+            }
         }
 
-        return $code;
+        throw new \RuntimeException(
+            'Failed to generate a unique QR confirmation code after ' . self::MAX_CODE_ATTEMPTS . ' attempts.'
+        );
     }
 
     /**

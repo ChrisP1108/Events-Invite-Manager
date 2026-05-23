@@ -9,7 +9,9 @@ if (!defined('ABSPATH')) exit;
 use EventsInviteManager\Admin\AbstractAdminPage;
 use EventsInviteManager\Admin\AdminMenu;
 use EventsInviteManager\Database\DatabaseManager;
+use EventsInviteManager\Email\EmailService;
 use EventsInviteManager\Models\Event;
+use EventsInviteManager\Models\Invitee;
 use EventsInviteManager\Models\Newsletter;
 use EventsInviteManager\Models\NewsletterCategory;
 use EventsInviteManager\Models\NewsletterTag;
@@ -27,12 +29,18 @@ use EventsInviteManager\Models\NewsletterTag;
  */
 final class NewslettersPage extends AbstractAdminPage
 {
+    /** @var EmailService Email service used to dispatch newsletter emails. */
+    private EmailService $emailService;
+
     /**
      * Ensures the newsletter tables exist and initialises the page.
+     *
+     * @param EmailService $emailService Service used to send newsletter emails.
      */
-    public function __construct()
+    public function __construct(EmailService $emailService)
     {
         DatabaseManager::maybeCreateNewsletterTables();
+        $this->emailService = $emailService;
     }
 
     // ─── Action dispatch ─────────────────────────────────────────────────────
@@ -86,6 +94,100 @@ final class NewslettersPage extends AbstractAdminPage
             'html'  => $html,
             'count' => count($newsletters),
         ]);
+    }
+
+    /**
+     * Handles the wp_ajax_eim_send_newsletter AJAX action.
+     *
+     * Sends the newsletter to all unique invitees across the newsletter's linked events.
+     * Returns JSON: { success: true, data: { sent, failed, total } }
+     */
+    public function handleAjaxSendNewsletter(): void
+    {
+        check_ajax_referer('eim_send_newsletter_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions.', 403);
+        }
+
+        $id         = (int) ($_POST['newsletter_id'] ?? 0);
+        $newsletter = Newsletter::find($id);
+
+        if (!$newsletter) {
+            wp_send_json_error('Newsletter not found.');
+        }
+
+        $events = Newsletter::eventsForNewsletter($id);
+
+        if (empty($events)) {
+            wp_send_json_error('No events are linked to this newsletter.');
+        }
+
+        // Collect unique invitees (deduplicated by email) across all linked events.
+        $seen     = [];
+        $invitees = [];
+        foreach ($events as $ev) {
+            foreach (Invitee::forEvent($ev['id']) as $invitee) {
+                if ($invitee->email === '' || isset($seen[$invitee->email])) {
+                    continue;
+                }
+                $seen[$invitee->email] = true;
+                $invitees[]            = $invitee;
+            }
+        }
+
+        if (empty($invitees)) {
+            wp_send_json_error('No invitees with email addresses were found for the linked events.');
+        }
+
+        $sent   = 0;
+        $failed = 0;
+        foreach ($invitees as $invitee) {
+            if ($this->emailService->sendNewsletterToInvitee($newsletter, $invitee)) {
+                $sent++;
+            } else {
+                $failed++;
+            }
+        }
+
+        wp_send_json_success([
+            'sent'   => $sent,
+            'failed' => $failed,
+            'total'  => count($invitees),
+        ]);
+    }
+
+    /**
+     * Handles the wp_ajax_eim_send_newsletter_test AJAX action.
+     *
+     * Sends the newsletter to a single test email address.
+     * Returns JSON: { success: true, data: { email } }
+     */
+    public function handleAjaxSendNewsletterTest(): void
+    {
+        check_ajax_referer('eim_send_newsletter_test_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions.', 403);
+        }
+
+        $id         = (int) ($_POST['newsletter_id'] ?? 0);
+        $email      = sanitize_email(wp_unslash($_POST['test_email'] ?? ''));
+        $newsletter = Newsletter::find($id);
+
+        if (!$newsletter) {
+            wp_send_json_error('Newsletter not found.');
+        }
+
+        if (!is_email($email)) {
+            wp_send_json_error('Please enter a valid email address.');
+        }
+
+        if ($this->emailService->sendNewsletterTest($newsletter, $email)) {
+            wp_send_json_success(['email' => $email]);
+        } else {
+            wp_send_json_error('Failed to send the test email. Check your server mail configuration.');
+        }
     }
 
     // ─── Page routing ────────────────────────────────────────────────────────
@@ -679,6 +781,66 @@ final class NewslettersPage extends AbstractAdminPage
                     <a href="<?= esc_url($backUrl); ?>" class="button" style="margin-left:8px;">Cancel</a>
                 </p>
             </form>
+
+            <?php if (!$isNew && $newsletter !== null): ?>
+            <?php
+            // Count unique invitees across all linked events (deduplicated by email).
+            $seenEmails     = [];
+            $uniqueInvitees = 0;
+            foreach ($linkedEventIds as $evId) {
+                foreach (Invitee::forEvent($evId) as $inv) {
+                    if ($inv->email !== '' && !isset($seenEmails[$inv->email])) {
+                        $seenEmails[$inv->email] = true;
+                        $uniqueInvitees++;
+                    }
+                }
+            }
+            $nlId = $newsletter->id;
+            ?>
+            <div id="eim-nl-send-panel" style="max-width:900px;margin-top:32px;border-top:2px solid #dcdcde;padding-top:24px;">
+                <h2 class="title">Send Newsletter</h2>
+
+                <?php if (empty($linkedEventIds)): ?>
+                    <p class="description">No events are linked to this newsletter. Add at least one event above to enable sending to invitees.</p>
+                <?php else: ?>
+                    <p class="description" style="margin-bottom:16px;">
+                        This newsletter is linked to
+                        <strong><?= count($linkedEventIds); ?></strong> event<?= count($linkedEventIds) === 1 ? '' : 's'; ?>
+                        with <strong><?= $uniqueInvitees; ?></strong> unique invitee<?= $uniqueInvitees === 1 ? '' : 's'; ?>.
+                    </p>
+                    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:24px;">
+                        <button type="button"
+                                id="eim-nl-send-all"
+                                class="button button-primary"
+                                data-newsletter-id="<?= esc_attr($nlId); ?>"
+                                <?= $uniqueInvitees === 0 ? 'disabled' : ''; ?>>
+                            <?= esc_html('Send to All Invitees (' . $uniqueInvitees . ')'); ?>
+                        </button>
+                        <span id="eim-nl-send-result" style="display:none;font-size:13px;"></span>
+                    </div>
+                <?php endif; ?>
+
+                <h3 style="margin:0 0 6px;font-size:14px;">Send Test Email</h3>
+                <p class="description" style="margin-bottom:8px;">
+                    Send the newsletter to a single address for review before the real send. Template tags like
+                    <code>{{ first_name }}</code> will be replaced with placeholder values.
+                </p>
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                    <input type="email"
+                           id="eim-nl-test-email"
+                           class="regular-text"
+                           placeholder="test@example.com"
+                           style="max-width:260px;">
+                    <button type="button"
+                            id="eim-nl-send-test"
+                            class="button"
+                            data-newsletter-id="<?= esc_attr($nlId); ?>">
+                        Send Test
+                    </button>
+                    <span id="eim-nl-test-result" style="display:none;font-size:13px;"></span>
+                </div>
+            </div>
+            <?php endif; ?>
         </div>
         <script>
         (() => {

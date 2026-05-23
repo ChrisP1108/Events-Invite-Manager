@@ -508,10 +508,159 @@
         }
     }
 
+    // =========================================================================
+    // NewsletterSend — bulk send and test-email UI on the newsletter edit form
+    // =========================================================================
+
+    /**
+     * Handles the "Send to All Invitees" button and the test-email form on the
+     * newsletter edit page. Both actions go via wp-admin AJAX.
+     */
+    class NewsletterSend {
+        /** @type {HTMLButtonElement|null} */
+        #sendBtn;
+
+        /** @type {HTMLElement|null} */
+        #sendResult;
+
+        /** @type {HTMLInputElement|null} */
+        #testInput;
+
+        /** @type {HTMLButtonElement|null} */
+        #testBtn;
+
+        /** @type {HTMLElement|null} */
+        #testResult;
+
+        constructor() {
+            this.#sendBtn    = document.getElementById('eim-nl-send-all');
+            this.#sendResult = document.getElementById('eim-nl-send-result');
+            this.#testInput  = document.getElementById('eim-nl-test-email');
+            this.#testBtn    = document.getElementById('eim-nl-send-test');
+            this.#testResult = document.getElementById('eim-nl-test-result');
+
+            this.#sendBtn?.addEventListener('click', () => this.#handleSendAll());
+            this.#testBtn?.addEventListener('click', () => this.#handleSendTest());
+        }
+
+        /**
+         * Confirms and then sends the newsletter to all linked-event invitees.
+         *
+         * @returns {Promise<void>}
+         */
+        async #handleSendAll() {
+            const newsletterId = this.#sendBtn?.dataset.newsletterId;
+            if (!newsletterId) return;
+
+            if (!window.confirm('Send this newsletter to all invitees of the linked events? This cannot be undone.')) {
+                return;
+            }
+
+            this.#setLoading(this.#sendBtn, true);
+            this.#showResult(this.#sendResult, '', '');
+
+            try {
+                const body = new FormData();
+                body.append('action',        'eim_send_newsletter');
+                body.append('nonce',         config.sendNonce || '');
+                body.append('newsletter_id', newsletterId);
+
+                const resp = await fetch(ajaxurl, { method: 'POST', credentials: 'same-origin', body });
+                const { success, data } = await resp.json();
+
+                if (success) {
+                    const { sent, failed, total } = data;
+                    const msg = failed > 0
+                        ? `Sent ${sent} of ${total}. ${failed} failed — check your server mail configuration.`
+                        : `Successfully sent to all ${sent} invitee${sent === 1 ? '' : 's'}.`;
+                    this.#showResult(this.#sendResult, msg, failed > 0 ? 'warning' : 'success');
+                } else {
+                    this.#showResult(this.#sendResult, data?.message || 'Failed to send.', 'error');
+                }
+            } catch (err) {
+                console.error('[EIM] Send newsletter failed:', err);
+                this.#showResult(this.#sendResult, 'Unexpected error. Check the browser console.', 'error');
+            } finally {
+                this.#setLoading(this.#sendBtn, false);
+            }
+        }
+
+        /**
+         * Sends the newsletter to the test email address entered by the user.
+         *
+         * @returns {Promise<void>}
+         */
+        async #handleSendTest() {
+            const newsletterId = this.#testBtn?.dataset.newsletterId;
+            const email        = this.#testInput?.value.trim() || '';
+
+            if (!email) {
+                this.#showResult(this.#testResult, 'Please enter an email address.', 'error');
+                return;
+            }
+
+            this.#setLoading(this.#testBtn, true);
+            this.#showResult(this.#testResult, '', '');
+
+            try {
+                const body = new FormData();
+                body.append('action',        'eim_send_newsletter_test');
+                body.append('nonce',         config.sendTestNonce || '');
+                body.append('newsletter_id', newsletterId || '');
+                body.append('test_email',    email);
+
+                const resp = await fetch(ajaxurl, { method: 'POST', credentials: 'same-origin', body });
+                const { success, data } = await resp.json();
+
+                if (success) {
+                    this.#showResult(this.#testResult, `Test email sent to ${data.email}.`, 'success');
+                } else {
+                    this.#showResult(this.#testResult, data?.message || 'Failed to send.', 'error');
+                }
+            } catch (err) {
+                console.error('[EIM] Send newsletter test failed:', err);
+                this.#showResult(this.#testResult, 'Unexpected error. Check the browser console.', 'error');
+            } finally {
+                this.#setLoading(this.#testBtn, false);
+            }
+        }
+
+        /**
+         * Toggles a button's disabled state and swaps its label for "Sending…".
+         *
+         * @param {HTMLButtonElement|null} btn
+         * @param {boolean} isLoading
+         * @returns {void}
+         */
+        #setLoading(btn, isLoading) {
+            if (!btn) return;
+            btn.disabled = isLoading;
+            btn.dataset.origText = btn.dataset.origText ?? btn.textContent;
+            btn.textContent = isLoading ? 'Sending…' : (btn.dataset.origText || '');
+        }
+
+        /**
+         * Shows or hides an inline result message with colour coding.
+         *
+         * @param {HTMLElement|null} el
+         * @param {string} message
+         * @param {'success'|'warning'|'error'|''} type
+         * @returns {void}
+         */
+        #showResult(el, message, type) {
+            if (!el) return;
+            if (!message) { el.style.display = 'none'; return; }
+            el.textContent  = message;
+            el.style.color  = type === 'error' ? '#d63638' : type === 'warning' ? '#996800' : '#008000';
+            el.style.display = 'inline';
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
         if (config.table?.enabled) {
             new NewsletterTable();
         }
         new EventPicker('eim-newsletter-event-picker', { nonce: config.suggestEventsNonce || '' });
+        new NewsletterSend();
     });
 })();

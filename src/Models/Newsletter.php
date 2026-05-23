@@ -183,6 +183,72 @@ final class Newsletter
     }
 
     /**
+     * Returns all published newsletters for a given event, ordered by publish_date descending.
+     *
+     * Only newsletters with status = 'published' and publish_date <= NOW (or no publish_date)
+     * are returned. Intended for the public-facing newsletter page.
+     *
+     * @param int $eventId
+     * @return self[]
+     */
+    public static function publishedForEvent(int $eventId): array
+    {
+        global $wpdb;
+
+        $table   = DatabaseManager::newslettersTable();
+        $evTable = DatabaseManager::newsletterEventsTable();
+        $now     = current_time('mysql');
+
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT n.* FROM {$table} n
+                 INNER JOIN {$evTable} ne ON ne.newsletter_id = n.id
+                 WHERE ne.event_id = %d
+                   AND n.status = 'published'
+                   AND (n.publish_date IS NULL OR n.publish_date <= %s)
+                 ORDER BY n.publish_date DESC, n.created_at DESC",
+                $eventId,
+                $now
+            )
+        );
+
+        return array_map(static fn(object $row) => self::fromRow($row), $rows ?? []);
+    }
+
+    /**
+     * Returns one published newsletter linked to an event, or null when it is not public.
+     *
+     * @param int $eventId
+     * @param int $newsletterId
+     * @return self|null
+     */
+    public static function findPublishedForEvent(int $eventId, int $newsletterId): ?self
+    {
+        global $wpdb;
+
+        $table   = DatabaseManager::newslettersTable();
+        $evTable = DatabaseManager::newsletterEventsTable();
+        $now     = current_time('mysql');
+
+        $row = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT n.* FROM {$table} n
+                 INNER JOIN {$evTable} ne ON ne.newsletter_id = n.id
+                 WHERE ne.event_id = %d
+                   AND n.id = %d
+                   AND n.status = 'published'
+                   AND (n.publish_date IS NULL OR n.publish_date <= %s)
+                 LIMIT 1",
+                $eventId,
+                $newsletterId,
+                $now
+            )
+        );
+
+        return $row ? self::fromRow($row) : null;
+    }
+
+    /**
      * Finds a single newsletter by primary key.
      * Events, categories, and tags are NOT populated; call the static helpers
      * separately when building the edit form.

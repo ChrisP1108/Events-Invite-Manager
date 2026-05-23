@@ -11,6 +11,8 @@ use EventsInviteManager\Api\RestController;
 use EventsInviteManager\Database\DatabaseManager;
 use EventsInviteManager\Models\Event;
 use EventsInviteManager\Models\QrCode;
+use EventsInviteManager\Services\RsvpFlowResolver;
+use EventsInviteManager\Services\RsvpFlowResult;
 use EventsInviteManager\Updates\GitHubUpdater;
 
 /**
@@ -101,13 +103,38 @@ final class Plugin
 
         $event = Event::find($qrCode->eventId);
 
-        if ($event === null || $event->rsvpPageId === null) {
+        if ($event === null) {
             return;
         }
 
-        // If the visitor is already on the configured RSVP page, let the page load
-        // normally — redirecting again would cause an immediate redirect loop.
-        if ((int) get_queried_object_id() === $event->rsvpPageId) {
+        $currentPageId = (int) get_queried_object_id();
+        $isEditRequest = $this->isEditRequest();
+
+        // Newsletter pages also receive the confirmation code so their content
+        // can be gated by the public newsletters endpoint.
+        if ($event->newsletterPageId !== null && $currentPageId === $event->newsletterPageId) {
+            return;
+        }
+
+        $flowResult = (new RsvpFlowResolver())->resolve($code);
+        if (
+            !$isEditRequest
+            &&
+            $flowResult->success
+            && $flowResult->nextAction === RsvpFlowResult::ACTION_NEWSLETTER_REDIRECT
+            && $flowResult->newsletterUrl !== null
+        ) {
+            wp_safe_redirect($flowResult->newsletterUrl, 302);
+            exit;
+        }
+
+        if ($event->rsvpPageId === null) {
+            return;
+        }
+
+        // If the visitor is already on the configured RSVP page and still has
+        // required steps, let the page load normally.
+        if ($currentPageId === $event->rsvpPageId) {
             return;
         }
 
@@ -118,9 +145,24 @@ final class Plugin
         }
 
         $redirectUrl = add_query_arg('eim_confirmation', rawurlencode($code), $pageUrl);
+        if ($isEditRequest) {
+            $redirectUrl = add_query_arg('eim_edit', '1', $redirectUrl);
+        }
 
         wp_safe_redirect($redirectUrl, 302);
         exit;
+    }
+
+    /**
+     * Returns true when the QR URL intentionally requests the RSVP edit form.
+     *
+     * @return bool
+     */
+    private function isEditRequest(): bool
+    {
+        $raw = isset($_GET['eim_edit']) ? sanitize_text_field(wp_unslash($_GET['eim_edit'])) : '';
+
+        return in_array(strtolower($raw), ['1', 'true', 'yes'], true);
     }
 
     /**

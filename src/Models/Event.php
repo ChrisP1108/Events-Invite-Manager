@@ -413,7 +413,15 @@ final class Event
      *
      * @return string|null
      */
-    public function newsletterUrl(): ?string
+    /**
+     * Returns the public permalink of the newsletter page assigned to this event,
+     * optionally appending the invitee's confirmation code as a query parameter
+     * so the newsletter page can gate access.
+     *
+     * @param string $confirmationCode When non-empty, appended as ?eim_confirmation={code}.
+     * @return string|null Null when no newsletter_page_id is configured.
+     */
+    public function newsletterUrl(string $confirmationCode = ''): ?string
     {
         if ($this->newsletterPageId === null || $this->newsletterPageId <= 0) {
             return null;
@@ -421,7 +429,15 @@ final class Event
 
         $url = get_permalink($this->newsletterPageId);
 
-        return ($url !== false && $url !== '') ? $url : null;
+        if ($url === false || $url === '') {
+            return null;
+        }
+
+        if ($confirmationCode !== '') {
+            $url = add_query_arg('eim_confirmation', rawurlencode($confirmationCode), $url);
+        }
+
+        return $url;
     }
 
     private static function fromRow(object $row): self

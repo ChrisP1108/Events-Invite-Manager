@@ -36,6 +36,13 @@ final class RsvpFlowResult
     public const ACTION_RSVP_REQUIRED = 'rsvp_required';
 
     /**
+     * All group members have responded and at least one is attending, but the
+     * lodging selection for the group has not yet been confirmed.
+     * The front-end should show the lodging selection form.
+     */
+    public const ACTION_LODGING_REQUIRED = 'lodging_required';
+
+    /**
      * All group members have responded and at least one is attending, but one or
      * more attending members have not yet completed their required menu selection.
      * The front-end should show the menu selection form.
@@ -59,6 +66,7 @@ final class RsvpFlowResult
      * @param Event|null       $event            Resolved event, or null on error.
      * @param InvitationGroup|null $group        Resolved invitation group, or null on error.
      * @param Invitee[]        $members          All members of the group (empty on error).
+     * @param bool             $requiresLodging  True when the event has lodging enabled with at least one option.
      * @param bool             $requiresFood     True when the event has food options enabled with active items.
      * @param bool             $requiresBeverage True when the event has beverage options enabled with active items.
      * @param string|null      $newsletterUrl    Public URL of the newsletter page, or null if not configured.
@@ -70,6 +78,7 @@ final class RsvpFlowResult
         public readonly ?Event           $event,
         public readonly ?InvitationGroup $group,
         public readonly array            $members,
+        public readonly bool             $requiresLodging,
         public readonly bool             $requiresFood,
         public readonly bool             $requiresBeverage,
         public readonly ?string          $newsletterUrl,
@@ -84,6 +93,11 @@ final class RsvpFlowResult
      *
      * @return bool
      */
+    public function needsLodgingSelection(): bool
+    {
+        return $this->nextAction === self::ACTION_LODGING_REQUIRED;
+    }
+
     public function needsMenuSelection(): bool
     {
         return $this->nextAction === self::ACTION_MENU_REQUIRED;

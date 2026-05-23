@@ -92,7 +92,7 @@ final class AdminMenu
         $this->locationsPage        = new LocationsPage();
         $this->menuItemsPage        = new MenuItemsPage();
         $this->budgetPage           = new BudgetPage();
-        $this->newslettersPage      = new NewslettersPage();
+        $this->newslettersPage      = new NewslettersPage($emailService);
 
         $this->aboutPage          = new AboutPage();
         $this->eventsManagerPage  = new EventsManagerPage(
@@ -154,6 +154,8 @@ final class AdminMenu
         add_action('wp_ajax_eim_search_budget_plans',      [$this->budgetPage, 'handleAjaxSearchPlans']);
         add_action('wp_ajax_eim_search_budget_line_items', [$this->budgetPage, 'handleAjaxSearchLineItems']);
         add_action('wp_ajax_eim_search_newsletters',       [$this->newslettersPage, 'handleAjaxSearchNewsletters']);
+        add_action('wp_ajax_eim_send_newsletter',          [$this->newslettersPage, 'handleAjaxSendNewsletter']);
+        add_action('wp_ajax_eim_send_newsletter_test',     [$this->newslettersPage, 'handleAjaxSendNewsletterTest']);
 
         add_filter('script_loader_tag', [$this, 'addModuleTypeToScript'], 10, 2);
     }
@@ -281,6 +283,8 @@ final class AdminMenu
             wp_localize_script('eim-admin-newsletters', 'eimNewslettersAdmin', [
                 'searchNonce'        => wp_create_nonce('eim_search_newsletters_nonce'),
                 'suggestEventsNonce' => wp_create_nonce('eim_suggest_events_nonce'),
+                'sendNonce'          => wp_create_nonce('eim_send_newsletter_nonce'),
+                'sendTestNonce'      => wp_create_nonce('eim_send_newsletter_test_nonce'),
                 'table'              => [
                     'enabled' => !in_array($action, ['add', 'edit'], true),
                     'sort'    => sanitize_key($_GET['sort'] ?? 'title'),
