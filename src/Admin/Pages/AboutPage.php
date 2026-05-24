@@ -92,7 +92,7 @@ final class AboutPage extends AbstractAdminPage
                     Events Invite Manager
                     <span class="eim-about-version">v<?= esc_html(EIM_VERSION); ?></span>
                 </h1>
-                <p>Manage private event invitations, grouped RSVPs, attendee registration, venue and lodging assignments, a global food &amp; beverage menu library, budget tracking, newsletter posts, and automated email workflows — all from the WordPress admin.</p>
+                <p>Manage private event invitations, grouped RSVPs, attendee registration, venue and lodging assignments, a global food &amp; beverage menu library with vendor linkage, budget tracking, newsletter posts, a unified category taxonomy, and automated email workflows — all from the WordPress admin.</p>
             </div>
         </div>
         <?php
@@ -102,6 +102,8 @@ final class AboutPage extends AbstractAdminPage
     private function renderGettingStarted(): void
     {
         $locationsUrl    = AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS, ['action' => 'add']);
+        $vendorsUrl      = AdminMenu::tabUrl(AdminMenu::TAB_VENDORS);
+        $categoriesUrl   = AdminMenu::tabUrl(AdminMenu::TAB_CATEGORIES);
         $menuItemsUrl    = AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS);
         $eventsUrl       = AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'add']);
         $inviteesUrl     = AdminMenu::tabUrl(AdminMenu::TAB_INVITEES);
@@ -128,9 +130,34 @@ final class AboutPage extends AbstractAdminPage
                 <div class="eim-about-step">
                     <div class="eim-about-step-num">2</div>
                     <div>
+                        <h3>Build your vendor library <em style="font-weight:400;color:#646970;">(optional)</em></h3>
+                        <p>
+                            Go to <strong>Vendors</strong> and add every service provider involved in your event — caterers, photographers, florists, and more.
+                            Vendors are linked to food &amp; beverage items and budget line items so costs can be tracked by supplier.
+                            <a href="<?= esc_url($vendorsUrl); ?>">Go to Vendors →</a>
+                        </p>
+                    </div>
+                </div>
+
+                <div class="eim-about-step">
+                    <div class="eim-about-step-num">3</div>
+                    <div>
+                        <h3>Set up categories <em style="font-weight:400;color:#646970;">(optional)</em></h3>
+                        <p>
+                            Go to <strong>Categories</strong> to build your taxonomy. Categories support one level of parent → child hierarchy and can be applied to any entity in the plugin — events, invitees, connection groups, locations, menu items, budget plans, vendors, and newsletters.
+                            Assigned categories appear as clickable chips in every list table.
+                            <a href="<?= esc_url($categoriesUrl); ?>">Go to Categories →</a>
+                        </p>
+                    </div>
+                </div>
+
+                <div class="eim-about-step">
+                    <div class="eim-about-step-num">4</div>
+                    <div>
                         <h3>Build your menu item library <em style="font-weight:400;color:#646970;">(optional)</em></h3>
                         <p>
                             Go to <strong>Food &amp; Beverages</strong> and add the food and drink options you want to offer at your events.
+                            Each item can be linked to a vendor, given a per-person price for budget calculations, and assigned categories.
                             Items are global — create them once and assign them to as many events as needed via an autocomplete picker on each event's edit screen.
                             <a href="<?= esc_url($menuItemsUrl); ?>">Go to Food &amp; Beverages →</a>
                         </p>
@@ -138,7 +165,7 @@ final class AboutPage extends AbstractAdminPage
                 </div>
 
                 <div class="eim-about-step">
-                    <div class="eim-about-step-num">3</div>
+                    <div class="eim-about-step-num">5</div>
                     <div>
                         <h3>Create an event</h3>
                         <p>
@@ -150,18 +177,18 @@ final class AboutPage extends AbstractAdminPage
                 </div>
 
                 <div class="eim-about-step">
-                    <div class="eim-about-step-num">4</div>
+                    <div class="eim-about-step-num">6</div>
                     <div>
                         <h3>Add your invitees</h3>
                         <p>
-                            Go to <strong>Invitees</strong> and add each guest. The searchable invitee table supports a column-filter dropdown so you can search by First Name, Last Name, Email, Phone, Invited Events, or Connection Groups.
+                            Go to <strong>Invitees</strong> and add each guest. The searchable invitee table supports a column-filter dropdown so you can search by First Name, Last Name, Email, Phone, Invited Events, or Connection Groups. A Categories column shows any categories you've assigned to each invitee.
                             <a href="<?= esc_url($inviteesUrl); ?>">Go to Invitees →</a>
                         </p>
                     </div>
                 </div>
 
                 <div class="eim-about-step">
-                    <div class="eim-about-step-num">5</div>
+                    <div class="eim-about-step-num">7</div>
                     <div>
                         <h3>Create connection groups</h3>
                         <p>
@@ -174,7 +201,7 @@ final class AboutPage extends AbstractAdminPage
                 </div>
 
                 <div class="eim-about-step">
-                    <div class="eim-about-step-num">6</div>
+                    <div class="eim-about-step-num">8</div>
                     <div>
                         <h3>Send invites</h3>
                         <p>
@@ -189,7 +216,7 @@ final class AboutPage extends AbstractAdminPage
                 </div>
 
                 <div class="eim-about-step">
-                    <div class="eim-about-step-num">7</div>
+                    <div class="eim-about-step-num">9</div>
                     <div>
                         <h3>Build your RSVP page</h3>
                         <p>
@@ -205,7 +232,7 @@ final class AboutPage extends AbstractAdminPage
                 </div>
 
                 <div class="eim-about-step">
-                    <div class="eim-about-step-num">8</div>
+                    <div class="eim-about-step-num">10</div>
                     <div>
                         <h3>Write newsletters <em style="font-weight:400;color:#646970;">(optional)</em></h3>
                         <p>
@@ -216,7 +243,7 @@ final class AboutPage extends AbstractAdminPage
                 </div>
 
                 <div class="eim-about-step">
-                    <div class="eim-about-step-num">9</div>
+                    <div class="eim-about-step-num">11</div>
                     <div>
                         <h3>Track your budget <em style="font-weight:400;color:#646970;">(optional)</em></h3>
                         <p>
@@ -236,6 +263,16 @@ final class AboutPage extends AbstractAdminPage
     {
         $features = [
             [
+                'icon'  => 'dashicons-store',
+                'title' => 'Vendor Library',
+                'body'  => 'A centralised global library of service providers — caterers, photographers, florists, and more. Vendors are created once and linked to food & beverage items and budget line items so costs can be tracked by supplier. Each record stores company name, address, email, phone, and notes. The Vendors table has AJAX live search, sortable columns, and a Categories column.',
+            ],
+            [
+                'icon'  => 'dashicons-tag',
+                'title' => 'Categories & Taxonomy',
+                'body'  => 'A unified category taxonomy spanning every entity in the plugin. Categories support one level of parent → child hierarchy and can be assigned to events, invitees, connection groups, locations, menu items, budget plans, vendors, and newsletters. Every list table shows a Categories column with teal chip links — clicking a chip opens the category editor. The category picker in add/edit forms also makes chip labels clickable.',
+            ],
+            [
                 'icon'  => 'dashicons-location',
                 'title' => 'Location Library',
                 'body'  => 'A centralised library of reusable locations maintained independently of any event. Locations are created once and selected by name across events via live autocomplete. The Locations table has AJAX live search with a column-filter dropdown (Name, Type, Lodging, Address, Used In) and sortable columns.',
@@ -243,12 +280,12 @@ final class AboutPage extends AbstractAdminPage
             [
                 'icon'  => 'dashicons-food',
                 'title' => 'Food & Beverages Library',
-                'body'  => 'A global library of food and beverage menu items managed from the dedicated Food & Beverages page. Two independent scrollable tables (one per type) each have their own AJAX live search. Items are created once and assigned to individual events via an autocomplete picker — the same pattern as venue and lodging.',
+                'body'  => 'A global library of food and beverage menu items managed from the dedicated Food & Beverages page. Two independent scrollable tables (one per type) each have their own AJAX live search. Each item can be linked to a vendor, given a per-person price for budget calculations, and assigned categories. Items are created once and assigned to individual events via an autocomplete picker.',
             ],
             [
                 'icon'  => 'dashicons-calendar-alt',
                 'title' => 'Event Management',
-                'body'  => 'Create events with name, description, date, start/end time, time zone, an optional invitee cap, and food/beverage option flags. The edit screen is organised into seven tabs — Details, Venue/Location, Invite Email, QR Code & RSVP, Lodging, Food & Beverage, and Invited Invitees — with tab state persisted via localStorage and URL hash. A monthly calendar grid gives a visual overview of all dated events.',
+                'body'  => 'Create events with name, description, date, start/end time, time zone, an optional invitee cap, and food/beverage option flags. The edit screen is organised into seven tabs — Details, Venue/Location, Invite Email, QR Code & RSVP, Lodging, Food & Beverage, and Invited Invitees — with tab state persisted via localStorage and URL hash. A monthly calendar grid gives a visual overview of all dated events. The events list below the calendar supports AJAX live search, sortable columns, and pagination.',
             ],
             [
                 'icon'  => 'dashicons-admin-home',

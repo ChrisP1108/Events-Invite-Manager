@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: Events Invite Manager
- * Description: Manages the inviting and registration of attendees for events, with custom email templates, QR code generating functionality, and a front-end registration API.
+ * Description: Manages the inviting and registration of attendees for events, with custom email templates, budgeting and vendors management, QR code generating functionality, and a front-end registration API.
  * Version:     1.7.1
  * Requires PHP: 8.1
  * Author:      Chris Paschall

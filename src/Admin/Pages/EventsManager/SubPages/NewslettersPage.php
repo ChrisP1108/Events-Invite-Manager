@@ -8,24 +8,21 @@ if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Admin\AbstractAdminPage;
 use EventsInviteManager\Admin\AdminMenu;
-use EventsInviteManager\Database\DatabaseManager;
 use EventsInviteManager\Email\EmailService;
+use EventsInviteManager\Models\Category;
 use EventsInviteManager\Models\Event;
 use EventsInviteManager\Models\Invitee;
 use EventsInviteManager\Models\Newsletter;
-use EventsInviteManager\Models\NewsletterCategory;
 use EventsInviteManager\Models\NewsletterTag;
 
 /**
- * Admin CRUD page for newsletter posts, including category and tag management.
+ * Admin CRUD page for newsletter posts, including tag management.
  *
  * Actions handled:
- *   save_newsletter            — create or update a newsletter
- *   delete_newsletter          — delete a newsletter
- *   add_newsletter_category    — create a category
- *   delete_newsletter_category — delete a category
- *   add_newsletter_tag         — create a tag
- *   delete_newsletter_tag      — delete a tag
+ *   save_newsletter   — create or update a newsletter
+ *   delete_newsletter — delete a newsletter
+ *   add_newsletter_tag    — create a tag
+ *   delete_newsletter_tag — delete a tag
  */
 final class NewslettersPage extends AbstractAdminPage
 {
@@ -39,7 +36,6 @@ final class NewslettersPage extends AbstractAdminPage
      */
     public function __construct(EmailService $emailService)
     {
-        DatabaseManager::maybeCreateNewsletterTables();
         $this->emailService = $emailService;
     }
 
@@ -53,13 +49,11 @@ final class NewslettersPage extends AbstractAdminPage
     public function handleAction(string $action): void
     {
         match ($action) {
-            'save_newsletter'       => $this->handleSaveNewsletter(),
-            'delete_newsletter'     => $this->handleDeleteNewsletter(),
-            'add_newsletter_category'    => $this->handleAddCategory(),
-            'delete_newsletter_category' => $this->handleDeleteCategory(),
-            'add_newsletter_tag'         => $this->handleAddTag(),
-            'delete_newsletter_tag'      => $this->handleDeleteTag(),
-            default                 => null,
+            'save_newsletter'      => $this->handleSaveNewsletter(),
+            'delete_newsletter'    => $this->handleDeleteNewsletter(),
+            'add_newsletter_tag'   => $this->handleAddTag(),
+            'delete_newsletter_tag' => $this->handleDeleteTag(),
+            default                => null,
         };
     }
 
@@ -226,14 +220,14 @@ final class NewslettersPage extends AbstractAdminPage
             ? wp_kses_post(wp_unslash($_POST['newsletter_content']))
             : '';
 
+        $categoryIds = array_map('intval', (array) ($_POST['category_ids'] ?? []));
         $data = [
             'title'        => sanitize_text_field(wp_unslash($_POST['title']        ?? '')),
             'content'      => $content,
             'status'       => sanitize_key($_POST['status']       ?? 'draft'),
             'publish_date' => sanitize_text_field(wp_unslash($_POST['publish_date'] ?? '')),
-            'event_ids'    => array_map('intval', (array) ($_POST['event_ids']    ?? [])),
-            'category_ids' => array_map('intval', (array) ($_POST['category_ids'] ?? [])),
-            'tag_ids'      => array_map('intval', (array) ($_POST['tag_ids']      ?? [])),
+            'event_ids'    => array_map('intval', (array) ($_POST['event_ids'] ?? [])),
+            'tag_ids'      => array_map('intval', (array) ($_POST['tag_ids']   ?? [])),
         ];
 
         if (empty($data['title'])) {
@@ -247,9 +241,13 @@ final class NewslettersPage extends AbstractAdminPage
 
         if ($id > 0) {
             Newsletter::update($id, $data);
+            Category::syncToEntity('newsletter', $id, $categoryIds);
             $message = 'newsletter_updated';
         } else {
-            $id      = Newsletter::create($data);
+            $newId = Newsletter::create($data);
+            if (is_int($newId) && $newId > 0) {
+                Category::syncToEntity('newsletter', $newId, $categoryIds);
+            }
             $message = 'newsletter_created';
         }
 
@@ -270,42 +268,6 @@ final class NewslettersPage extends AbstractAdminPage
         Newsletter::delete($id);
 
         wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_NEWSLETTERS, ['eim_message' => 'newsletter_deleted']));
-        exit;
-    }
-
-    /** Handles creating a new newsletter category from the taxonomy panel form. */
-    private function handleAddCategory(): void
-    {
-        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_add_newsletter_category')) {
-            wp_die('Security check failed.');
-        }
-
-        $name = sanitize_text_field(wp_unslash($_POST['category_name'] ?? ''));
-
-        if (empty($name)) {
-            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_NEWSLETTERS, ['eim_error' => 'nl_category_name_required']));
-            exit;
-        }
-
-        NewsletterCategory::create($name);
-
-        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_NEWSLETTERS, ['eim_message' => 'nl_category_added', '#' => 'eim-nl-taxonomy-panel']));
-        exit;
-    }
-
-    /** Handles deleting a newsletter category via a GET nonce link. */
-    private function handleDeleteCategory(): void
-    {
-        $id    = (int) ($_GET['id'] ?? 0);
-        $nonce = (string) ($_GET['_wpnonce'] ?? '');
-
-        if (!wp_verify_nonce($nonce, 'eim_delete_nl_category_' . $id)) {
-            wp_die('Security check failed.');
-        }
-
-        NewsletterCategory::delete($id);
-
-        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_NEWSLETTERS, ['eim_message' => 'nl_category_deleted']));
         exit;
     }
 
@@ -360,7 +322,6 @@ final class NewslettersPage extends AbstractAdminPage
         $total       = count($all);
         $newsletters = array_slice($all, 0, 10);
         $addUrl      = AdminMenu::tabUrl(AdminMenu::TAB_NEWSLETTERS, ['action' => 'add']);
-        $categories  = NewsletterCategory::all();
         $tags        = NewsletterTag::all();
         ?>
         <div class="wrap">
@@ -419,7 +380,7 @@ final class NewslettersPage extends AbstractAdminPage
             <?php endif; ?>
         </div>
 
-        <?php $this->renderTaxonomyPanel($categories, $tags); ?>
+        <?php $this->renderTaxonomyPanel($tags); ?>
         <?php
     }
 
@@ -465,15 +426,11 @@ final class NewslettersPage extends AbstractAdminPage
                     <?php endif; ?>
                 </td>
                 <td>
-                    <?php if (empty($nl->categories)): ?>
-                        <span style="color:#999;">—</span>
-                    <?php else: ?>
-                        <span class="eim-tag-list">
-                            <?php foreach ($nl->categories as $cat): ?>
-                                <span class="eim-event-tag"><?= esc_html($cat['name']); ?></span>
-                            <?php endforeach; ?>
-                        </span>
-                    <?php endif; ?>
+                    <?php foreach ($nl->categories as $cat): ?>
+                        <?php $catEditUrl = AdminMenu::tabUrl(AdminMenu::TAB_CATEGORIES, ['action' => 'edit', 'id' => $cat['id']]); ?>
+                        <a href="<?= esc_url($catEditUrl); ?>" class="eim-cat-chip"><?= esc_html($cat['name']); ?></a>
+                    <?php endforeach; ?>
+                    <?php if (empty($nl->categories)): ?><span style="color:#999;">—</span><?php endif; ?>
                 </td>
                 <td>
                     <?php if (empty($nl->tags)): ?>
@@ -505,95 +462,52 @@ final class NewslettersPage extends AbstractAdminPage
     // ─── Taxonomy management panel ───────────────────────────────────────────
 
     /**
-     * Renders the collapsible panel for managing categories and tags inline.
+     * Renders the collapsible panel for managing newsletter tags inline.
      *
-     * @param NewsletterCategory[] $categories
-     * @param NewsletterTag[]      $tags
+     * @param NewsletterTag[] $tags
      */
-    private function renderTaxonomyPanel(array $categories, array $tags): void
+    private function renderTaxonomyPanel(array $tags): void
     {
-        $catAction = AdminMenu::tabUrl(AdminMenu::TAB_NEWSLETTERS);
         $tagAction = AdminMenu::tabUrl(AdminMenu::TAB_NEWSLETTERS);
         ?>
-        <div id="eim-nl-taxonomy-panel" style="max-width:900px;margin-top:24px;">
+        <div id="eim-nl-taxonomy-panel" style="max-width:480px;margin-top:24px;">
             <details>
                 <summary style="cursor:pointer;font-weight:600;font-size:14px;padding:8px 0;">
-                    Manage Categories &amp; Tags
+                    Manage Tags
                 </summary>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:16px;">
-
-                    <!-- Categories -->
-                    <div>
-                        <h3 style="margin-top:0;">Categories</h3>
-                        <?php if (empty($categories)): ?>
-                            <p class="description">No categories yet.</p>
-                        <?php else: ?>
-                            <ul style="margin:0 0 12px;padding:0;list-style:none;">
-                                <?php foreach ($categories as $cat): ?>
-                                    <?php
-                                    $delUrl = wp_nonce_url(
-                                        AdminMenu::tabUrl(AdminMenu::TAB_NEWSLETTERS, [
-                                            'action' => 'delete_newsletter_category',
-                                            'id'     => $cat->id,
-                                        ]),
-                                        'eim_delete_nl_category_' . $cat->id
-                                    );
-                                    ?>
-                                    <li style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #f0f0f1;">
-                                        <span style="flex:1;"><?= esc_html($cat->name); ?></span>
-                                        <a href="<?= esc_url($delUrl); ?>"
-                                           style="color:#d63638;font-size:12px;"
-                                           onclick="return confirm('Delete category &quot;<?= esc_js($cat->name); ?>&quot;? It will be removed from all newsletters.');">
-                                            Delete
-                                        </a>
-                                    </li>
-                                <?php endforeach; ?>
-                            </ul>
-                        <?php endif; ?>
-                        <form method="post" action="<?= esc_url($catAction); ?>" style="display:flex;gap:8px;">
-                            <?php wp_nonce_field('eim_add_newsletter_category'); ?>
-                            <input type="hidden" name="eim_action" value="add_newsletter_category">
-                            <input type="text" name="category_name" class="regular-text" placeholder="New category name" required>
-                            <button type="submit" class="button">Add</button>
-                        </form>
-                    </div>
-
-                    <!-- Tags -->
-                    <div>
-                        <h3 style="margin-top:0;">Tags</h3>
-                        <?php if (empty($tags)): ?>
-                            <p class="description">No tags yet.</p>
-                        <?php else: ?>
-                            <ul style="margin:0 0 12px;padding:0;list-style:none;">
-                                <?php foreach ($tags as $tag): ?>
-                                    <?php
-                                    $delUrl = wp_nonce_url(
-                                        AdminMenu::tabUrl(AdminMenu::TAB_NEWSLETTERS, [
-                                            'action' => 'delete_newsletter_tag',
-                                            'id'     => $tag->id,
-                                        ]),
-                                        'eim_delete_nl_tag_' . $tag->id
-                                    );
-                                    ?>
-                                    <li style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #f0f0f1;">
-                                        <span style="flex:1;"><?= esc_html($tag->name); ?></span>
-                                        <a href="<?= esc_url($delUrl); ?>"
-                                           style="color:#d63638;font-size:12px;"
-                                           onclick="return confirm('Delete tag &quot;<?= esc_js($tag->name); ?>&quot;? It will be removed from all newsletters.');">
-                                            Delete
-                                        </a>
-                                    </li>
-                                <?php endforeach; ?>
-                            </ul>
-                        <?php endif; ?>
-                        <form method="post" action="<?= esc_url($tagAction); ?>" style="display:flex;gap:8px;">
-                            <?php wp_nonce_field('eim_add_newsletter_tag'); ?>
-                            <input type="hidden" name="eim_action" value="add_newsletter_tag">
-                            <input type="text" name="tag_name" class="regular-text" placeholder="New tag name" required>
-                            <button type="submit" class="button">Add</button>
-                        </form>
-                    </div>
-
+                <div style="margin-top:16px;">
+                    <h3 style="margin-top:0;">Tags</h3>
+                    <?php if (empty($tags)): ?>
+                        <p class="description">No tags yet.</p>
+                    <?php else: ?>
+                        <ul style="margin:0 0 12px;padding:0;list-style:none;">
+                            <?php foreach ($tags as $tag): ?>
+                                <?php
+                                $delUrl = wp_nonce_url(
+                                    AdminMenu::tabUrl(AdminMenu::TAB_NEWSLETTERS, [
+                                        'action' => 'delete_newsletter_tag',
+                                        'id'     => $tag->id,
+                                    ]),
+                                    'eim_delete_nl_tag_' . $tag->id
+                                );
+                                ?>
+                                <li style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #f0f0f1;">
+                                    <span style="flex:1;"><?= esc_html($tag->name); ?></span>
+                                    <a href="<?= esc_url($delUrl); ?>"
+                                       style="color:#d63638;font-size:12px;"
+                                       onclick="return confirm('Delete tag &quot;<?= esc_js($tag->name); ?>&quot;? It will be removed from all newsletters.');">
+                                        Delete
+                                    </a>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php endif; ?>
+                    <form method="post" action="<?= esc_url($tagAction); ?>" style="display:flex;gap:8px;">
+                        <?php wp_nonce_field('eim_add_newsletter_tag'); ?>
+                        <input type="hidden" name="eim_action" value="add_newsletter_tag">
+                        <input type="text" name="tag_name" class="regular-text" placeholder="New tag name" required>
+                        <button type="submit" class="button">Add</button>
+                    </form>
                 </div>
             </details>
         </div>
@@ -615,18 +529,24 @@ final class NewslettersPage extends AbstractAdminPage
         $backUrl    = AdminMenu::tabUrl(AdminMenu::TAB_NEWSLETTERS);
         $title      = $isNew ? 'Add Newsletter' : 'Edit Newsletter';
 
-        $allCategories = NewsletterCategory::all();
-        $allTags       = NewsletterTag::all();
+        $allTags = NewsletterTag::all();
 
         // For edit: fetch current associations.
-        $linkedEventIds    = [];
-        $linkedCategoryIds = [];
-        $linkedTagIds      = [];
+        $linkedEventIds = [];
+        $selCats        = [];
+        $linkedTagIds   = [];
 
         if (!$isNew) {
-            $linkedEventIds    = array_column(Newsletter::eventsForNewsletter($newsletter->id),     'id');
-            $linkedCategoryIds = array_column(Newsletter::categoriesForNewsletter($newsletter->id), 'id');
-            $linkedTagIds      = array_column(Newsletter::tagsForNewsletter($newsletter->id),       'id');
+            $linkedEventIds = array_column(Newsletter::eventsForNewsletter($newsletter->id), 'id');
+            foreach (Category::forEntity('newsletter', $newsletter->id) as $cat) {
+                $selCats[] = [
+                    'id'          => $cat->id,
+                    'name'        => $cat->name,
+                    'parent_name' => $cat->parentName,
+                    'label'       => $cat->parentName ? $cat->parentName . ' › ' . $cat->name : $cat->name,
+                ];
+            }
+            $linkedTagIds = array_column(Newsletter::tagsForNewsletter($newsletter->id), 'id');
         }
 
         $currentStatus      = $isNew ? 'draft'  : $newsletter->status;
@@ -697,24 +617,12 @@ final class NewslettersPage extends AbstractAdminPage
                             <p class="description" style="margin-top:8px;">Associate this newsletter with one or more events.</p>
                         </td>
                     </tr>
-                    <?php if (!empty($allCategories)): ?>
                     <tr>
-                        <th scope="row">Categories</th>
+                        <th scope="row"><label>Categories</label></th>
                         <td>
-                            <fieldset>
-                                <legend class="screen-reader-text">Categories</legend>
-                                <?php foreach ($allCategories as $cat): ?>
-                                    <label style="display:inline-block;margin-right:16px;margin-bottom:4px;">
-                                        <input type="checkbox" name="category_ids[]"
-                                               value="<?= esc_attr($cat->id); ?>"
-                                               <?= in_array($cat->id, $linkedCategoryIds, true) ? 'checked' : ''; ?>>
-                                        <?= esc_html($cat->name); ?>
-                                    </label>
-                                <?php endforeach; ?>
-                            </fieldset>
+                            <?php $this->renderCategoryPicker('eim-newsletter-cat-picker', $selCats, wp_create_nonce('eim_suggest_categories_nonce')); ?>
                         </td>
                     </tr>
-                    <?php endif; ?>
                     <?php if (!empty($allTags)): ?>
                     <tr>
                         <th scope="row">Tags</th>

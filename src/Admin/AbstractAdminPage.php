@@ -224,6 +224,9 @@ abstract class AbstractAdminPage
             'vendor_created'             => 'Vendor added to library.',
             'vendor_updated'             => 'Vendor updated.',
             'vendor_deleted'             => 'Vendor deleted.',
+            'category_created'           => 'Category created.',
+            'category_updated'           => 'Category updated.',
+            'category_deleted'           => 'Category deleted.',
         ];
 
         $errors = [
@@ -253,6 +256,7 @@ abstract class AbstractAdminPage
             'nl_category_name_required'  => 'A category name is required.',
             'nl_tag_name_required'       => 'A tag name is required.',
             'vendor_name_required'       => 'A company name is required to save a vendor.',
+            'category_name_required'     => 'A category name is required.',
         ];
 
         if (isset($successes[$messageKey])) {
@@ -262,6 +266,36 @@ abstract class AbstractAdminPage
         if (isset($errors[$errorKey])) {
             echo '<div class="notice notice-error is-dismissible"><p>' . esc_html($errors[$errorKey]) . '</p></div>';
         }
+    }
+
+    /**
+     * Renders a multi-select typeahead category picker.
+     *
+     * The rendered container is picked up by EimCategoryPicker (admin-categories.js)
+     * on DOMContentLoaded. Selected category IDs are submitted as hidden inputs
+     * named $inputName (default "category_ids[]").
+     *
+     * @param string $containerId HTML id for the outer wrapper div.
+     * @param array  $selected    Pre-selected categories — each must have keys id, name,
+     *                            parent_name (string|null), and label (string).
+     * @param string $nonce       Value of the eim_suggest_categories nonce.
+     * @param string $inputName   Form field name for the submitted IDs.
+     */
+    protected function renderCategoryPicker(
+        string $containerId,
+        array  $selected,
+        string $nonce,
+        string $inputName = 'category_ids[]'
+    ): void {
+        $selectedJson = wp_json_encode(array_values($selected));
+        ?>
+        <div id="<?= esc_attr($containerId); ?>"
+             class="eim-category-picker"
+             data-nonce="<?= esc_attr($nonce); ?>"
+             data-input-name="<?= esc_attr($inputName); ?>"
+             data-selected="<?= esc_attr($selectedJson); ?>">
+        </div>
+        <?php
     }
 
     /**

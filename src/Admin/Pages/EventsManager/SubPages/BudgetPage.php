@@ -8,9 +8,9 @@ if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Admin\AbstractAdminPage;
 use EventsInviteManager\Admin\AdminMenu;
-use EventsInviteManager\Database\DatabaseManager;
 use EventsInviteManager\Models\BudgetLineItem;
 use EventsInviteManager\Models\BudgetPlan;
+use EventsInviteManager\Models\Category;
 use EventsInviteManager\Models\Event;
 use EventsInviteManager\Models\MenuItem;
 use EventsInviteManager\Models\Vendor;
@@ -102,8 +102,6 @@ final class BudgetPage extends AbstractAdminPage
      */
     public function handleAction(string $action): void
     {
-        DatabaseManager::maybeCreateBudgetTables();
-
         match ($action) {
             'save_budget_plan'        => $this->handleSavePlan(),
             'delete_budget_plan'      => $this->handleDeletePlan(),
@@ -116,8 +114,6 @@ final class BudgetPage extends AbstractAdminPage
     /** Renders the Budget admin page, routing to the list, add form, or plan detail view. */
     public function renderPage(): void
     {
-        DatabaseManager::maybeCreateBudgetTables();
-
         $action = $_GET['action'] ?? 'list';
 
         match ($action) {
@@ -161,6 +157,9 @@ final class BudgetPage extends AbstractAdminPage
         if ($id > 0) {
             BudgetPlan::update($id, $data);
             BudgetPlan::setEvents($id, $eventIds);
+            if (array_key_exists('category_ids', $_POST)) {
+                Category::syncToEntity('budget_plan', $id, array_map('intval', (array) $_POST['category_ids']));
+            }
             wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_BUDGET, [
                 'action'      => 'edit',
                 'id'          => $id,
@@ -176,6 +175,7 @@ final class BudgetPage extends AbstractAdminPage
                 exit;
             }
             BudgetPlan::setEvents($plan->id, $eventIds);
+            Category::syncToEntity('budget_plan', $plan->id, $categoryIds);
             wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_BUDGET, [
                 'action'      => 'edit',
                 'id'          => $plan->id,
@@ -193,6 +193,7 @@ final class BudgetPage extends AbstractAdminPage
         if (!wp_verify_nonce($nonce, 'eim_delete_budget_plan_' . $id)) {
             wp_die('Security check failed.');
         }
+        Category::syncToEntity('budget_plan', $id, []);
         BudgetPlan::delete($id);
         wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_BUDGET, ['eim_message' => 'budget_plan_deleted']));
         exit;
@@ -376,11 +377,12 @@ final class BudgetPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
-                        <th style="width:25%;"><?= $this->sortLink('Plan Name', 'name',      AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_BUDGET]); ?></th>
-                        <th style="width:20%;"><?= $this->sortLink('Events',    'events',    AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_BUDGET]); ?></th>
-                        <th style="width:12%;"><?= $this->sortLink('Target',    'target',    AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_BUDGET]); ?></th>
-                        <th style="width:12%;"><?= $this->sortLink('Estimated', 'estimated', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_BUDGET]); ?></th>
-                        <th style="width:11%;"><?= $this->sortLink('Paid',      'paid',      AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_BUDGET]); ?></th>
+                        <th style="width:22%;"><?= $this->sortLink('Plan Name', 'name',      AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_BUDGET]); ?></th>
+                        <th style="width:18%;"><?= $this->sortLink('Events',    'events',    AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_BUDGET]); ?></th>
+                        <th style="width:11%;"><?= $this->sortLink('Target',    'target',    AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_BUDGET]); ?></th>
+                        <th style="width:11%;"><?= $this->sortLink('Estimated', 'estimated', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_BUDGET]); ?></th>
+                        <th style="width:10%;"><?= $this->sortLink('Paid',      'paid',      AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_BUDGET]); ?></th>
+                        <th style="width:14%;">Categories</th>
                         <th style="width:12%;">Actions</th>
                     </tr>
                 </thead>
@@ -407,9 +409,12 @@ final class BudgetPage extends AbstractAdminPage
     {
         if (empty($plans)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No budget plans found.';
-            echo '<tr class="eim-no-results"><td colspan="6">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="7">' . esc_html($msg) . '</td></tr>';
             return;
         }
+
+        $planIds    = array_map(static fn(BudgetPlan $p): int => $p->id, $plans);
+        $catsByPlan = Category::forEntities('budget_plan', $planIds);
 
         foreach ($plans as $plan) {
             $editUrl   = AdminMenu::tabUrl(AdminMenu::TAB_BUDGET, ['action' => 'edit', 'id' => $plan->id]);
@@ -418,6 +423,7 @@ final class BudgetPage extends AbstractAdminPage
                 'eim_delete_budget_plan_' . $plan->id
             );
             $events = $plan->events();
+            $cats   = $catsByPlan[$plan->id] ?? [];
             ?>
             <tr>
                 <td><strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($plan->name); ?></a></strong>
@@ -436,6 +442,13 @@ final class BudgetPage extends AbstractAdminPage
                 <td><?= esc_html($plan->formattedEstimated()); ?></td>
                 <td style="color:<?= $plan->paidCents() > 0 ? '#00a32a' : '#999'; ?>">
                     <?= esc_html($plan->paidCents() > 0 ? $plan->formattedPaid() : '—'); ?>
+                </td>
+                <td>
+                    <?php foreach ($cats as $cat): ?>
+                        <?php $catEditUrl = AdminMenu::tabUrl(AdminMenu::TAB_CATEGORIES, ['action' => 'edit', 'id' => $cat->id]); ?>
+                        <a href="<?= esc_url($catEditUrl); ?>" class="eim-cat-chip"><?= esc_html($cat->parentName ? $cat->parentName . ' › ' . $cat->name : $cat->name); ?></a>
+                    <?php endforeach; ?>
+                    <?php if (empty($cats)): ?><span style="color:#999;">—</span><?php endif; ?>
                 </td>
                 <td>
                     <a href="<?= esc_url($editUrl); ?>">Edit</a> |
@@ -517,6 +530,26 @@ final class BudgetPage extends AbstractAdminPage
                             <p class="description" style="margin-top:8px;">Associate this budget plan with one or more events.</p>
                         </td>
                     </tr>
+                    <tr>
+                        <th scope="row"><label>Categories</label></th>
+                        <td>
+                            <?php
+                            $selCats  = [];
+                            $catNonce = wp_create_nonce('eim_suggest_categories_nonce');
+                            if (!$isNew) {
+                                foreach (Category::forEntity('budget_plan', $plan->id) as $cat) {
+                                    $selCats[] = [
+                                        'id'          => $cat->id,
+                                        'name'        => $cat->name,
+                                        'parent_name' => $cat->parentName,
+                                        'label'       => $cat->parentName ? $cat->parentName . ' › ' . $cat->name : $cat->name,
+                                    ];
+                                }
+                            }
+                            $this->renderCategoryPicker('eim-budget-plan-cat-picker', $selCats, $catNonce);
+                            ?>
+                        </td>
+                    </tr>
                 </table>
 
                 <?php submit_button($isNew ? 'Create Plan' : 'Update Plan'); ?>
@@ -541,25 +574,16 @@ final class BudgetPage extends AbstractAdminPage
         $error     = (string) ($_GET['eim_error']   ?? '');
         $backUrl   = AdminMenu::tabUrl(AdminMenu::TAB_BUDGET);
         $events    = $plan->events();
-        $allItems  = BudgetLineItem::forPlan($plan->id);
         $allEvents = Event::all();
 
         // Initial line items with default sort
         $liSort  = $this->sanitizeLineItemSortKey(sanitize_key($_GET['li_sort']  ?? 'sort_order'));
         $liOrder = strtolower((string) ($_GET['li_order'] ?? 'asc')) === 'desc' ? 'desc' : 'asc';
-        $liAll   = BudgetLineItem::searchForPlan($plan->id, '', $liSort, $liOrder);
-        $liTotal = count($liAll);
-        $liItems = array_slice($liAll, 0, 10);
+        $liAll    = BudgetLineItem::searchForPlan($plan->id, '', $liSort, $liOrder);
+        $liTotal  = count($liAll);
+        $liItems  = array_slice($liAll, 0, 10);
+        $planCats = Category::forEntity('budget_plan', $plan->id);
 
-        // Category summary — group by vendor's category (all items, not filtered)
-        $allVendorIds  = array_values(array_filter(array_map(static fn(BudgetLineItem $i) => $i->vendorId, $allItems)));
-        $allVendorsMap = Vendor::findMany($allVendorIds);
-        $byCategory    = [];
-        foreach ($allItems as $item) {
-            $v       = $item->vendorId ? ($allVendorsMap[$item->vendorId] ?? null) : null;
-            $catSlug = $v ? $v->category : 'other';
-            $byCategory[$catSlug][] = $item;
-        }
         ?>
         <div class="wrap">
             <h1><?= esc_html('Budget: ' . $plan->name); ?></h1>
@@ -596,56 +620,6 @@ final class BudgetPage extends AbstractAdminPage
                 <?php endif; ?>
             </div>
 
-            <?php /* Category summary — client-side sortable */ ?>
-            <?php if (count($byCategory) >= 2): ?>
-                <h2 style="margin-top:24px;">Summary by Category</h2>
-                <table id="eim-budget-category-table"
-                       class="wp-list-table widefat fixed striped"
-                       style="max-width:600px;"
-                       data-sort="category"
-                       data-order="asc">
-                    <thead>
-                        <tr>
-                            <th><a href="#" class="eim-sort-link eim-cat-sort" data-sort="category" data-order="desc">Category <span aria-hidden="true">^</span></a></th>
-                            <th style="width:22%;"><a href="#" class="eim-sort-link eim-cat-sort" data-sort="estimated" data-order="asc">Estimated <span aria-hidden="true"></span></a></th>
-                            <th style="width:22%;"><a href="#" class="eim-sort-link eim-cat-sort" data-sort="paid" data-order="asc">Paid <span aria-hidden="true"></span></a></th>
-                        </tr>
-                    </thead>
-                    <tbody id="eim-budget-category-tbody">
-                        <?php foreach ($byCategory as $cat => $catItems): ?>
-                            <?php
-                            $catEstimated = array_sum(array_map(static fn(BudgetLineItem $i) => $i->estimatedCents(), $catItems));
-                            $catPaid      = array_sum(array_map(static fn(BudgetLineItem $i) => $i->paidAmountCents, $catItems));
-                            $catLabel     = Vendor::CATEGORIES[$cat] ?? ucfirst($cat);
-                            ?>
-                            <tr>
-                                <td data-val="<?= esc_attr(strtolower($catLabel)); ?>"><?= esc_html($catLabel); ?></td>
-                                <td data-val="<?= esc_attr($catEstimated); ?>"><?= esc_html(BudgetPlan::formatCents($catEstimated)); ?></td>
-                                <td data-val="<?= esc_attr($catPaid); ?>"><?= esc_html(BudgetPlan::formatCents($catPaid)); ?></td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            <?php elseif (count($byCategory) === 1): ?>
-                <h2 style="margin-top:24px;">Summary by Category</h2>
-                <table class="wp-list-table widefat fixed striped" style="max-width:600px;">
-                    <thead><tr><th>Category</th><th style="width:22%;">Estimated</th><th style="width:22%;">Paid</th></tr></thead>
-                    <tbody>
-                        <?php foreach ($byCategory as $cat => $catItems): ?>
-                            <?php
-                            $catLabel     = Vendor::CATEGORIES[$cat] ?? ucfirst($cat);
-                            $catEstimated = array_sum(array_map(static fn(BudgetLineItem $i) => $i->estimatedCents(), $catItems));
-                            $catPaid      = array_sum(array_map(static fn(BudgetLineItem $i) => $i->paidAmountCents, $catItems));
-                            ?>
-                            <tr>
-                                <td><?= esc_html($catLabel); ?></td>
-                                <td><?= esc_html(BudgetPlan::formatCents($catEstimated)); ?></td>
-                                <td><?= esc_html(BudgetPlan::formatCents($catPaid)); ?></td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            <?php endif; ?>
 
             <?php /* Line items — AJAX searchable + sortable */ ?>
             <hr id="eim-budget-line-items" style="margin:28px 0 16px;">
@@ -659,10 +633,9 @@ final class BudgetPage extends AbstractAdminPage
                 $liTotal,
                 '',
                 [
-                    ['value' => 'label',    'label' => 'Label'],
-                    ['value' => 'category', 'label' => 'Category'],
-                    ['value' => 'event',    'label' => 'Event'],
-                    ['value' => 'vendor',   'label' => 'Vendor'],
+                    ['value' => 'label',  'label' => 'Label'],
+                    ['value' => 'event',  'label' => 'Event'],
+                    ['value' => 'vendor', 'label' => 'Vendor'],
                 ],
                 ''
             ); ?>
@@ -676,9 +649,8 @@ final class BudgetPage extends AbstractAdminPage
                    data-total="<?= esc_attr($liTotal); ?>">
                 <thead>
                     <tr>
-                        <th style="width:21%;"><?= $this->lineItemSortLink('Label',     'label',      $liSort, $liOrder); ?></th>
-                        <th style="width:11%;"><?= $this->lineItemSortLink('Category',  'category',   $liSort, $liOrder); ?></th>
-                        <th style="width:13%;"><?= $this->lineItemSortLink('Event',     'event',      $liSort, $liOrder); ?></th>
+                        <th style="width:24%;"><?= $this->lineItemSortLink('Label',   'label',    $liSort, $liOrder); ?></th>
+                        <th style="width:15%;"><?= $this->lineItemSortLink('Event',   'event',    $liSort, $liOrder); ?></th>
                         <th style="width:9%;"><?= $this->lineItemSortLink('Qty',        'quantity',   $liSort, $liOrder); ?></th>
                         <th style="width:10%;"><?= $this->lineItemSortLink('Unit Cost', 'unit_cost',  $liSort, $liOrder); ?></th>
                         <th style="width:10%;"><?= $this->lineItemSortLink('Estimated', 'estimated',  $liSort, $liOrder); ?></th>
@@ -727,6 +699,23 @@ final class BudgetPage extends AbstractAdminPage
                                     <?= esc_html($event->name); ?>
                                 </label>
                             <?php endforeach; ?>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label>Categories</label></th>
+                        <td>
+                            <?php
+                            $selCats2 = [];
+                            foreach ($planCats as $cat) {
+                                $selCats2[] = [
+                                    'id'          => $cat->id,
+                                    'name'        => $cat->name,
+                                    'parent_name' => $cat->parentName,
+                                    'label'       => $cat->parentName ? $cat->parentName . ' › ' . $cat->name : $cat->name,
+                                ];
+                            }
+                            $this->renderCategoryPicker('eim-budget-plan-cat-picker2', $selCats2, wp_create_nonce('eim_suggest_categories_nonce'));
+                            ?>
                         </td>
                     </tr>
                 </table>
@@ -900,7 +889,7 @@ final class BudgetPage extends AbstractAdminPage
      */
     private function sanitizeLineItemSortKey(string $key): string
     {
-        return in_array($key, ['sort_order', 'label', 'category', 'vendor', 'event', 'quantity', 'unit_cost', 'estimated', 'paid'], true)
+        return in_array($key, ['sort_order', 'label', 'vendor', 'event', 'quantity', 'unit_cost', 'estimated', 'paid'], true)
             ? $key
             : 'sort_order';
     }
@@ -967,7 +956,6 @@ final class BudgetPage extends AbstractAdminPage
                         <br><span style="color:#999;font-size:11px;font-style:italic;"><?= esc_html(wp_trim_words($item->notes, 8, '…')); ?></span>
                     <?php endif; ?>
                 </td>
-                <td><?= esc_html($item->categoryLabel($vendor)); ?></td>
                 <td><?= esc_html($linkedEvent ? $linkedEvent->name : '—'); ?></td>
                 <td><?= esc_html($qtyDisplay); ?></td>
                 <td><?= esc_html($item->formattedUnitCost()); ?></td>

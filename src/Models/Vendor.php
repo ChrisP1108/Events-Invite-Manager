@@ -17,26 +17,9 @@ use EventsInviteManager\Database\DatabaseManager;
  */
 final class Vendor
 {
-    /** @var array<string,string> Map of category slugs to human-readable labels. */
-    public const CATEGORIES = [
-        'catering'       => 'Catering',
-        'lodging'        => 'Lodging',
-        'rentals'        => 'Rentals',
-        'music'          => 'Music / Entertainment',
-        'photography'    => 'Photography / Video',
-        'flowers'        => 'Flowers / Décor',
-        'gifts'          => 'Gifts / Favors',
-        'transportation' => 'Transportation',
-        'staffing'       => 'Staffing',
-        'attire'         => 'Attire',
-        'banquet_setup'  => 'Banquet Setup',
-        'other'          => 'Other',
-    ];
-
     public function __construct(
         public readonly int    $id,
         public readonly string $companyName,
-        public readonly string $category,
         public readonly string $streetAddress,
         public readonly string $city,
         public readonly string $state,
@@ -101,7 +84,7 @@ final class Vendor
         global $wpdb;
 
         $table    = DatabaseManager::vendorsTable();
-        $allowed  = ['company_name', 'category', 'email'];
+        $allowed  = ['company_name', 'email'];
         $sortCol  = in_array($sort, $allowed, true) ? $sort : 'company_name';
         $orderSql = strtolower($order) === 'desc' ? 'DESC' : 'ASC';
         $orderBy  = "ORDER BY {$sortCol} {$orderSql}, company_name ASC"; // phpcs:ignore
@@ -117,11 +100,6 @@ final class Vendor
             case 'company_name':
                 $sql = $wpdb->prepare( // phpcs:ignore
                     "SELECT * FROM {$table} WHERE LOWER(company_name) LIKE %s {$orderBy}", $like
-                );
-                break;
-            case 'category':
-                $sql = $wpdb->prepare( // phpcs:ignore
-                    "SELECT * FROM {$table} WHERE LOWER(category) LIKE %s {$orderBy}", $like
                 );
                 break;
             case 'email':
@@ -149,13 +127,12 @@ final class Vendor
                 $sql = $wpdb->prepare( // phpcs:ignore
                     "SELECT * FROM {$table}
                      WHERE LOWER(company_name) LIKE %s
-                        OR LOWER(category) LIKE %s
                         OR LOWER(email) LIKE %s
                         OR LOWER(phone) LIKE %s
                         OR LOWER(street_address) LIKE %s
                         OR LOWER(city) LIKE %s
                      {$orderBy}",
-                    $like, $like, $like, $like, $like, $like
+                    $like, $like, $like, $like, $like
                 );
         }
 
@@ -190,15 +167,12 @@ final class Vendor
         );
 
         return array_map(static function (object $row): array {
-            $catLabel = self::CATEGORIES[$row->category ?? ''] ?? ucfirst((string) ($row->category ?? ''));
             return [
                 'id'           => (int)  $row->id,
                 'company_name' =>        $row->company_name,
-                'category'     =>        $row->category      ?? '',
-                'category_label' =>      $catLabel,
-                'email'        =>        $row->email         ?? '',
-                'phone'        =>        $row->phone         ?? '',
-                'label'        =>        $row->company_name . ' — ' . $catLabel,
+                'email'        =>        $row->email ?? '',
+                'phone'        =>        $row->phone ?? '',
+                'label'        =>        $row->company_name,
             ];
         }, $rows ?? []);
     }
@@ -210,7 +184,6 @@ final class Vendor
 
         $result = $wpdb->insert(DatabaseManager::vendorsTable(), [
             'company_name'   => (string) ($data['company_name']   ?? ''),
-            'category'       => self::sanitizeCategory((string) ($data['category'] ?? 'other')),
             'street_address' => (string) ($data['street_address'] ?? ''),
             'city'           => (string) ($data['city']           ?? ''),
             'state'          => (string) ($data['state']          ?? ''),
@@ -230,7 +203,6 @@ final class Vendor
 
         $fields = [];
         if (array_key_exists('company_name',   $data)) $fields['company_name']   = (string) $data['company_name'];
-        if (array_key_exists('category',       $data)) $fields['category']       = self::sanitizeCategory((string) $data['category']);
         if (array_key_exists('street_address', $data)) $fields['street_address'] = (string) $data['street_address'];
         if (array_key_exists('city',           $data)) $fields['city']           = (string) $data['city'];
         if (array_key_exists('state',          $data)) $fields['state']          = (string) $data['state'];
@@ -354,11 +326,6 @@ final class Vendor
     // Formatting
     // -------------------------------------------------------------------------
 
-    public function categoryLabel(): string
-    {
-        return self::CATEGORIES[$this->category] ?? ucfirst($this->category);
-    }
-
     public function formattedAddress(): string
     {
         return implode(', ', array_filter([
@@ -373,17 +340,11 @@ final class Vendor
     // Internal helpers
     // -------------------------------------------------------------------------
 
-    private static function sanitizeCategory(string $cat): string
-    {
-        return array_key_exists($cat, self::CATEGORIES) ? $cat : 'other';
-    }
-
     private static function fromRow(object $row): self
     {
         return new self(
             id:            (int)  $row->id,
             companyName:          $row->company_name   ?? '',
-            category:             $row->category       ?? 'other',
             streetAddress:        $row->street_address ?? '',
             city:                 $row->city           ?? '',
             state:                $row->state          ?? '',

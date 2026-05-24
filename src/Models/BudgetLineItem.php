@@ -15,8 +15,7 @@ use EventsInviteManager\Database\DatabaseManager;
  *   'fixed'        — estimated total = quantity × unit_cost_cents
  *   'per_attending' — estimated total = attending RSVP count × unit_cost_cents
  *
- * vendor_id references eim_vendors. The line item's category is derived from
- * the linked vendor's category; line items no longer carry their own category.
+ * vendor_id references eim_vendors.
  */
 final class BudgetLineItem
 {
@@ -129,17 +128,6 @@ final class BudgetLineItem
                     $planId, $like
                 )
             );
-        } elseif ($field === 'category') {
-            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-            $rows = $wpdb->get_results(
-                $wpdb->prepare(
-                    "SELECT li.* FROM {$table} li
-                     LEFT JOIN {$vendorsTable} v ON v.id = li.vendor_id
-                     WHERE li.plan_id = %d AND LOWER(v.category) LIKE %s
-                     ORDER BY li.{$sortCol} {$orderSql}, li.id ASC",
-                    $planId, $like
-                )
-            );
         } elseif ($field === 'event') {
             // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
             $rows = $wpdb->get_results(
@@ -152,7 +140,7 @@ final class BudgetLineItem
                 )
             );
         } else {
-            // Any — label, vendor company name, vendor category, notes
+            // Any — label, vendor company name, notes
             // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
             $rows = $wpdb->get_results(
                 $wpdb->prepare(
@@ -161,10 +149,9 @@ final class BudgetLineItem
                      WHERE li.plan_id = %d
                        AND (LOWER(li.label) LIKE %s
                             OR LOWER(COALESCE(v.company_name,'')) LIKE %s
-                            OR LOWER(COALESCE(v.category,'')) LIKE %s
                             OR LOWER(COALESCE(li.notes,'')) LIKE %s)
                      ORDER BY li.{$sortCol} {$orderSql}, li.id ASC",
-                    $planId, $like, $like, $like, $like
+                    $planId, $like, $like, $like
                 )
             );
         }
@@ -174,14 +161,14 @@ final class BudgetLineItem
     }
 
     /**
-     * Applies PHP-level sorting for computed/relational columns (event, estimated, vendor, category).
+     * Applies PHP-level sorting for computed/relational columns (event, estimated, vendor).
      *
      * @param self[] $items
      * @return self[]
      */
     private static function maybePhpSort(array $items, string $sort, string $order): array
     {
-        if (!in_array($sort, ['event', 'estimated', 'vendor', 'category'], true)) {
+        if (!in_array($sort, ['event', 'estimated', 'vendor'], true)) {
             return $items;
         }
 
@@ -189,7 +176,7 @@ final class BudgetLineItem
         $keys    = [];
         $vendors = [];
 
-        if (in_array($sort, ['vendor', 'category'], true)) {
+        if ($sort === 'vendor') {
             $vendorIds = array_filter(array_map(static fn(self $i) => $i->vendorId, $items));
             $vendors   = Vendor::findMany(array_values($vendorIds));
         }
@@ -201,9 +188,6 @@ final class BudgetLineItem
             } elseif ($sort === 'vendor') {
                 $vendor = $item->vendorId ? ($vendors[$item->vendorId] ?? null) : null;
                 $keys[$item->id] = $vendor ? strtolower($vendor->companyName) : '';
-            } elseif ($sort === 'category') {
-                $vendor = $item->vendorId ? ($vendors[$item->vendorId] ?? null) : null;
-                $keys[$item->id] = $vendor ? strtolower($vendor->categoryLabel()) : '';
             } else {
                 $keys[$item->id] = $item->estimatedCents();
             }
@@ -326,13 +310,6 @@ final class BudgetLineItem
     public function vendor(): ?Vendor
     {
         return $this->vendorId ? Vendor::find($this->vendorId) : null;
-    }
-
-    /** Returns the category label derived from the linked vendor, or '—' if none. */
-    public function categoryLabel(?Vendor $vendor = null): string
-    {
-        $v = $vendor ?? ($this->vendorId ? Vendor::find($this->vendorId) : null);
-        return $v ? $v->categoryLabel() : '—';
     }
 
     // -------------------------------------------------------------------------

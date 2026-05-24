@@ -14,6 +14,7 @@ use EventsInviteManager\Admin\Pages\EventsManager\SubPages\InviteesPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\LocationsPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\BudgetPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\MenuItemsPage;
+use EventsInviteManager\Admin\Pages\EventsManager\SubPages\CategoriesPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\NewslettersPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\VendorsPage;
 use EventsInviteManager\Email\EmailService;
@@ -55,6 +56,9 @@ final class AdminMenu
     /** @var string Tab slug for the Vendors sub-page. */
     public const TAB_VENDORS            = 'vendors';
 
+    /** @var string Tab slug for the Categories sub-page. */
+    public const TAB_CATEGORIES         = 'categories';
+
     /** @var AboutPage About / plugin-info page. */
     private AboutPage            $aboutPage;
 
@@ -85,6 +89,9 @@ final class AdminMenu
     /** @var VendorsPage Vendors sub-page handler. */
     private VendorsPage          $vendorsPage;
 
+    /** @var CategoriesPage Categories sub-page handler. */
+    private CategoriesPage       $categoriesPage;
+
     /**
      * Instantiates all sub-page handlers and shared services.
      */
@@ -101,6 +108,7 @@ final class AdminMenu
         $this->budgetPage           = new BudgetPage();
         $this->newslettersPage      = new NewslettersPage($emailService);
         $this->vendorsPage          = new VendorsPage();
+        $this->categoriesPage       = new CategoriesPage();
 
         $this->aboutPage          = new AboutPage();
         $this->eventsManagerPage  = new EventsManagerPage(
@@ -111,7 +119,8 @@ final class AdminMenu
             $this->menuItemsPage,
             $this->budgetPage,
             $this->newslettersPage,
-            $this->vendorsPage
+            $this->vendorsPage,
+            $this->categoriesPage
         );
     }
 
@@ -160,6 +169,7 @@ final class AdminMenu
         add_action('wp_ajax_eim_sort_event_menu_items',    [$this->eventsPage,            'handleAjaxSortMenuItems']);
         add_action('wp_ajax_eim_suggest_cg_members',    [$this->connectionGroupsPage, 'handleAjaxSuggestMembers']);
         add_action('wp_ajax_eim_suggest_events',           [$this->eventsPage, 'handleAjaxSuggestEvents']);
+        add_action('wp_ajax_eim_search_events',            [$this->eventsPage, 'handleAjaxSearchEvents']);
         add_action('wp_ajax_eim_search_budget_plans',      [$this->budgetPage, 'handleAjaxSearchPlans']);
         add_action('wp_ajax_eim_search_budget_line_items', [$this->budgetPage, 'handleAjaxSearchLineItems']);
         add_action('wp_ajax_eim_search_newsletters',       [$this->newslettersPage, 'handleAjaxSearchNewsletters']);
@@ -167,8 +177,12 @@ final class AdminMenu
         add_action('wp_ajax_eim_send_newsletter_test',     [$this->newslettersPage, 'handleAjaxSendNewsletterTest']);
 
         // Vendors list + suggest autocomplete.
-        add_action('wp_ajax_eim_search_vendors_list', [$this->vendorsPage, 'handleAjaxSearchVendors']);
-        add_action('wp_ajax_eim_suggest_vendors',     [$this->vendorsPage, 'handleAjaxSuggestVendors']);
+        add_action('wp_ajax_eim_search_vendors_list', [$this->vendorsPage,     'handleAjaxSearchVendors']);
+        add_action('wp_ajax_eim_suggest_vendors',     [$this->vendorsPage,     'handleAjaxSuggestVendors']);
+
+        // Categories list + suggest autocomplete (shared picker for all entity types).
+        add_action('wp_ajax_eim_search_categories',   [$this->categoriesPage,  'handleAjaxSearchCategories']);
+        add_action('wp_ajax_eim_suggest_categories',  [$this->categoriesPage,  'handleAjaxSuggestCategories']);
 
         add_filter('script_loader_tag', [$this, 'addModuleTypeToScript'], 10, 2);
     }
@@ -218,6 +232,20 @@ final class AdminMenu
         if ($page !== self::PAGE_EVENTS_MANAGER) {
             return;
         }
+
+        // admin-categories.js provides CategoryPicker (used on all entity forms) and CategoriesTable.
+        $categoryTableEnabled = $tab === self::TAB_CATEGORIES && !in_array($action, ['add', 'edit'], true);
+        wp_enqueue_script('eim-admin-categories', EIM_PLUGIN_URL . 'assets/js/admin-categories.js', [], EIM_VERSION, true);
+        wp_localize_script('eim-admin-categories', 'eimCategoriesAdmin', [
+            'suggestNonce'       => wp_create_nonce('eim_suggest_categories_nonce'),
+            'searchNonce'        => wp_create_nonce('eim_search_categories_nonce'),
+            'categoryEditBaseUrl' => self::tabUrl(self::TAB_CATEGORIES),
+            'table'              => [
+                'enabled' => $categoryTableEnabled,
+                'sort'    => sanitize_key($_GET['sort']  ?? 'name'),
+                'order'   => strtolower((string) ($_GET['order'] ?? 'asc')) === 'desc' ? 'desc' : 'asc',
+            ],
+        ]);
 
         if ($tab === self::TAB_BUDGET) {
             wp_enqueue_script('eim-admin-budget', EIM_PLUGIN_URL . 'assets/js/admin-budget.js', [], EIM_VERSION, true);
@@ -335,6 +363,18 @@ final class AdminMenu
             ]);
         }
 
+        if ($tab === self::TAB_EVENTS && $action === 'list') {
+            wp_enqueue_script('eim-admin-events', EIM_PLUGIN_URL . 'assets/js/admin-events.js', [], EIM_VERSION, true);
+            wp_localize_script('eim-admin-events', 'eimEventsAdmin', [
+                'searchNonce' => wp_create_nonce('eim_search_events_nonce'),
+                'table'       => [
+                    'enabled' => true,
+                    'sort'    => sanitize_key($_GET['sort']  ?? 'start_datetime'),
+                    'order'   => strtolower((string) ($_GET['order'] ?? 'desc')) === 'asc' ? 'asc' : 'desc',
+                ],
+            ]);
+        }
+
         if ($tab !== self::TAB_EVENTS || !in_array($action, ['add', 'edit'], true)) {
             return;
         }
@@ -412,6 +452,7 @@ final class AdminMenu
                 self::TAB_BUDGET            => $this->budgetPage->handleAction($action),
                 self::TAB_VENDORS           => $this->vendorsPage->handleAction($action),
                 self::TAB_NEWSLETTERS       => $this->newslettersPage->handleAction($action),
+                self::TAB_CATEGORIES        => $this->categoriesPage->handleAction($action),
                 default                     => null,
             };
         }

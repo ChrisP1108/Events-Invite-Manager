@@ -17,23 +17,12 @@ use EventsInviteManager\Database\DatabaseManager;
  */
 final class ConnectionGroup
 {
-    /** @var string[] Allowed type values. */
-    public const TYPES = ['single', 'couple', 'family', 'household', 'friends', 'custom'];
-
     /** @var Invitee[]|null Lazy-loaded members. */
     private ?array $members = null;
 
-    /**
-     * @param int    $id        Primary key.
-     * @param string $name      Human-readable group name.
-     * @param string $type      Group type — one of the values in TYPES.
-     * @param string $createdAt Row creation timestamp (MySQL datetime string).
-     * @param string $updatedAt Row last-update timestamp (MySQL datetime string).
-     */
     public function __construct(
         public readonly int    $id,
         public readonly string $name,
-        public readonly string $type,
         public readonly string $createdAt,
         public readonly string $updatedAt,
     ) {}
@@ -88,10 +77,6 @@ final class ConnectionGroup
                     $where  = "WHERE cg.name LIKE %s";
                     $params = [$like];
                     break;
-                case 'type':
-                    $where  = "WHERE cg.type LIKE %s";
-                    $params = [$like];
-                    break;
                 case 'members':
                     $where  = "WHERE EXISTS (
                         SELECT 1 FROM {$membersTable} cgm
@@ -130,7 +115,6 @@ final class ConnectionGroup
 
         $dir         = $order === 'desc' ? 'DESC' : 'ASC';
         $orderClause = match ($sort) {
-            'type'       => "ORDER BY cg.type {$dir}, cg.name ASC",
             'members',
             'invited_to' => 'ORDER BY cg.name ASC', // re-sorted in PHP after relational counts are known
             default      => "ORDER BY cg.name {$dir}, cg.id ASC",
@@ -268,17 +252,14 @@ final class ConnectionGroup
      * @param int[]  $inviteeIds
      * @return self|null
      */
-    public static function create(string $name, string $type, array $inviteeIds = []): ?self
+    public static function create(string $name, array $inviteeIds = []): ?self
     {
         global $wpdb;
 
         $groupsTable  = DatabaseManager::inviteeConnectionGroupsTable();
         $membersTable = DatabaseManager::inviteeConnectionGroupMembersTable();
 
-        $result = $wpdb->insert($groupsTable, [
-            'name' => $name,
-            'type' => in_array($type, self::TYPES, true) ? $type : 'custom',
-        ]);
+        $result = $wpdb->insert($groupsTable, ['name' => $name]);
 
         if (!$result) {
             return null;
@@ -307,16 +288,13 @@ final class ConnectionGroup
      * @param string $type
      * @return bool
      */
-    public static function update(int $id, string $name, string $type): bool
+    public static function update(int $id, string $name): bool
     {
         global $wpdb;
 
         $result = $wpdb->update(
             DatabaseManager::inviteeConnectionGroupsTable(),
-            [
-                'name' => $name,
-                'type' => in_array($type, self::TYPES, true) ? $type : 'custom',
-            ],
+            ['name' => $name],
             ['id' => $id]
         );
 
@@ -620,21 +598,6 @@ final class ConnectionGroup
         return count($this->getMembers());
     }
 
-    /**
-     * Returns a human-readable label for the group type.
-     *
-     * @return string
-     */
-    public function typeLabel(): string
-    {
-        return match ($this->type) {
-            'couple'    => 'Couple',
-            'family'    => 'Family',
-            'household' => 'Household',
-            default     => 'Custom',
-        };
-    }
-
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
@@ -689,7 +652,6 @@ final class ConnectionGroup
         return new self(
             id:        (int) $row->id,
             name:            $row->name,
-            type:            $row->type,
             createdAt:       $row->created_at ?? '',
             updatedAt:       $row->updated_at ?? '',
         );

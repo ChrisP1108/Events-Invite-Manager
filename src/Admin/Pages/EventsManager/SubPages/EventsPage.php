@@ -9,6 +9,7 @@ if (!defined('ABSPATH')) exit;
 use EventsInviteManager\Admin\AbstractAdminPage;
 use EventsInviteManager\Admin\AdminMenu;
 use EventsInviteManager\Email\EmailService;
+use EventsInviteManager\Models\Category;
 use EventsInviteManager\Models\ConnectionGroup;
 use EventsInviteManager\Models\Event;
 use EventsInviteManager\Models\EventLodging;
@@ -154,15 +155,21 @@ final class EventsPage extends AbstractAdminPage
             }
         }
 
+        $categoryIds = array_map('intval', (array) ($_POST['category_ids'] ?? []));
+
         if ($id > 0) {
             Event::update($id, $data);
+            Category::syncToEntity('event', $id, $categoryIds);
             wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
                 'eim_message' => 'event_updated',
             ]));
         } else {
             $newId = Event::create($data);
-            if ($newId && !empty($data['lodging_enabled'])) {
-                $this->saveInitialLodgingLocation($newId);
+            if (is_int($newId) && $newId > 0) {
+                Category::syncToEntity('event', $newId, $categoryIds);
+                if (!empty($data['lodging_enabled'])) {
+                    $this->saveInitialLodgingLocation($newId);
+                }
             }
             wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
                 'action'      => 'edit',
@@ -299,6 +306,7 @@ final class EventsPage extends AbstractAdminPage
             wp_die('Security check failed.');
         }
 
+        Category::syncToEntity('event', $id, []);
         Event::delete($id);
 
         wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['eim_message' => 'event_deleted']));
@@ -844,13 +852,61 @@ final class EventsPage extends AbstractAdminPage
         exit;
     }
 
+    /**
+     * AJAX handler for the events list table search.
+     *
+     * Expected GET params: nonce, query, sort, order, field, page, per_page.
+     * Returns JSON: { success: true, data: { html, count, total } }
+     */
+    public function handleAjaxSearchEvents(): void
+    {
+        check_ajax_referer('eim_search_events_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions.', 403);
+        }
+
+        $query   = sanitize_text_field(wp_unslash($_GET['query'] ?? ''));
+        $sort    = $this->sanitizeEventSortKey((string) ($_GET['sort']    ?? 'start_datetime'));
+        $order   = $this->sanitizeSortOrder((string) ($_GET['order']  ?? 'desc'));
+        $field   = $this->sanitizeEventFieldKey((string) ($_GET['field']  ?? ''));
+        $page    = max(1, (int) ($_GET['page']     ?? 1));
+        $perPage = in_array((int) ($_GET['per_page'] ?? 10), [5, 10, 25, 50, 100], true) ? (int) $_GET['per_page'] : 10;
+
+        $all   = Event::listForAdmin($query, $sort, $order, $field);
+        $total = count($all);
+        $paged = array_slice($all, ($page - 1) * $perPage, $perPage);
+
+        ob_start();
+        $this->renderEventRows($paged, $query);
+        $html = (string) ob_get_clean();
+
+        wp_send_json_success(['html' => $html, 'count' => $total, 'total' => $total]);
+    }
+
+    private function sanitizeEventSortKey(string $key): string
+    {
+        return in_array($key, ['name', 'start_datetime', 'date'], true) ? $key : 'start_datetime';
+    }
+
+    private function sanitizeEventFieldKey(string $key): string
+    {
+        return in_array($key, ['name', 'description'], true) ? $key : '';
+    }
+
     /** Renders the events list view including the monthly calendar grid. */
     private function renderEventsList(): void
     {
-        $events       = Event::all();
         $message      = (string) ($_GET['eim_message'] ?? '');
         $error        = (string) ($_GET['eim_error'] ?? '');
         $hasLocations = Location::count() > 0;
+        $search       = sanitize_text_field(wp_unslash($_GET['s'] ?? ''));
+        $sort         = $this->sanitizeEventSortKey((string) ($_GET['sort']  ?? 'start_datetime'));
+        $order        = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'desc'));
+        $field        = $this->sanitizeEventFieldKey((string) ($_GET['field'] ?? ''));
+        $all          = Event::listForAdmin($search, $sort, $order, $field);
+        $total        = count($all);
+        $events       = array_slice($all, 0, 10);
 
         $calYear  = max(1970, min(2099, (int) ($_GET['cal_year']  ?? date('Y'))));
         $calMonth = max(1,    min(12,   (int) ($_GET['cal_month'] ?? date('n'))));
@@ -874,74 +930,119 @@ final class EventsPage extends AbstractAdminPage
                 </div>
             <?php endif; ?>
 
-            <?php if (empty($events) && $hasLocations): ?>
+            <?php if ($total === 0 && $search === '' && $hasLocations): ?>
                 <p>No events yet. <a href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'add'])); ?>">Create your first event.</a></p>
             <?php elseif ($hasLocations): ?>
 
                 <?php $this->renderCalendar($calYear, $calMonth); ?>
 
-                <table class="wp-list-table widefat fixed striped" style="margin-top:24px;">
+                <?php $this->renderSearchBar(
+                    'eim-event-search',
+                    'eim-event-count',
+                    'eim-event-loading',
+                    'Search events…',
+                    $total,
+                    $search,
+                    [
+                        ['value' => 'name',        'label' => 'Name'],
+                        ['value' => 'description', 'label' => 'Description'],
+                    ],
+                    $field
+                ); ?>
+
+                <table id="eim-events-list-table"
+                       class="wp-list-table widefat fixed striped"
+                       style="margin-top:12px;"
+                       data-sort="<?= esc_attr($sort); ?>"
+                       data-order="<?= esc_attr($order); ?>"
+                       data-total="<?= esc_attr($total); ?>">
                     <thead>
                         <tr>
-                            <th style="width:12%;">Name</th>
-                            <th style="width:18%;">Date / Time</th>
+                            <th style="width:18%;"><?= $this->sortLink('Name', 'name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_EVENTS]); ?></th>
+                            <th style="width:20%;"><?= $this->sortLink('Date / Time', 'start_datetime', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_EVENTS]); ?></th>
                             <th>Description</th>
+                            <th style="width:14%;">Categories</th>
                             <th style="width:12%;">Invitees</th>
                             <th style="width:14%;">Actions</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        <?php foreach ($events as $event): ?>
-                            <?php
-                            $total       = $event->inviteeCount();
-                            $registered  = $event->registeredCount();
-                            $venue       = $event->venueId !== null ? Location::find($event->venueId) : null;
-                            $editUrl     = AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $event->id]);
-                            $deleteUrl   = wp_nonce_url(
-                                AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'delete_event', 'id' => $event->id]),
-                                'eim_delete_event_' . $event->id
-                            );
-                            $inviteesUrl = AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $event->id]) . '#eim-etab-invitees';
-                            ?>
-                            <tr>
-                                <td>
-                                    <strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($event->name); ?></a></strong>
-                                </td>
-                                <td>
-                                    <?php if ($event->startDatetime): ?>
-                                        <?= esc_html($event->formattedDateTimeRange()); ?>
-                                        <?php if ($event->timezone): ?>
-                                            <br><span style="color:#999;font-size:11px;"><?= esc_html($event->timezone); ?></span>
-                                        <?php endif; ?>
-                                    <?php else: ?>
-                                        <span style="color:#999;">—</span>
-                                    <?php endif; ?>
-                                    <?php if ($venue): ?>
-                                        <br><span style="color:#444;font-size:12px;"><?= esc_html($venue->name); ?></span>
-                                        <?php if ($venue->formattedAddress()): ?>
-                                            <br><span style="color:#999;font-size:11px;"><?= esc_html($venue->formattedAddress()); ?></span>
-                                        <?php endif; ?>
-                                    <?php endif; ?>
-                                </td>
-                                <td><?= esc_html(wp_trim_words($event->description, 12, '…')); ?></td>
-                                <td>
-                                    <a href="<?= esc_url($inviteesUrl); ?>">
-                                        <?= esc_html($total); ?><?= $event->maxInvitees !== null ? ' / ' . esc_html($event->maxInvitees) : ''; ?> invited, <?= esc_html($registered); ?> registered
-                                    </a>
-                                </td>
-                                <td>
-                                    <a href="<?= esc_url($editUrl); ?>">Edit</a> |
-                                    <a href="<?= esc_url($inviteesUrl); ?>">Invitees</a> |
-                                    <a href="<?= esc_url($deleteUrl); ?>"
-                                       onclick="return confirm('Delete <?= esc_js($event->name); ?> and its event invitations? Invitee profiles will not be deleted.');">Delete</a>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
+                    <tbody id="eim-events-list-table-body">
+                        <?php $this->renderEventRows($events, $search); ?>
                     </tbody>
                 </table>
+                <?php $this->renderPaginationBar('eim-event-search'); ?>
             <?php endif; ?>
         </div>
         <?php
+    }
+
+    /**
+     * Renders event table rows for both initial page load and AJAX responses.
+     *
+     * @param Event[] $events
+     */
+    private function renderEventRows(array $events, string $search = ''): void
+    {
+        if (empty($events)) {
+            $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No events found.';
+            echo '<tr class="eim-no-results"><td colspan="6">' . esc_html($msg) . '</td></tr>';
+            return;
+        }
+
+        $catsByEvent = Category::forEntities('event', array_map(static fn(Event $e): int => $e->id, $events));
+        $catEditBase = AdminMenu::tabUrl(AdminMenu::TAB_CATEGORIES);
+
+        foreach ($events as $event) {
+            $editUrl     = AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $event->id]);
+            $deleteUrl   = wp_nonce_url(
+                AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'delete_event', 'id' => $event->id]),
+                'eim_delete_event_' . $event->id
+            );
+            $inviteesUrl = $editUrl . '#eim-etab-invitees';
+            $venue       = $event->venueId !== null ? Location::find($event->venueId) : null;
+            $total       = $event->inviteeCount();
+            $registered  = $event->registeredCount();
+            $cats        = $catsByEvent[$event->id] ?? [];
+            ?>
+            <tr>
+                <td>
+                    <strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($event->name); ?></a></strong>
+                </td>
+                <td>
+                    <?php if ($event->startDatetime): ?>
+                        <?= esc_html($event->formattedDateTimeRange()); ?>
+                        <?php if ($event->timezone): ?>
+                            <br><span style="color:#999;font-size:11px;"><?= esc_html($event->timezone); ?></span>
+                        <?php endif; ?>
+                    <?php else: ?>
+                        <span style="color:#999;">—</span>
+                    <?php endif; ?>
+                    <?php if ($venue): ?>
+                        <br><span style="color:#444;font-size:12px;"><?= esc_html($venue->name); ?></span>
+                    <?php endif; ?>
+                </td>
+                <td><?= esc_html(wp_trim_words($event->description, 12, '…')); ?></td>
+                <td>
+                    <?php foreach ($cats as $cat): ?>
+                        <?php $catEditUrl = AdminMenu::tabUrl(AdminMenu::TAB_CATEGORIES, ['action' => 'edit', 'id' => $cat->id]); ?>
+                        <a href="<?= esc_url($catEditUrl); ?>" class="eim-cat-chip"><?= esc_html($cat->parentName ? $cat->parentName . ' › ' . $cat->name : $cat->name); ?></a>
+                    <?php endforeach; ?>
+                    <?php if (empty($cats)): ?><span style="color:#999;">—</span><?php endif; ?>
+                </td>
+                <td>
+                    <a href="<?= esc_url($inviteesUrl); ?>">
+                        <?= esc_html($total); ?><?= $event->maxInvitees !== null ? ' / ' . esc_html($event->maxInvitees) : ''; ?> invited, <?= esc_html($registered); ?> registered
+                    </a>
+                </td>
+                <td>
+                    <a href="<?= esc_url($editUrl); ?>">Edit</a> |
+                    <a href="<?= esc_url($inviteesUrl); ?>">Invitees</a> |
+                    <a href="<?= esc_url($deleteUrl); ?>"
+                       onclick="return confirm('Delete <?= esc_js($event->name); ?> and its event invitations? Invitee profiles will not be deleted.');">Delete</a>
+                </td>
+            </tr>
+            <?php
+        }
     }
 
     /**
@@ -1288,6 +1389,26 @@ final class EventsPage extends AbstractAdminPage
                                 <p class="description">
                                     Leave blank for no limit. Counts individual people, not invitation groups.
                                 </p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label>Categories</label></th>
+                            <td>
+                                <?php
+                                $selCats  = [];
+                                $catNonce = wp_create_nonce('eim_suggest_categories_nonce');
+                                if (!$isNew) {
+                                    foreach (Category::forEntity('event', $event->id) as $cat) {
+                                        $selCats[] = [
+                                            'id'          => $cat->id,
+                                            'name'        => $cat->name,
+                                            'parent_name' => $cat->parentName,
+                                            'label'       => $cat->parentName ? $cat->parentName . ' › ' . $cat->name : $cat->name,
+                                        ];
+                                    }
+                                }
+                                $this->renderCategoryPicker('eim-event-cat-picker', $selCats, $catNonce);
+                                ?>
                             </td>
                         </tr>
                     </table>

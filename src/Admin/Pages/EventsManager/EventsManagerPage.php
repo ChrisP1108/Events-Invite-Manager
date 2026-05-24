@@ -13,6 +13,7 @@ use EventsInviteManager\Admin\Pages\EventsManager\SubPages\EventsPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\InviteesPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\LocationsPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\MenuItemsPage;
+use EventsInviteManager\Admin\Pages\EventsManager\SubPages\CategoriesPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\NewslettersPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\VendorsPage;
 
@@ -48,6 +49,9 @@ final class EventsManagerPage
     /** @var VendorsPage Vendors sub-page handler. */
     private VendorsPage          $vendorsPage;
 
+    /** @var CategoriesPage Categories sub-page handler. */
+    private CategoriesPage       $categoriesPage;
+
     public function __construct(
         EventsPage           $eventsPage,
         InviteesPage         $inviteesPage,
@@ -56,7 +60,8 @@ final class EventsManagerPage
         MenuItemsPage        $menuItemsPage,
         BudgetPage           $budgetPage,
         NewslettersPage      $newslettersPage,
-        VendorsPage          $vendorsPage
+        VendorsPage          $vendorsPage,
+        CategoriesPage       $categoriesPage
     ) {
         $this->eventsPage           = $eventsPage;
         $this->inviteesPage         = $inviteesPage;
@@ -66,6 +71,7 @@ final class EventsManagerPage
         $this->budgetPage           = $budgetPage;
         $this->newslettersPage      = $newslettersPage;
         $this->vendorsPage          = $vendorsPage;
+        $this->categoriesPage       = $categoriesPage;
     }
 
     /**
@@ -86,6 +92,7 @@ final class EventsManagerPage
             AdminMenu::TAB_BUDGET            => 'Budget',
             AdminMenu::TAB_VENDORS           => 'Vendors',
             AdminMenu::TAB_NEWSLETTERS       => 'Newsletters',
+            AdminMenu::TAB_CATEGORIES        => 'Categories',
         ];
 
         if (!array_key_exists($tab, $tabs)) {
@@ -115,6 +122,7 @@ final class EventsManagerPage
             AdminMenu::TAB_BUDGET            => $this->budgetPage,
             AdminMenu::TAB_VENDORS           => $this->vendorsPage,
             AdminMenu::TAB_NEWSLETTERS       => $this->newslettersPage,
+            AdminMenu::TAB_CATEGORIES        => $this->categoriesPage,
             default                          => $this->eventsPage,
         };
 

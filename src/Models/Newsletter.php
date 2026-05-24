@@ -60,8 +60,8 @@ final class Newsletter
         $table      = DatabaseManager::newslettersTable();
         $evTable    = DatabaseManager::newsletterEventsTable();
         $eventsT    = DatabaseManager::eventsTable();
-        $catMapT    = DatabaseManager::newsletterCategoryMapTable();
-        $catsT      = DatabaseManager::newsletterCategoriesTable();
+        $catMapT    = DatabaseManager::categoryMapTable();
+        $catsT      = DatabaseManager::categoriesTable();
         $tagMapT    = DatabaseManager::newsletterTagMapTable();
         $tagsT      = DatabaseManager::newsletterTagsTable();
 
@@ -76,7 +76,7 @@ final class Newsletter
 
         // GROUP_CONCAT subexpressions used in every variant of the main query.
         $eventConcat    = "(SELECT GROUP_CONCAT(DISTINCT CONCAT(e.id, ':', e.name) ORDER BY e.name SEPARATOR '|') FROM {$evTable} ne INNER JOIN {$eventsT} e ON e.id = ne.event_id WHERE ne.newsletter_id = n.id)";
-        $categoryConcat = "(SELECT GROUP_CONCAT(DISTINCT CONCAT(c.id, ':', c.name) ORDER BY c.name SEPARATOR '|') FROM {$catMapT} ncm INNER JOIN {$catsT} c ON c.id = ncm.category_id WHERE ncm.newsletter_id = n.id)";
+        $categoryConcat = "(SELECT GROUP_CONCAT(DISTINCT CONCAT(c.id, ':', c.name) ORDER BY c.name SEPARATOR '|') FROM {$catMapT} cm INNER JOIN {$catsT} c ON c.id = cm.category_id WHERE cm.entity_type = 'newsletter' AND cm.entity_id = n.id)";
         $tagConcat      = "(SELECT GROUP_CONCAT(DISTINCT CONCAT(t.id, ':', t.name) ORDER BY t.name SEPARATOR '|') FROM {$tagMapT} ntm INNER JOIN {$tagsT} t ON t.id = ntm.tag_id WHERE ntm.newsletter_id = n.id)";
 
         $selectCols = "n.*, {$eventConcat} AS event_list, {$categoryConcat} AS category_list, {$tagConcat} AS tag_list";
@@ -123,9 +123,9 @@ final class Newsletter
                     $sql = $wpdb->prepare(
                         "SELECT {$selectCols} FROM {$table} n
                          WHERE EXISTS (
-                             SELECT 1 FROM {$catMapT} ncm
-                             INNER JOIN {$catsT} c ON c.id = ncm.category_id
-                             WHERE ncm.newsletter_id = n.id AND LOWER(c.name) LIKE %s
+                             SELECT 1 FROM {$catMapT} cm
+                             INNER JOIN {$catsT} c ON c.id = cm.category_id
+                             WHERE cm.entity_type = 'newsletter' AND cm.entity_id = n.id AND LOWER(c.name) LIKE %s
                          ) {$orderBy}",
                         $like
                     );
@@ -156,9 +156,9 @@ final class Newsletter
                                 WHERE ne.newsletter_id = n.id AND LOWER(e.name) LIKE %s
                             )
                             OR EXISTS (
-                                SELECT 1 FROM {$catMapT} ncm
-                                INNER JOIN {$catsT} c ON c.id = ncm.category_id
-                                WHERE ncm.newsletter_id = n.id AND LOWER(c.name) LIKE %s
+                                SELECT 1 FROM {$catMapT} cm
+                                INNER JOIN {$catsT} c ON c.id = cm.category_id
+                                WHERE cm.entity_type = 'newsletter' AND cm.entity_id = n.id AND LOWER(c.name) LIKE %s
                             )
                             OR EXISTS (
                                 SELECT 1 FROM {$tagMapT} ntm
@@ -301,14 +301,14 @@ final class Newsletter
     {
         global $wpdb;
 
-        $catMapT = DatabaseManager::newsletterCategoryMapTable();
-        $catsT   = DatabaseManager::newsletterCategoriesTable();
+        $catMapT = DatabaseManager::categoryMapTable();
+        $catsT   = DatabaseManager::categoriesTable();
 
         $rows = $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT c.id, c.name FROM {$catMapT} ncm
-                 INNER JOIN {$catsT} c ON c.id = ncm.category_id
-                 WHERE ncm.newsletter_id = %d ORDER BY c.name ASC",
+                "SELECT c.id, c.name FROM {$catMapT} cm
+                 INNER JOIN {$catsT} c ON c.id = cm.category_id
+                 WHERE cm.entity_type = 'newsletter' AND cm.entity_id = %d ORDER BY c.name ASC",
                 $newsletterId
             )
         );
@@ -365,9 +365,8 @@ final class Newsletter
         }
 
         $id = (int) $wpdb->insert_id;
-        self::syncEvents($id, $data['event_ids']     ?? []);
-        self::syncCategories($id, $data['category_ids'] ?? []);
-        self::syncTags($id, $data['tag_ids']         ?? []);
+        self::syncEvents($id, $data['event_ids'] ?? []);
+        self::syncTags($id, $data['tag_ids']     ?? []);
 
         return $id;
     }
@@ -398,9 +397,8 @@ final class Newsletter
             return false;
         }
 
-        self::syncEvents($id, $data['event_ids']     ?? []);
-        self::syncCategories($id, $data['category_ids'] ?? []);
-        self::syncTags($id, $data['tag_ids']         ?? []);
+        self::syncEvents($id, $data['event_ids'] ?? []);
+        self::syncTags($id, $data['tag_ids']     ?? []);
 
         return true;
     }
@@ -415,9 +413,9 @@ final class Newsletter
     {
         global $wpdb;
 
-        $wpdb->delete(DatabaseManager::newsletterEventsTable(),      ['newsletter_id' => $id]);
-        $wpdb->delete(DatabaseManager::newsletterCategoryMapTable(), ['newsletter_id' => $id]);
-        $wpdb->delete(DatabaseManager::newsletterTagMapTable(),      ['newsletter_id' => $id]);
+        $wpdb->delete(DatabaseManager::newsletterEventsTable(), ['newsletter_id' => $id]);
+        $wpdb->delete(DatabaseManager::newsletterTagMapTable(), ['newsletter_id' => $id]);
+        $wpdb->delete(DatabaseManager::categoryMapTable(), ['entity_type' => 'newsletter', 'entity_id' => $id]);
 
         return $wpdb->delete(DatabaseManager::newslettersTable(), ['id' => $id]) !== false;
     }
@@ -441,26 +439,6 @@ final class Newsletter
 
         foreach ($eventIds as $eventId) {
             $wpdb->insert($table, ['newsletter_id' => $newsletterId, 'event_id' => $eventId]);
-        }
-    }
-
-    /**
-     * Replaces the category associations for a newsletter.
-     *
-     * @param int   $newsletterId
-     * @param int[] $categoryIds
-     */
-    private static function syncCategories(int $newsletterId, array $categoryIds): void
-    {
-        global $wpdb;
-
-        $table       = DatabaseManager::newsletterCategoryMapTable();
-        $categoryIds = array_values(array_unique(array_filter(array_map('intval', $categoryIds))));
-
-        $wpdb->delete($table, ['newsletter_id' => $newsletterId]);
-
-        foreach ($categoryIds as $catId) {
-            $wpdb->insert($table, ['newsletter_id' => $newsletterId, 'category_id' => $catId]);
         }
     }
 

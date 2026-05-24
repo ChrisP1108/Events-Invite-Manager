@@ -8,7 +8,7 @@ if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Admin\AbstractAdminPage;
 use EventsInviteManager\Admin\AdminMenu;
-use EventsInviteManager\Database\DatabaseManager;
+use EventsInviteManager\Models\Category;
 use EventsInviteManager\Models\MenuItem;
 use EventsInviteManager\Models\Vendor;
 
@@ -28,7 +28,6 @@ final class MenuItemsPage extends AbstractAdminPage
      */
     public function handleAction(string $action): void
     {
-        DatabaseManager::maybeAddV17Columns();
         match ($action) {
             'save_menu_item'        => $this->handleSaveMenuItem(),
             'update_menu_item'      => $this->handleUpdateMenuItem(),
@@ -40,7 +39,6 @@ final class MenuItemsPage extends AbstractAdminPage
     /** Renders the Food &amp; Beverages admin page (list or single-item edit form). */
     public function renderPage(): void
     {
-        DatabaseManager::maybeAddV17Columns();
         $action  = $_GET['action'] ?? 'list';
         $message = (string) ($_GET['eim_message'] ?? '');
         $error   = (string) ($_GET['eim_error']   ?? '');
@@ -143,6 +141,23 @@ final class MenuItemsPage extends AbstractAdminPage
                                    value="<?= esc_attr($item->priceCents > 0 ? number_format($item->priceCents / 100, 2) : ''); ?>"
                                    placeholder="0.00">
                             <p class="description">Per-person price used in budget calculations.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label>Categories</label></th>
+                        <td>
+                            <?php
+                            $selCats = [];
+                            foreach (Category::forEntity('menu_item', $item->id) as $cat) {
+                                $selCats[] = [
+                                    'id'          => $cat->id,
+                                    'name'        => $cat->name,
+                                    'parent_name' => $cat->parentName,
+                                    'label'       => $cat->parentName ? $cat->parentName . ' › ' . $cat->name : $cat->name,
+                                ];
+                            }
+                            $this->renderCategoryPicker('eim-menu-item-cat-picker', $selCats, wp_create_nonce('eim_suggest_categories_nonce'));
+                            ?>
                         </td>
                     </tr>
                 </table>
@@ -248,6 +263,9 @@ final class MenuItemsPage extends AbstractAdminPage
             'vendor_id'   => (int) ($_POST['vendor_id'] ?? 0),
         ]);
 
+        $categoryIds = array_map('intval', (array) ($_POST['category_ids'] ?? []));
+        Category::syncToEntity('menu_item', $id, $categoryIds);
+
         wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS, ['eim_message' => 'menu_item_updated']));
         exit;
     }
@@ -273,13 +291,18 @@ final class MenuItemsPage extends AbstractAdminPage
             exit;
         }
 
-        MenuItem::create([
+        $item = MenuItem::create([
             'type'        => $type,
             'label'       => $label,
             'description' => $desc,
             'price_cents' => $priceCents,
             'vendor_id'   => (int) ($_POST['vendor_id'] ?? 0),
         ]);
+
+        if ($item !== null) {
+            $categoryIds = array_map('intval', (array) ($_POST['category_ids'] ?? []));
+            Category::syncToEntity('menu_item', $item->id, $categoryIds);
+        }
 
         wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS, [
             'eim_message' => 'menu_item_created',
@@ -297,6 +320,7 @@ final class MenuItemsPage extends AbstractAdminPage
             wp_die('Security check failed.');
         }
 
+        Category::syncToEntity('menu_item', $id, []);
         MenuItem::delete($id);
 
         wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS, [
@@ -355,10 +379,11 @@ final class MenuItemsPage extends AbstractAdminPage
                        data-total="<?= esc_attr($total); ?>">
                     <thead>
                         <tr>
-                            <th style="width:28%;"><?= $this->clientSortLink('Label', 'label', $sort, $order); ?></th>
+                            <th style="width:22%;"><?= $this->clientSortLink('Label', 'label', $sort, $order); ?></th>
                             <th><?= $this->clientSortLink('Description', 'description', $sort, $order); ?></th>
-                            <th style="width:20%;">Vendor</th>
-                            <th style="width:9%;">Price</th>
+                            <th style="width:16%;">Vendor</th>
+                            <th style="width:13%;">Categories</th>
+                            <th style="width:8%;">Price</th>
                             <th style="width:10%;">Actions</th>
                         </tr>
                     </thead>
@@ -386,15 +411,19 @@ final class MenuItemsPage extends AbstractAdminPage
             $msg = $search !== ''
                 ? 'No results found based upon search criteria.'
                 : 'No ' . ($type === MenuItem::TYPE_BEVERAGE ? 'beverage' : 'food') . ' items yet.';
-            echo '<tr class="eim-no-results"><td colspan="5">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="6">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
+        $itemIds    = array_map(static fn(MenuItem $i): int => $i->id, $items);
         $vendorIds  = array_values(array_filter(array_map(static fn(MenuItem $i) => $i->vendorId, $items)));
         $vendorsMap = Vendor::findMany($vendorIds);
+        $catsByItem = Category::forEntities('menu_item', $itemIds);
+        $catEditBase = AdminMenu::tabUrl(AdminMenu::TAB_CATEGORIES);
 
         foreach ($items as $item) {
             $vendor    = $item->vendorId ? ($vendorsMap[$item->vendorId] ?? null) : null;
+            $cats      = $catsByItem[$item->id] ?? [];
             $editUrl   = AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS, ['action' => 'edit', 'id' => $item->id]);
             $deleteUrl = wp_nonce_url(
                 AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS, ['action' => 'delete_menu_item', 'id' => $item->id]),
@@ -407,6 +436,20 @@ final class MenuItemsPage extends AbstractAdminPage
                 <td>
                     <?php if ($vendor): ?>
                         <a href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_VENDORS, ['action' => 'edit', 'id' => $vendor->id])); ?>"><?= esc_html($vendor->companyName); ?></a>
+                    <?php else: ?>
+                        <span style="color:#999;">—</span>
+                    <?php endif; ?>
+                </td>
+                <td>
+                    <?php if ($cats): ?>
+                        <div class="eim-tag-list">
+                            <?php foreach ($cats as $cat):
+                                $chipLabel = $cat->parentName ? $cat->parentName . ' › ' . $cat->name : $cat->name;
+                                $chipUrl   = $catEditBase . '&action=edit&id=' . $cat->id;
+                            ?>
+                            <a href="<?= esc_url($chipUrl); ?>" class="eim-cat-chip"><?= esc_html($chipLabel); ?></a>
+                            <?php endforeach; ?>
+                        </div>
                     <?php else: ?>
                         <span style="color:#999;">—</span>
                     <?php endif; ?>
@@ -470,6 +513,13 @@ final class MenuItemsPage extends AbstractAdminPage
                             </div>
                             <div class="eim-vendor-dropdown" style="display:none;position:absolute;background:#fff;border:1px solid #dcdcde;border-radius:4px;z-index:9999;min-width:300px;max-height:220px;overflow-y:auto;box-shadow:0 2px 8px rgba(0,0,0,.12);"></div>
                         </div>
+                    </div>
+                    <div class="eim-menu-add-row">
+                        <?php $this->renderCategoryPicker(
+                            'eim-mi-add-cat-picker-' . $type,
+                            [],
+                            wp_create_nonce('eim_suggest_categories_nonce')
+                        ); ?>
                     </div>
                     <div class="eim-menu-add-row">
                         <button type="submit" class="button button-primary">Add <?= esc_html($typeLabel); ?> Item</button>

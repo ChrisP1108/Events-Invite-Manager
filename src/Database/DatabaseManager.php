@@ -8,18 +8,14 @@ if (!defined('ABSPATH')) exit;
 
 /**
  * Handles database interactions for the plugin.
- * 
- * The database schema is defined in `schema.sql`.
- * The database schema version is defined in `DatabaseManager::SCHEMA_VERSION`.
  * All tables are prefixed with `eim_`.
- * All tables are defined in `DatabaseManager::getTables()`.
- * 
+ *
  * @package EventsInviteManager
  */
 
 final class DatabaseManager
 {
-    private const SCHEMA_VERSION = '17';
+    private const SCHEMA_VERSION = '19';
 
     private const EVENTS_TABLE                           = 'eim_events';
     private const INVITEES_TABLE                         = 'eim_invitees';
@@ -43,6 +39,60 @@ final class DatabaseManager
     private const NEWSLETTER_CATEGORY_MAP_TABLE          = 'eim_newsletter_category_map';
     private const NEWSLETTER_TAG_MAP_TABLE               = 'eim_newsletter_tag_map';
     private const VENDORS_TABLE                          = 'eim_vendors';
+    private const CATEGORIES_TABLE                       = 'eim_categories';
+    private const CATEGORY_MAP_TABLE                     = 'eim_category_map';
+
+    public static function maybeUpgrade(): void
+    {
+        if (get_option('eim_db_version') === self::SCHEMA_VERSION) {
+            return;
+        }
+        self::createTables();
+        self::migrateNewsletterCategoriesToUnified();
+        update_option('eim_db_version', self::SCHEMA_VERSION, false);
+    }
+
+    private static function migrateNewsletterCategoriesToUnified(): void
+    {
+        global $wpdb;
+
+        $oldMap  = $wpdb->prefix . 'eim_newsletter_category_map';
+        $oldCats = $wpdb->prefix . 'eim_newsletter_categories';
+        $newMap  = $wpdb->prefix . self::CATEGORY_MAP_TABLE;
+        $newCats = $wpdb->prefix . self::CATEGORIES_TABLE;
+
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        if ($wpdb->get_var("SHOW TABLES LIKE '{$oldMap}'") !== $oldMap) {
+            return;
+        }
+
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $rows = $wpdb->get_results(
+            "SELECT ncm.newsletter_id, nc.name, nc.slug
+             FROM {$oldMap} ncm
+             INNER JOIN {$oldCats} nc ON nc.id = ncm.category_id"
+        );
+
+        foreach ($rows ?? [] as $row) {
+            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+            $catId = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT id FROM {$newCats} WHERE slug = %s",
+                $row->slug
+            ));
+            if (!$catId) {
+                $wpdb->insert($newCats, ['name' => $row->name, 'slug' => $row->slug]);
+                $catId = (int) $wpdb->insert_id;
+            }
+            if ($catId > 0) {
+                // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+                $wpdb->query($wpdb->prepare(
+                    "INSERT IGNORE INTO {$newMap} (category_id, entity_type, entity_id) VALUES (%d, 'newsletter', %d)",
+                    $catId,
+                    (int) $row->newsletter_id
+                ));
+            }
+        }
+    }
 
     public static function createTables(): void
     {
@@ -65,13 +115,15 @@ final class DatabaseManager
         $budgetPlansTable    = $wpdb->prefix . self::BUDGET_PLANS_TABLE;
         $budgetPlanEventsTable = $wpdb->prefix . self::BUDGET_PLAN_EVENTS_TABLE;
         $budgetLineItemsTable  = $wpdb->prefix . self::BUDGET_LINE_ITEMS_TABLE;
-        $newslettersTable         = $wpdb->prefix . self::NEWSLETTERS_TABLE;
-        $newsletterEventsTable    = $wpdb->prefix . self::NEWSLETTER_EVENTS_TABLE;
-        $newsletterCategoriesTable = $wpdb->prefix . self::NEWSLETTER_CATEGORIES_TABLE;
-        $newsletterTagsTable      = $wpdb->prefix . self::NEWSLETTER_TAGS_TABLE;
+        $newslettersTable           = $wpdb->prefix . self::NEWSLETTERS_TABLE;
+        $newsletterEventsTable      = $wpdb->prefix . self::NEWSLETTER_EVENTS_TABLE;
+        $newsletterCategoriesTable  = $wpdb->prefix . self::NEWSLETTER_CATEGORIES_TABLE;
+        $newsletterTagsTable        = $wpdb->prefix . self::NEWSLETTER_TAGS_TABLE;
         $newsletterCategoryMapTable = $wpdb->prefix . self::NEWSLETTER_CATEGORY_MAP_TABLE;
-        $newsletterTagMapTable    = $wpdb->prefix . self::NEWSLETTER_TAG_MAP_TABLE;
-        $vendorsTable             = $wpdb->prefix . self::VENDORS_TABLE;
+        $newsletterTagMapTable      = $wpdb->prefix . self::NEWSLETTER_TAG_MAP_TABLE;
+        $vendorsTable               = $wpdb->prefix . self::VENDORS_TABLE;
+        $categoriesTable            = $wpdb->prefix . self::CATEGORIES_TABLE;
+        $categoryMapTable           = $wpdb->prefix . self::CATEGORY_MAP_TABLE;
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
@@ -286,7 +338,6 @@ final class DatabaseManager
             CREATE TABLE {$vendorsTable} (
                 id             BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
                 company_name   VARCHAR(255)        NOT NULL DEFAULT '',
-                category       VARCHAR(30)         NOT NULL DEFAULT 'other',
                 street_address VARCHAR(255)        NOT NULL DEFAULT '',
                 city           VARCHAR(100)        NOT NULL DEFAULT '',
                 state          VARCHAR(50)         NOT NULL DEFAULT '',
@@ -296,8 +347,7 @@ final class DatabaseManager
                 notes          TEXT,
                 created_at     DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at     DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                PRIMARY KEY (id),
-                KEY category (category)
+                PRIMARY KEY (id)
             ) ENGINE=InnoDB {$charset};
             CREATE TABLE {$newslettersTable} (
                 id           BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -356,30 +406,30 @@ final class DatabaseManager
                 UNIQUE KEY newsletter_tag (newsletter_id, tag_id),
                 KEY newsletter_id (newsletter_id),
                 KEY tag_id (tag_id)
+            ) ENGINE=InnoDB {$charset};
+            CREATE TABLE {$categoriesTable} (
+                id         BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                name       VARCHAR(255)        NOT NULL DEFAULT '',
+                slug       VARCHAR(255)        NOT NULL DEFAULT '',
+                parent_id  BIGINT(20) UNSIGNED NULL DEFAULT NULL,
+                created_at DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY slug (slug),
+                KEY parent_id (parent_id)
+            ) ENGINE=InnoDB {$charset};
+            CREATE TABLE {$categoryMapTable} (
+                id          BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                category_id BIGINT(20) UNSIGNED NOT NULL,
+                entity_type VARCHAR(50)         NOT NULL,
+                entity_id   BIGINT(20) UNSIGNED NOT NULL,
+                created_at  DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY category_entity (category_id, entity_type, entity_id),
+                KEY entity_lookup (entity_type, entity_id),
+                KEY category_id (category_id)
             ) ENGINE=InnoDB {$charset};";
 
         dbDelta($sql);
-
-        update_option('eim_db_version', self::SCHEMA_VERSION, false);
-    }
-
-    /**
-     * Runs any pending schema upgrades then records the new version.
-     *
-     * Called on every admin page load via the plugin bootstrap. The version
-     * check short-circuits the method on the happy path so there is no
-     * database round-trip beyond the option read.
-     */
-    public static function maybeUpgrade(): void
-    {
-        if ((string) get_option('eim_db_version', '0') === self::SCHEMA_VERSION) {
-            return;
-        }
-
-        self::maybeAddV15Columns();
-        self::maybeAddV16Columns();
-        self::maybeAddV17Columns();
-        self::createTables();
     }
 
     /** @return string Fully-qualified events table name. */
@@ -529,240 +579,6 @@ final class DatabaseManager
         return $wpdb->prefix . self::NEWSLETTER_TAG_MAP_TABLE;
     }
 
-    /**
-     * Ensures all six newsletter tables exist, creating them if missing.
-     */
-    public static function maybeCreateNewsletterTables(): void
-    {
-        global $wpdb;
-
-        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
-
-        $charset                    = $wpdb->get_charset_collate();
-        $newslettersTable           = $wpdb->prefix . self::NEWSLETTERS_TABLE;
-        $newsletterEventsTable      = $wpdb->prefix . self::NEWSLETTER_EVENTS_TABLE;
-        $newsletterCategoriesTable  = $wpdb->prefix . self::NEWSLETTER_CATEGORIES_TABLE;
-        $newsletterTagsTable        = $wpdb->prefix . self::NEWSLETTER_TAGS_TABLE;
-        $newsletterCategoryMapTable = $wpdb->prefix . self::NEWSLETTER_CATEGORY_MAP_TABLE;
-        $newsletterTagMapTable      = $wpdb->prefix . self::NEWSLETTER_TAG_MAP_TABLE;
-
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-        if ($wpdb->get_var("SHOW TABLES LIKE '{$newslettersTable}'") !== $newslettersTable) {
-            dbDelta("CREATE TABLE {$newslettersTable} (
-                id           BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-                title        VARCHAR(255)        NOT NULL DEFAULT '',
-                content      LONGTEXT,
-                status       VARCHAR(10)         NOT NULL DEFAULT 'draft',
-                publish_date DATETIME            NULL DEFAULT NULL,
-                created_at   DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at   DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                PRIMARY KEY (id),
-                KEY status (status),
-                KEY publish_date (publish_date)
-            ) ENGINE=InnoDB {$charset};");
-        }
-
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-        if ($wpdb->get_var("SHOW TABLES LIKE '{$newsletterEventsTable}'") !== $newsletterEventsTable) {
-            dbDelta("CREATE TABLE {$newsletterEventsTable} (
-                id            BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-                newsletter_id BIGINT(20) UNSIGNED NOT NULL,
-                event_id      BIGINT(20) UNSIGNED NOT NULL,
-                created_at    DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (id),
-                UNIQUE KEY newsletter_event (newsletter_id, event_id),
-                KEY newsletter_id (newsletter_id),
-                KEY event_id (event_id)
-            ) ENGINE=InnoDB {$charset};");
-        }
-
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-        if ($wpdb->get_var("SHOW TABLES LIKE '{$newsletterCategoriesTable}'") !== $newsletterCategoriesTable) {
-            dbDelta("CREATE TABLE {$newsletterCategoriesTable} (
-                id         BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-                name       VARCHAR(255)        NOT NULL DEFAULT '',
-                slug       VARCHAR(255)        NOT NULL DEFAULT '',
-                created_at DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (id),
-                UNIQUE KEY slug (slug)
-            ) ENGINE=InnoDB {$charset};");
-        }
-
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-        if ($wpdb->get_var("SHOW TABLES LIKE '{$newsletterTagsTable}'") !== $newsletterTagsTable) {
-            dbDelta("CREATE TABLE {$newsletterTagsTable} (
-                id         BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-                name       VARCHAR(255)        NOT NULL DEFAULT '',
-                slug       VARCHAR(255)        NOT NULL DEFAULT '',
-                created_at DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (id),
-                UNIQUE KEY slug (slug)
-            ) ENGINE=InnoDB {$charset};");
-        }
-
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-        if ($wpdb->get_var("SHOW TABLES LIKE '{$newsletterCategoryMapTable}'") !== $newsletterCategoryMapTable) {
-            dbDelta("CREATE TABLE {$newsletterCategoryMapTable} (
-                id            BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-                newsletter_id BIGINT(20) UNSIGNED NOT NULL,
-                category_id   BIGINT(20) UNSIGNED NOT NULL,
-                created_at    DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (id),
-                UNIQUE KEY newsletter_category (newsletter_id, category_id),
-                KEY newsletter_id (newsletter_id),
-                KEY category_id (category_id)
-            ) ENGINE=InnoDB {$charset};");
-        }
-
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-        if ($wpdb->get_var("SHOW TABLES LIKE '{$newsletterTagMapTable}'") !== $newsletterTagMapTable) {
-            dbDelta("CREATE TABLE {$newsletterTagMapTable} (
-                id            BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-                newsletter_id BIGINT(20) UNSIGNED NOT NULL,
-                tag_id        BIGINT(20) UNSIGNED NOT NULL,
-                created_at    DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (id),
-                UNIQUE KEY newsletter_tag (newsletter_id, tag_id),
-                KEY newsletter_id (newsletter_id),
-                KEY tag_id (tag_id)
-            ) ENGINE=InnoDB {$charset};");
-        }
-    }
-
-    /**
-     * Ensures the v15 completion-tracking columns exist on the invitation group members
-     * table and the newsletter_page_id column exists on the events table.
-     *
-     * Uses explicit ALTER TABLE rather than relying solely on dbDelta so that the
-     * upgrade is applied safely to installations that already ran schema v14.
-     * Each column is checked for existence before attempting to add it.
-     */
-    public static function maybeAddV15Columns(): void
-    {
-        global $wpdb;
-
-        $membersTable = $wpdb->prefix . self::INVITATION_GROUP_MEMBERS_TABLE;
-        $eventsTable  = $wpdb->prefix . self::EVENTS_TABLE;
-
-        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-        $existingMemberCols = $wpdb->get_col("SHOW COLUMNS FROM {$membersTable}");
-        if (!in_array('food_confirmed_at', $existingMemberCols, true)) {
-            $wpdb->query("ALTER TABLE {$membersTable} ADD COLUMN food_confirmed_at DATETIME NULL DEFAULT NULL");
-        }
-        if (!in_array('beverage_confirmed_at', $existingMemberCols, true)) {
-            $wpdb->query("ALTER TABLE {$membersTable} ADD COLUMN beverage_confirmed_at DATETIME NULL DEFAULT NULL");
-        }
-
-        $existingEventCols = $wpdb->get_col("SHOW COLUMNS FROM {$eventsTable}");
-        if (!in_array('newsletter_page_id', $existingEventCols, true)) {
-            $wpdb->query("ALTER TABLE {$eventsTable} ADD COLUMN newsletter_page_id BIGINT(20) UNSIGNED NULL DEFAULT NULL");
-        }
-        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-    }
-
-    /**
-     * Ensures the v16 lodging-selection columns exist on the invitation group members table.
-     *
-     * Uses explicit ALTER TABLE so the upgrade applies safely to installations
-     * already running schema v15. Each column is checked before adding.
-     */
-    public static function maybeAddV16Columns(): void
-    {
-        global $wpdb;
-
-        $membersTable = $wpdb->prefix . self::INVITATION_GROUP_MEMBERS_TABLE;
-
-        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-        $existingCols = $wpdb->get_col("SHOW COLUMNS FROM {$membersTable}");
-
-        if (!in_array('lodging_id', $existingCols, true)) {
-            $wpdb->query("ALTER TABLE {$membersTable} ADD COLUMN lodging_id BIGINT(20) UNSIGNED NULL DEFAULT NULL");
-        }
-        if (!in_array('lodging_is_other', $existingCols, true)) {
-            $wpdb->query("ALTER TABLE {$membersTable} ADD COLUMN lodging_is_other TINYINT(1) NOT NULL DEFAULT 0");
-        }
-        if (!in_array('lodging_undisclosed', $existingCols, true)) {
-            $wpdb->query("ALTER TABLE {$membersTable} ADD COLUMN lodging_undisclosed TINYINT(1) NOT NULL DEFAULT 0");
-        }
-        if (!in_array('lodging_confirmed_at', $existingCols, true)) {
-            $wpdb->query("ALTER TABLE {$membersTable} ADD COLUMN lodging_confirmed_at DATETIME NULL DEFAULT NULL");
-        }
-        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-    }
-
-    /**
-     * Ensures all three budget tables exist, creating them if missing.
-     *
-     * Each table is checked independently so a partial schema failure (e.g. the
-     * plans table exists but the pivot or line-items table was never created)
-     * still recovers correctly.
-     */
-    public static function maybeCreateBudgetTables(): void
-    {
-        global $wpdb;
-
-        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
-
-        $charset               = $wpdb->get_charset_collate();
-        $plansTable            = $wpdb->prefix . self::BUDGET_PLANS_TABLE;
-        $budgetPlanEventsTable = $wpdb->prefix . self::BUDGET_PLAN_EVENTS_TABLE;
-        $budgetLineItemsTable  = $wpdb->prefix . self::BUDGET_LINE_ITEMS_TABLE;
-
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-        if ($wpdb->get_var("SHOW TABLES LIKE '{$plansTable}'") !== $plansTable) {
-            dbDelta("CREATE TABLE {$plansTable} (
-            id                  BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-            name                VARCHAR(255)        NOT NULL DEFAULT '',
-            description         TEXT,
-            target_amount_cents INT UNSIGNED        NOT NULL DEFAULT 0,
-            currency            VARCHAR(3)          NOT NULL DEFAULT 'USD',
-            created_at          DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at          DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (id)
-        ) ENGINE=InnoDB {$charset};");
-        }
-
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-        if ($wpdb->get_var("SHOW TABLES LIKE '{$budgetPlanEventsTable}'") !== $budgetPlanEventsTable) {
-            dbDelta("CREATE TABLE {$budgetPlanEventsTable} (
-                id         BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-                plan_id    BIGINT(20) UNSIGNED NOT NULL,
-                event_id   BIGINT(20) UNSIGNED NOT NULL,
-                created_at DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (id),
-                UNIQUE KEY plan_event (plan_id, event_id),
-                KEY plan_id (plan_id),
-                KEY event_id (event_id)
-            ) ENGINE=InnoDB {$charset};");
-        }
-
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-        if ($wpdb->get_var("SHOW TABLES LIKE '{$budgetLineItemsTable}'") !== $budgetLineItemsTable) {
-            dbDelta("CREATE TABLE {$budgetLineItemsTable} (
-                id                   BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-                plan_id              BIGINT(20) UNSIGNED NOT NULL,
-                event_id             BIGINT(20) UNSIGNED NULL DEFAULT NULL,
-                vendor_id            BIGINT(20) UNSIGNED NULL DEFAULT NULL,
-                label                VARCHAR(255)        NOT NULL DEFAULT '',
-                source_type          VARCHAR(20)         NULL DEFAULT NULL,
-                source_id            BIGINT(20) UNSIGNED NULL DEFAULT NULL,
-                quantity             DECIMAL(10,2)       NOT NULL DEFAULT 1.00,
-                quantity_mode        VARCHAR(15)         NOT NULL DEFAULT 'fixed',
-                unit_cost_cents      INT UNSIGNED        NOT NULL DEFAULT 0,
-                total_override_cents INT UNSIGNED        NULL DEFAULT NULL,
-                paid_amount_cents    INT UNSIGNED        NOT NULL DEFAULT 0,
-                notes                TEXT,
-                sort_order           INT                 NOT NULL DEFAULT 0,
-                created_at           DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at           DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                PRIMARY KEY (id),
-                KEY plan_id (plan_id),
-                KEY event_id (event_id),
-                KEY vendor_id (vendor_id)
-            ) ENGINE=InnoDB {$charset};");
-        }
-    }
-
     /** @return string Fully-qualified vendors table name. */
     public static function vendorsTable(): string
     {
@@ -770,71 +586,18 @@ final class DatabaseManager
         return $wpdb->prefix . self::VENDORS_TABLE;
     }
 
-    /**
-     * Ensures the vendors table exists, creating it if missing.
-     */
-    public static function maybeCreateVendorTable(): void
+    /** @return string Fully-qualified unified categories table name. */
+    public static function categoriesTable(): string
     {
         global $wpdb;
-
-        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
-
-        $charset      = $wpdb->get_charset_collate();
-        $vendorsTable = $wpdb->prefix . self::VENDORS_TABLE;
-
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-        if ($wpdb->get_var("SHOW TABLES LIKE '{$vendorsTable}'") !== $vendorsTable) {
-            dbDelta("CREATE TABLE {$vendorsTable} (
-                id             BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-                company_name   VARCHAR(255)        NOT NULL DEFAULT '',
-                category       VARCHAR(30)         NOT NULL DEFAULT 'other',
-                street_address VARCHAR(255)        NOT NULL DEFAULT '',
-                city           VARCHAR(100)        NOT NULL DEFAULT '',
-                state          VARCHAR(50)         NOT NULL DEFAULT '',
-                zip_code       VARCHAR(20)         NOT NULL DEFAULT '',
-                email          VARCHAR(255)        NOT NULL DEFAULT '',
-                phone          VARCHAR(40)         NOT NULL DEFAULT '',
-                notes          TEXT,
-                created_at     DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at     DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                PRIMARY KEY (id),
-                KEY category (category)
-            ) ENGINE=InnoDB {$charset};");
-        }
+        return $wpdb->prefix . self::CATEGORIES_TABLE;
     }
 
-    /**
-     * Applies v17 schema changes:
-     *   - Creates the vendors table if missing.
-     *   - Drops legacy category and vendor_name from budget line items.
-     *   - Adds vendor_id to budget line items and menu items.
-     */
-    public static function maybeAddV17Columns(): void
+    /** @return string Fully-qualified category–entity pivot table name. */
+    public static function categoryMapTable(): string
     {
         global $wpdb;
-
-        self::maybeCreateVendorTable();
-
-        $lineItemsTable = $wpdb->prefix . self::BUDGET_LINE_ITEMS_TABLE;
-        $menuItemsTable = $wpdb->prefix . self::MENU_ITEMS_TABLE;
-
-        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-        $liCols = $wpdb->get_col("SHOW COLUMNS FROM {$lineItemsTable}") ?: [];
-
-        if (in_array('category', $liCols, true)) {
-            $wpdb->query("ALTER TABLE {$lineItemsTable} DROP COLUMN `category`");
-        }
-        if (in_array('vendor_name', $liCols, true)) {
-            $wpdb->query("ALTER TABLE {$lineItemsTable} DROP COLUMN `vendor_name`");
-        }
-        if (!in_array('vendor_id', $liCols, true)) {
-            $wpdb->query("ALTER TABLE {$lineItemsTable} ADD COLUMN vendor_id BIGINT(20) UNSIGNED NULL DEFAULT NULL AFTER event_id");
-        }
-
-        $miCols = $wpdb->get_col("SHOW COLUMNS FROM {$menuItemsTable}") ?: [];
-        if (!in_array('vendor_id', $miCols, true)) {
-            $wpdb->query("ALTER TABLE {$menuItemsTable} ADD COLUMN vendor_id BIGINT(20) UNSIGNED NULL DEFAULT NULL AFTER price_cents");
-        }
-        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        return $wpdb->prefix . self::CATEGORY_MAP_TABLE;
     }
+
 }

@@ -8,6 +8,7 @@ if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Admin\AbstractAdminPage;
 use EventsInviteManager\Admin\AdminMenu;
+use EventsInviteManager\Models\Category;
 use EventsInviteManager\Models\Location;
 
 /**
@@ -153,11 +154,17 @@ final class LocationsPage extends AbstractAdminPage
             exit;
         }
 
+        $categoryIds = array_map('intval', (array) ($_POST['category_ids'] ?? []));
+
         if ($id > 0) {
             Location::update($id, $data);
+            Category::syncToEntity('location', $id, $categoryIds);
             $message = 'location_updated';
         } else {
-            Location::create($data);
+            $locationId = Location::create($data);
+            if (is_int($locationId) && $locationId > 0) {
+                Category::syncToEntity('location', $locationId, $categoryIds);
+            }
             $message = 'location_created';
         }
 
@@ -181,6 +188,7 @@ final class LocationsPage extends AbstractAdminPage
             wp_die('Security check failed.');
         }
 
+        Category::syncToEntity('location', $id, []);
         Location::delete($id);
 
         wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS, [
@@ -245,9 +253,10 @@ final class LocationsPage extends AbstractAdminPage
                         <th style="width:28%;"><?= $this->sortLink('Name', 'name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_LOCATIONS]); ?></th>
                         <th style="width:14%;"><?= $this->sortLink('Type', 'is_other', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_LOCATIONS]); ?></th>
                         <th style="width:12%;"><?= $this->sortLink('Lodging', 'has_lodging', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_LOCATIONS]); ?></th>
-                        <th style="width:25%;">Address / Booking</th>
-                        <th style="width:24%;">Used In</th>
-                        <th style="width:18%;">Actions</th>
+                        <th style="width:22%;">Address / Booking</th>
+                        <th style="width:18%;">Used In</th>
+                        <th style="width:12%;">Categories</th>
+                        <th style="width:14%;">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="eim-locations-table-body">
@@ -273,11 +282,13 @@ final class LocationsPage extends AbstractAdminPage
     {
         if (empty($locations)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No locations found.';
-            echo '<tr class="eim-no-results"><td colspan="6">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="7">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
         $usageByLocation = Location::eventUsageForLocations(array_map(static fn(Location $loc): int => $loc->id, $locations));
+        $locationIds     = array_map(static fn(Location $loc): int => $loc->id, $locations);
+        $catsByLocation  = Category::forEntities('location', $locationIds);
 
         foreach ($locations as $loc) {
             $editUrl   = AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS, ['action' => 'edit', 'id' => $loc->id]);
@@ -329,6 +340,14 @@ final class LocationsPage extends AbstractAdminPage
                             <?php endforeach; ?>
                         </span>
                     <?php endif; ?>
+                </td>
+                <td>
+                    <?php $cats = $catsByLocation[$loc->id] ?? []; ?>
+                    <?php foreach ($cats as $cat): ?>
+                        <?php $catEditUrl = AdminMenu::tabUrl(AdminMenu::TAB_CATEGORIES, ['action' => 'edit', 'id' => $cat->id]); ?>
+                        <a href="<?= esc_url($catEditUrl); ?>" class="eim-cat-chip"><?= esc_html($cat->parentName ? $cat->parentName . ' › ' . $cat->name : $cat->name); ?></a>
+                    <?php endforeach; ?>
+                    <?php if (empty($cats)): ?><span style="color:#999;">—</span><?php endif; ?>
                 </td>
                 <td>
                     <a href="<?= esc_url($editUrl); ?>">Edit</a> |
@@ -468,6 +487,30 @@ final class LocationsPage extends AbstractAdminPage
                         </tr>
                     </table>
                 </div>
+
+                <h2 class="title">Categories</h2>
+                <table class="form-table" role="presentation">
+                    <tr>
+                        <th scope="row"><label>Categories</label></th>
+                        <td>
+                            <?php
+                            $selCats  = [];
+                            $catNonce = wp_create_nonce('eim_suggest_categories_nonce');
+                            if (!$isNew) {
+                                foreach (Category::forEntity('location', $location->id) as $cat) {
+                                    $selCats[] = [
+                                        'id'          => $cat->id,
+                                        'name'        => $cat->name,
+                                        'parent_name' => $cat->parentName,
+                                        'label'       => $cat->parentName ? $cat->parentName . ' › ' . $cat->name : $cat->name,
+                                    ];
+                                }
+                            }
+                            $this->renderCategoryPicker('eim-location-cat-picker', $selCats, $catNonce);
+                            ?>
+                        </td>
+                    </tr>
+                </table>
 
                 <?php submit_button($isNew ? 'Add Location' : 'Update Location'); ?>
             </form>

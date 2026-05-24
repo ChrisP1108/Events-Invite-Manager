@@ -8,7 +8,7 @@ if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Admin\AbstractAdminPage;
 use EventsInviteManager\Admin\AdminMenu;
-use EventsInviteManager\Database\DatabaseManager;
+use EventsInviteManager\Models\Category;
 use EventsInviteManager\Models\Vendor;
 
 /**
@@ -21,8 +21,6 @@ final class VendorsPage extends AbstractAdminPage
 {
     public function handleAction(string $action): void
     {
-        DatabaseManager::maybeCreateVendorTable();
-
         match ($action) {
             'save_vendor'   => $this->handleSaveVendor(),
             'delete_vendor' => $this->handleDeleteVendor(),
@@ -32,8 +30,6 @@ final class VendorsPage extends AbstractAdminPage
 
     public function renderPage(): void
     {
-        DatabaseManager::maybeCreateVendorTable();
-
         $action = $_GET['action'] ?? 'list';
 
         match ($action) {
@@ -125,7 +121,6 @@ final class VendorsPage extends AbstractAdminPage
 
         $data = [
             'company_name'   => $companyName,
-            'category'       => sanitize_key($_POST['category']       ?? 'other'),
             'street_address' => sanitize_text_field(wp_unslash($_POST['street_address'] ?? '')),
             'city'           => sanitize_text_field(wp_unslash($_POST['city']           ?? '')),
             'state'          => sanitize_text_field(wp_unslash($_POST['state']          ?? '')),
@@ -135,11 +130,17 @@ final class VendorsPage extends AbstractAdminPage
             'notes'          => sanitize_textarea_field(wp_unslash($_POST['notes']      ?? '')),
         ];
 
+        $categoryIds = array_map('intval', (array) ($_POST['category_ids'] ?? []));
+
         if ($id > 0) {
             Vendor::update($id, $data);
+            Category::syncToEntity('vendor', $id, $categoryIds);
             wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_VENDORS, ['eim_message' => 'vendor_updated']));
         } else {
-            Vendor::create($data);
+            $vendor = Vendor::create($data);
+            if ($vendor) {
+                Category::syncToEntity('vendor', $vendor->id, $categoryIds);
+            }
             wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_VENDORS, ['eim_message' => 'vendor_created']));
         }
         exit;
@@ -154,6 +155,7 @@ final class VendorsPage extends AbstractAdminPage
             wp_die('Security check failed.');
         }
 
+        Category::syncToEntity('vendor', $id, []);
         Vendor::delete($id);
 
         wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_VENDORS, ['eim_message' => 'vendor_deleted']));
@@ -198,7 +200,6 @@ final class VendorsPage extends AbstractAdminPage
                 $search,
                 [
                     ['value' => 'company_name', 'label' => 'Company Name'],
-                    ['value' => 'category',     'label' => 'Category'],
                     ['value' => 'email',        'label' => 'Email'],
                     ['value' => 'phone',        'label' => 'Phone'],
                     ['value' => 'address',      'label' => 'Address'],
@@ -215,11 +216,11 @@ final class VendorsPage extends AbstractAdminPage
                 <thead>
                     <tr>
                         <th style="width:22%;"><?= $this->sortLink('Company Name', 'company_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_VENDORS]); ?></th>
-                        <th style="width:14%;"><?= $this->sortLink('Category',     'category',     AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_VENDORS]); ?></th>
-                        <th style="width:18%;">Contact</th>
-                        <th style="width:16%;">Budget Plans</th>
-                        <th style="width:16%;">Food &amp; Bev Items</th>
-                        <th style="width:14%;">Actions</th>
+                        <th style="width:16%;">Categories</th>
+                        <th style="width:16%;">Contact</th>
+                        <th style="width:14%;">Budget Plans</th>
+                        <th style="width:14%;">Food &amp; Bev Items</th>
+                        <th style="width:12%;">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="eim-vendors-table-body">
@@ -251,6 +252,7 @@ final class VendorsPage extends AbstractAdminPage
         $vendorIds    = array_map(static fn(Vendor $v): int => $v->id, $vendors);
         $budgetUsage  = Vendor::budgetUsageForVendors($vendorIds);
         $menuUsage    = Vendor::menuItemUsageForVendors($vendorIds);
+        $catsByVendor = Category::forEntities('vendor', $vendorIds);
 
         foreach ($vendors as $vendor) {
             $editUrl   = AdminMenu::tabUrl(AdminMenu::TAB_VENDORS, ['action' => 'edit', 'id' => $vendor->id]);
@@ -258,8 +260,9 @@ final class VendorsPage extends AbstractAdminPage
                 AdminMenu::tabUrl(AdminMenu::TAB_VENDORS, ['action' => 'delete_vendor', 'id' => $vendor->id]),
                 'eim_delete_vendor_' . $vendor->id
             );
-            $plans    = $budgetUsage[$vendor->id]  ?? [];
+            $plans     = $budgetUsage[$vendor->id] ?? [];
             $menuItems = $menuUsage[$vendor->id]   ?? [];
+            $cats      = $catsByVendor[$vendor->id] ?? [];
             ?>
             <tr>
                 <td>
@@ -269,9 +272,11 @@ final class VendorsPage extends AbstractAdminPage
                     <?php endif; ?>
                 </td>
                 <td>
-                    <span style="background:#f0f0f1;padding:2px 8px;border-radius:3px;font-size:12px;">
-                        <?= esc_html($vendor->categoryLabel()); ?>
-                    </span>
+                    <?php foreach ($cats as $cat): ?>
+                        <?php $catEditUrl = AdminMenu::tabUrl(AdminMenu::TAB_CATEGORIES, ['action' => 'edit', 'id' => $cat->id]); ?>
+                        <a href="<?= esc_url($catEditUrl); ?>" class="eim-cat-chip"><?= esc_html($cat->parentName ? $cat->parentName . ' › ' . $cat->name : $cat->name); ?></a>
+                    <?php endforeach; ?>
+                    <?php if (empty($cats)): ?><span style="color:#999;">—</span><?php endif; ?>
                 </td>
                 <td>
                     <?php if ($vendor->email): ?>
@@ -325,11 +330,18 @@ final class VendorsPage extends AbstractAdminPage
 
     private function renderVendorForm(?Vendor $vendor): void
     {
-        $isNew   = $vendor === null;
-        $message = (string) ($_GET['eim_message'] ?? '');
-        $error   = (string) ($_GET['eim_error']   ?? '');
-        $backUrl = AdminMenu::tabUrl(AdminMenu::TAB_VENDORS);
-        $title   = $isNew ? 'Add Vendor' : 'Edit Vendor: ' . $vendor->companyName;
+        $isNew    = $vendor === null;
+        $message  = (string) ($_GET['eim_message'] ?? '');
+        $error    = (string) ($_GET['eim_error']   ?? '');
+        $backUrl  = AdminMenu::tabUrl(AdminMenu::TAB_VENDORS);
+        $title    = $isNew ? 'Add Vendor' : 'Edit Vendor: ' . $vendor->companyName;
+        $selCats  = $isNew ? [] : array_map(static fn($c) => [
+            'id'          => $c->id,
+            'name'        => $c->name,
+            'parent_name' => $c->parentName,
+            'label'       => $c->parentName ? $c->parentName . ' › ' . $c->name : $c->name,
+        ], Category::forEntity('vendor', $vendor->id));
+        $catNonce = wp_create_nonce('eim_suggest_categories_nonce');
         ?>
         <div class="wrap">
             <h1><?= esc_html($title); ?></h1>
@@ -350,16 +362,10 @@ final class VendorsPage extends AbstractAdminPage
                                    value="<?= esc_attr($isNew ? '' : $vendor->companyName); ?>" required></td>
                     </tr>
                     <tr>
-                        <th scope="row"><label for="eim_v_category">Category <span aria-hidden="true" style="color:#d63638;">*</span></label></th>
+                        <th scope="row">Categories</th>
                         <td>
-                            <select id="eim_v_category" name="category" required>
-                                <?php foreach (Vendor::CATEGORIES as $key => $label): ?>
-                                    <option value="<?= esc_attr($key); ?>"
-                                            <?= selected($isNew ? 'other' : $vendor->category, $key, false); ?>>
-                                        <?= esc_html($label); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
+                            <?php $this->renderCategoryPicker('eim-vendor-cat-picker', $selCats, $catNonce); ?>
+                            <p class="description" style="margin-top:6px;">Optional. Assign one or more categories to this vendor.</p>
                         </td>
                     </tr>
                     <tr>
@@ -414,11 +420,11 @@ final class VendorsPage extends AbstractAdminPage
 
     private function sanitizeVendorSortKey(string $key): string
     {
-        return in_array($key, ['company_name', 'category', 'email'], true) ? $key : 'company_name';
+        return in_array($key, ['company_name', 'email'], true) ? $key : 'company_name';
     }
 
     private function sanitizeVendorFieldKey(string $field): string
     {
-        return in_array($field, ['company_name', 'category', 'email', 'phone', 'address'], true) ? $field : '';
+        return in_array($field, ['company_name', 'email', 'phone', 'address'], true) ? $field : '';
     }
 }

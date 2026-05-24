@@ -8,6 +8,7 @@ if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Admin\AbstractAdminPage;
 use EventsInviteManager\Admin\AdminMenu;
+use EventsInviteManager\Models\Category;
 use EventsInviteManager\Models\ConnectionGroup;
 use EventsInviteManager\Models\Invitee;
 
@@ -170,11 +171,17 @@ final class InviteesPage extends AbstractAdminPage
             exit;
         }
 
+        $categoryIds = array_map('intval', (array) ($_POST['category_ids'] ?? []));
+
         if ($id > 0) {
             Invitee::update($id, $data);
+            Category::syncToEntity('invitee', $id, $categoryIds);
             $message = 'invitee_updated';
         } else {
-            Invitee::create($data);
+            $inviteeId = Invitee::create($data);
+            if (is_int($inviteeId) && $inviteeId > 0) {
+                Category::syncToEntity('invitee', $inviteeId, $categoryIds);
+            }
             $message = 'invitee_created';
         }
 
@@ -194,6 +201,7 @@ final class InviteesPage extends AbstractAdminPage
             wp_die('Security check failed.');
         }
 
+        Category::syncToEntity('invitee', $id, []);
         Invitee::delete($id);
 
         wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, [
@@ -261,8 +269,9 @@ final class InviteesPage extends AbstractAdminPage
                         <th style="width:12%;"><?= $this->sortLink('Last Name', 'last_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
                         <th style="width:18%;"><?= $this->sortLink('Email', 'email', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
                         <th style="width:11%;"><?= $this->sortLink('Phone', 'phone', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
-                        <th><?= $this->sortLink('Invited Events', 'events', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
-                        <th style="width:17%;">Connection Groups</th>
+                        <th style="width:14%"><?= $this->sortLink('Invited Events', 'events', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
+                        <th style="width:14%;">Connection Groups</th>
+                        <th style="width:12%;">Categories</th>
                         <th style="width:10%;">Actions</th>
                     </tr>
                 </thead>
@@ -283,7 +292,7 @@ final class InviteesPage extends AbstractAdminPage
     {
         if (empty($rows)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No invitees found.';
-            echo '<tr class="eim-no-results"><td colspan="7">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="8">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -292,6 +301,9 @@ final class InviteesPage extends AbstractAdminPage
             $ids = array_map(static fn($r) => $r['invitee']->id, $rows);
             $groupsByInvitee = ConnectionGroup::forInvitees($ids);
         }
+
+        $inviteeIds  = array_map(static fn($r) => $r['invitee']->id, $rows);
+        $catsByInvitee = Category::forEntities('invitee', $inviteeIds);
 
         foreach ($rows as $row) {
             /** @var Invitee $invitee */
@@ -302,6 +314,7 @@ final class InviteesPage extends AbstractAdminPage
                 'eim_delete_invitee_' . $invitee->id
             );
             $connGroups  = $groupsByInvitee[$invitee->id] ?? [];
+            $cats        = $catsByInvitee[$invitee->id]   ?? [];
             ?>
             <tr>
                 <td><a href="<?= esc_url($editUrl); ?>"><?= esc_html($invitee->firstName); ?></a></td>
@@ -329,13 +342,19 @@ final class InviteesPage extends AbstractAdminPage
                         <span class="eim-tag-list">
                             <?php foreach ($connGroups as $cg): ?>
                                 <a class="eim-connection-tag"
-                                   href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'edit', 'id' => $cg->id])); ?>"
-                                   title="<?= esc_attr($cg->typeLabel()); ?>">
+                                   href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'edit', 'id' => $cg->id])); ?>">
                                     <?= esc_html($cg->name); ?>
                                 </a>
                             <?php endforeach; ?>
                         </span>
                     <?php endif; ?>
+                </td>
+                <td>
+                    <?php foreach ($cats as $cat): ?>
+                        <?php $catEditUrl = AdminMenu::tabUrl(AdminMenu::TAB_CATEGORIES, ['action' => 'edit', 'id' => $cat->id]); ?>
+                        <a href="<?= esc_url($catEditUrl); ?>" class="eim-cat-chip"><?= esc_html($cat->parentName ? $cat->parentName . ' › ' . $cat->name : $cat->name); ?></a>
+                    <?php endforeach; ?>
+                    <?php if (empty($cats)): ?><span style="color:#999;">—</span><?php endif; ?>
                 </td>
                 <td>
                     <a href="<?= esc_url($editUrl); ?>">Edit</a> |
@@ -433,9 +452,6 @@ final class InviteesPage extends AbstractAdminPage
                                         <?php foreach ($connGroups as $cg): ?>
                                             <a class="eim-connection-tag"
                                                href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'edit', 'id' => $cg->id])); ?>">
-                                                <span class="eim-cg-type-badge eim-cg-type-<?= esc_attr($cg->type); ?>" style="margin-right:4px;">
-                                                    <?= esc_html($cg->typeLabel()); ?>
-                                                </span>
                                                 <?= esc_html($cg->name); ?>
                                             </a>
                                         <?php endforeach; ?>
@@ -467,6 +483,26 @@ final class InviteesPage extends AbstractAdminPage
                             </td>
                         </tr>
                     <?php endif; ?>
+                    <tr>
+                        <th scope="row"><label>Categories</label></th>
+                        <td>
+                            <?php
+                            $selCats  = [];
+                            $catNonce = wp_create_nonce('eim_suggest_categories_nonce');
+                            if (!$isNew) {
+                                foreach (Category::forEntity('invitee', $invitee->id) as $cat) {
+                                    $selCats[] = [
+                                        'id'          => $cat->id,
+                                        'name'        => $cat->name,
+                                        'parent_name' => $cat->parentName,
+                                        'label'       => $cat->parentName ? $cat->parentName . ' › ' . $cat->name : $cat->name,
+                                    ];
+                                }
+                            }
+                            $this->renderCategoryPicker('eim-invitee-cat-picker', $selCats, $catNonce);
+                            ?>
+                        </td>
+                    </tr>
                 </table>
 
                 <?php submit_button($isNew ? 'Add Invitee' : 'Update Invitee'); ?>

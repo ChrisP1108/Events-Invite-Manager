@@ -65,6 +65,70 @@ final class Event
     ) {}
 
     /**
+     * Returns events for the admin list table with optional search, sort, and field filter.
+     *
+     * DB-sortable: name, start_datetime (date), invitee_count.
+     *
+     * @return self[]
+     */
+    public static function listForAdmin(
+        string $search = '',
+        string $sort   = 'start_datetime',
+        string $order  = 'desc',
+        string $field  = ''
+    ): array {
+        global $wpdb;
+
+        $table    = DatabaseManager::eventsTable();
+        $orderSql = strtolower($order) === 'asc' ? 'ASC' : 'DESC';
+
+        $dbSortMap = [
+            'name'           => 'name',
+            'start_datetime' => 'start_datetime',
+            'date'           => 'start_datetime',
+        ];
+        $sortCol = $dbSortMap[$sort] ?? 'start_datetime';
+
+        if ($search === '') {
+            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+            $rows = $wpdb->get_results(
+                "SELECT * FROM {$table} ORDER BY {$sortCol} IS NULL ASC, {$sortCol} {$orderSql}, name ASC"
+            );
+            return array_map(static fn(object $row) => self::fromRow($row), $rows ?? []);
+        }
+
+        $like = '%' . $wpdb->esc_like(strtolower($search)) . '%';
+
+        if ($field === 'name') {
+            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+            $rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT * FROM {$table} WHERE LOWER(name) LIKE %s ORDER BY {$sortCol} IS NULL ASC, {$sortCol} {$orderSql}, name ASC",
+                    $like
+                )
+            );
+        } elseif ($field === 'description') {
+            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+            $rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT * FROM {$table} WHERE LOWER(description) LIKE %s ORDER BY {$sortCol} IS NULL ASC, {$sortCol} {$orderSql}, name ASC",
+                    $like
+                )
+            );
+        } else {
+            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+            $rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT * FROM {$table} WHERE LOWER(name) LIKE %s OR LOWER(COALESCE(description,'')) LIKE %s ORDER BY {$sortCol} IS NULL ASC, {$sortCol} {$orderSql}, name ASC",
+                    $like, $like
+                )
+            );
+        }
+
+        return array_map(static fn(object $row) => self::fromRow($row), $rows ?? []);
+    }
+
+    /**
      * Returns all events ordered alphabetically by name.
      *
      * @return self[]

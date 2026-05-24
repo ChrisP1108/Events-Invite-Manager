@@ -8,6 +8,7 @@ if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Admin\AbstractAdminPage;
 use EventsInviteManager\Admin\AdminMenu;
+use EventsInviteManager\Models\Category;
 use EventsInviteManager\Models\ConnectionGroup;
 use EventsInviteManager\Models\Invitee;
 
@@ -104,7 +105,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
     private function sanitizeGroupSortKey(string $key): string
     {
         $key = sanitize_key($key);
-        return in_array($key, ['name', 'type', 'members', 'invited_to'], true) ? $key : 'name';
+        return in_array($key, ['name', 'members', 'invited_to'], true) ? $key : 'name';
     }
 
     /**
@@ -116,7 +117,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
     private function sanitizeGroupFieldKey(string $field): string
     {
         $field = sanitize_key($field);
-        return in_array($field, ['name', 'type', 'members', 'invited_to'], true) ? $field : '';
+        return in_array($field, ['name', 'members', 'invited_to'], true) ? $field : '';
     }
 
     /**
@@ -159,9 +160,9 @@ final class ConnectionGroupsPage extends AbstractAdminPage
             wp_die('Security check failed.');
         }
 
-        $id   = (int) ($_POST['connection_group_id'] ?? 0);
-        $name = sanitize_text_field(wp_unslash($_POST['name'] ?? ''));
-        $type = sanitize_key($_POST['type'] ?? 'custom');
+        $id          = (int) ($_POST['connection_group_id'] ?? 0);
+        $name        = sanitize_text_field(wp_unslash($_POST['name'] ?? ''));
+        $categoryIds = array_map('intval', (array) ($_POST['category_ids'] ?? []));
 
         if (empty($name)) {
             wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, [
@@ -173,14 +174,18 @@ final class ConnectionGroupsPage extends AbstractAdminPage
         }
 
         if ($id > 0) {
-            ConnectionGroup::update($id, $name, $type);
+            ConnectionGroup::update($id, $name);
+            Category::syncToEntity('connection_group', $id, $categoryIds);
             wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, [
                 'action'      => 'edit',
                 'id'          => $id,
                 'eim_message' => 'cg_updated',
             ]));
         } else {
-            $group = ConnectionGroup::create($name, $type);
+            $group = ConnectionGroup::create($name);
+            if ($group) {
+                Category::syncToEntity('connection_group', $group->id, $categoryIds);
+            }
             wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, [
                 'action'      => 'edit',
                 'id'          => $group?->id ?? 0,
@@ -200,6 +205,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
             wp_die('Security check failed.');
         }
 
+        Category::syncToEntity('connection_group', $id, []);
         ConnectionGroup::delete($id);
 
         wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, [
@@ -300,7 +306,6 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                 $search,
                 [
                     ['value' => 'name',       'label' => 'Name'],
-                    ['value' => 'type',       'label' => 'Type'],
                     ['value' => 'members',    'label' => 'Members'],
                     ['value' => 'invited_to', 'label' => 'Invited To'],
                 ],
@@ -316,9 +321,9 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                 <thead>
                     <tr>
                         <th style="width:22%;"><?= $this->sortLink('Name',       'name',       AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_CONNECTION_GROUPS]); ?></th>
-                        <th style="width:9%;"><?= $this->sortLink('Type',        'type',        AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_CONNECTION_GROUPS]); ?></th>
                         <th style="width:30%;"><?= $this->sortLink('Members',    'members',     AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_CONNECTION_GROUPS]); ?></th>
                         <th><?= $this->sortLink('Invited To', 'invited_to', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_CONNECTION_GROUPS]); ?></th>
+                        <th style="width:14%;">Categories</th>
                         <th style="width:12%;">Actions</th>
                     </tr>
                 </thead>
@@ -355,6 +360,9 @@ final class ConnectionGroupsPage extends AbstractAdminPage
             return;
         }
 
+        $groupIds   = array_map(static fn(ConnectionGroup $g): int => $g->id, $groups);
+        $catsByGroup = Category::forEntities('connection_group', $groupIds);
+
         foreach ($groups as $group) {
             $editUrl   = AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'edit', 'id' => $group->id]);
             $deleteUrl = wp_nonce_url(
@@ -362,15 +370,11 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                 'eim_delete_connection_group_' . $group->id
             );
             $groupEvents = $eventsByGroup[$group->id] ?? [];
+            $cats        = $catsByGroup[$group->id]   ?? [];
             ?>
             <tr>
                 <td>
                     <strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($group->name); ?></a></strong>
-                </td>
-                <td>
-                    <span class="eim-cg-type-badge eim-cg-type-<?= esc_attr($group->type); ?>">
-                        <?= esc_html($group->typeLabel()); ?>
-                    </span>
                 </td>
                 <td>
                     <?php $members = $group->getMembers(); ?>
@@ -398,6 +402,13 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                             <?php endforeach; ?>
                         </span>
                     <?php endif; ?>
+                </td>
+                <td>
+                    <?php foreach ($cats as $cat): ?>
+                        <?php $catEditUrl = AdminMenu::tabUrl(AdminMenu::TAB_CATEGORIES, ['action' => 'edit', 'id' => $cat->id]); ?>
+                        <a href="<?= esc_url($catEditUrl); ?>" class="eim-cat-chip"><?= esc_html($cat->parentName ? $cat->parentName . ' › ' . $cat->name : $cat->name); ?></a>
+                    <?php endforeach; ?>
+                    <?php if (empty($cats)): ?><span style="color:#999;">—</span><?php endif; ?>
                 </td>
                 <td>
                     <a href="<?= esc_url($editUrl); ?>">Edit</a> |
@@ -480,18 +491,23 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row">
-                            <label for="eim_cg_type">Type</label>
-                        </th>
+                        <th scope="row"><label>Categories</label></th>
                         <td>
-                            <select id="eim_cg_type" name="type">
-                                <?php foreach (ConnectionGroup::TYPES as $typeVal): ?>
-                                    <option value="<?= esc_attr($typeVal); ?>"
-                                        <?php selected($isNew ? 'custom' : $group->type, $typeVal); ?>>
-                                        <?= esc_html(ucfirst($typeVal)); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
+                            <?php
+                            $selCats   = [];
+                            $catNonce  = wp_create_nonce('eim_suggest_categories_nonce');
+                            if (!$isNew) {
+                                foreach (Category::forEntity('connection_group', $group->id) as $cat) {
+                                    $selCats[] = [
+                                        'id'          => $cat->id,
+                                        'name'        => $cat->name,
+                                        'parent_name' => $cat->parentName,
+                                        'label'       => $cat->parentName ? $cat->parentName . ' › ' . $cat->name : $cat->name,
+                                    ];
+                                }
+                            }
+                            $this->renderCategoryPicker('eim-cg-cat-picker', $selCats, $catNonce);
+                            ?>
                         </td>
                     </tr>
                 </table>
