@@ -55,79 +55,84 @@
     class BudgetPlansTable {
         /** @type {HTMLTableElement|null} */
         #table;
-
         /** @type {HTMLTableSectionElement|null} */
         #tbody;
-
         /** @type {HTMLInputElement|null} */
         #search;
-
         /** @type {HTMLSelectElement|null} */
         #field;
-
         /** @type {HTMLElement|null} */
         #count;
-
         /** @type {HTMLElement|null} */
         #spinner;
-
+        /** @type {HTMLSelectElement|null} */
+        #perPageSel;
+        /** @type {HTMLElement|null} */
+        #paginationNav;
         /** @type {string} */
         #sort;
-
         /** @type {string} */
         #order;
+        /** @type {number} */
+        #page = 1;
+        /** @type {number} */
+        #perPage = 10;
 
-        /**
-         * Binds the table, search input, field dropdown, and sort links found in
-         * the DOM, then wires up all event listeners.
-         */
         constructor() {
-            this.#table   = document.getElementById('eim-budget-plans-table');
-            this.#tbody   = document.getElementById('eim-budget-plans-table-body');
-            this.#search  = document.getElementById('eim-budget-plan-search');
-            this.#field   = document.getElementById('eim-budget-plan-search-field');
-            this.#count   = document.getElementById('eim-budget-plan-count');
-            this.#spinner = document.getElementById('eim-budget-plan-loading');
+            this.#table        = document.getElementById('eim-budget-plans-table');
+            this.#tbody        = document.getElementById('eim-budget-plans-table-body');
+            this.#search       = document.getElementById('eim-budget-plan-search');
+            this.#field        = document.getElementById('eim-budget-plan-search-field');
+            this.#count        = document.getElementById('eim-budget-plan-count');
+            this.#spinner      = document.getElementById('eim-budget-plan-loading');
+            this.#perPageSel   = document.getElementById('eim-budget-plan-search-per-page');
+            this.#paginationNav = document.getElementById('eim-budget-plan-search-pagination');
 
             if (!this.#table || !this.#tbody || !this.#search || !config.searchNonce) return;
 
-            this.#sort  = this.#table.dataset.sort  || 'name';
-            this.#order = this.#table.dataset.order || 'asc';
+            this.#sort    = this.#table.dataset.sort  || 'name';
+            this.#order   = this.#table.dataset.order || 'asc';
+            this.#perPage = Number(this.#perPageSel?.value || 10);
 
-            this.#search.addEventListener('input', debounce(() => this.#refresh()));
-            this.#field?.addEventListener('change', () => this.#refresh());
+            this.#perPageSel?.addEventListener('change', () => {
+                this.#perPage = Number(this.#perPageSel.value);
+                this.#page = 1;
+                this.#refresh();
+            });
+            this.#search.addEventListener('input', debounce(() => { this.#page = 1; this.#refresh(); }));
+            this.#field?.addEventListener('change', () => { this.#page = 1; this.#refresh(); });
 
             for (const link of this.#table.querySelectorAll('.eim-sort-link')) {
                 link.addEventListener('click', (e) => {
                     e.preventDefault();
                     this.#sort  = link.dataset.sort  || 'name';
                     this.#order = link.dataset.order || 'asc';
+                    this.#page  = 1;
                     this.#refresh();
                 });
             }
+
+            this.#renderPagination(Number(this.#table.dataset.total || 0));
         }
 
-        /**
-         * Fetches fresh table rows from the server using the current search query,
-         * field, sort column, and sort direction, then replaces the tbody contents.
-         *
-         * @returns {Promise<void>}
-         */
         async #refresh() {
             this.#spinner?.classList.add('is-active');
             try {
                 const url = ajaxUrl('eim_search_budget_plans', {
-                    nonce: config.searchNonce,
-                    query: this.#search?.value || '',
-                    sort:  this.#sort,
-                    order: this.#order,
-                    field: this.#field?.value || '',
+                    nonce:    config.searchNonce,
+                    query:    this.#search?.value || '',
+                    sort:     this.#sort,
+                    order:    this.#order,
+                    field:    this.#field?.value || '',
+                    page:     this.#page,
+                    per_page: this.#perPage,
                 });
                 const { success, data } = await (await fetch(url, { credentials: 'same-origin' })).json();
                 if (!success) return;
                 this.#tbody.innerHTML = data.html || '';
                 if (this.#count) this.#count.textContent = `${data.count} result${data.count === 1 ? '' : 's'}`;
                 this.#updateSortLinks();
+                this.#renderPagination(Number(data.total || 0));
             } catch (err) {
                 console.error('[EIM] Budget plan search failed:', err);
             } finally {
@@ -135,12 +140,15 @@
             }
         }
 
-        /**
-         * Refreshes the sort-link indicators and their `data-order` attributes to
-         * reflect the current sort column and direction.
-         *
-         * @returns {void}
-         */
+        #renderPagination(total) {
+            window.eimRenderPagination?.(this.#paginationNav, {
+                total,
+                perPage: this.#perPage,
+                page:    this.#page,
+                onPageChange: (p) => { this.#page = p; this.#refresh(); },
+            });
+        }
+
         #updateSortLinks() {
             if (!this.#table) return;
             this.#table.dataset.sort  = this.#sort;
@@ -165,84 +173,88 @@
     class LineItemsTable {
         /** @type {HTMLTableElement|null} */
         #table;
-
         /** @type {HTMLTableSectionElement|null} */
         #tbody;
-
         /** @type {HTMLInputElement|null} */
         #search;
-
         /** @type {HTMLSelectElement|null} */
         #field;
-
         /** @type {HTMLElement|null} */
         #count;
-
         /** @type {HTMLElement|null} */
         #spinner;
-
+        /** @type {HTMLSelectElement|null} */
+        #perPageSel;
+        /** @type {HTMLElement|null} */
+        #paginationNav;
         /** @type {string} */
         #sort;
-
         /** @type {string} */
         #order;
-
         /** @type {number} */
         #planId;
+        /** @type {number} */
+        #page = 1;
+        /** @type {number} */
+        #perPage = 10;
 
-        /**
-         * Binds the table, search input, field dropdown, and sort links found in
-         * the DOM, reads the current plan ID, then wires up all event listeners.
-         */
         constructor() {
-            this.#table   = document.getElementById('eim-line-items-table');
-            this.#tbody   = document.getElementById('eim-line-items-table-body');
-            this.#search  = document.getElementById('eim-line-item-search');
-            this.#field   = document.getElementById('eim-line-item-search-field');
-            this.#count   = document.getElementById('eim-line-item-count');
-            this.#spinner = document.getElementById('eim-line-item-loading');
+            this.#table        = document.getElementById('eim-line-items-table');
+            this.#tbody        = document.getElementById('eim-line-items-table-body');
+            this.#search       = document.getElementById('eim-line-item-search');
+            this.#field        = document.getElementById('eim-line-item-search-field');
+            this.#count        = document.getElementById('eim-line-item-count');
+            this.#spinner      = document.getElementById('eim-line-item-loading');
+            this.#perPageSel   = document.getElementById('eim-line-item-search-per-page');
+            this.#paginationNav = document.getElementById('eim-line-item-search-pagination');
 
             if (!this.#table || !this.#tbody || !config.lineItemNonce) return;
 
-            this.#planId = Number(this.#table.dataset.planId || config.planId || 0);
-            this.#sort   = this.#table.dataset.sort  || config.lineItems?.sort  || 'sort_order';
-            this.#order  = this.#table.dataset.order || config.lineItems?.order || 'asc';
+            this.#planId  = Number(this.#table.dataset.planId || config.planId || 0);
+            this.#sort    = this.#table.dataset.sort  || config.lineItems?.sort  || 'sort_order';
+            this.#order   = this.#table.dataset.order || config.lineItems?.order || 'asc';
+            this.#perPage = Number(this.#perPageSel?.value || 10);
 
-            this.#search?.addEventListener('input', debounce(() => this.#refresh()));
-            this.#field?.addEventListener('change', () => this.#refresh());
+            this.#perPageSel?.addEventListener('change', () => {
+                this.#perPage = Number(this.#perPageSel.value);
+                this.#page = 1;
+                this.#refresh();
+            });
+            this.#search?.addEventListener('input', debounce(() => { this.#page = 1; this.#refresh(); }));
+            this.#field?.addEventListener('change', () => { this.#page = 1; this.#refresh(); });
 
             for (const link of this.#table.querySelectorAll('.eim-sort-link')) {
                 link.addEventListener('click', (e) => {
                     e.preventDefault();
                     this.#sort  = link.dataset.sort  || 'sort_order';
                     this.#order = link.dataset.order || 'asc';
+                    this.#page  = 1;
                     this.#refresh();
                 });
             }
+
+            this.#renderPagination(Number(this.#table.dataset.total || 0));
         }
 
-        /**
-         * Fetches fresh table rows from the server using the current search query,
-         * field, sort column, sort direction, and plan ID, then replaces the tbody.
-         *
-         * @returns {Promise<void>}
-         */
         async #refresh() {
             this.#spinner?.classList.add('is-active');
             try {
                 const url = ajaxUrl('eim_search_budget_line_items', {
-                    nonce:   config.lineItemNonce,
-                    plan_id: this.#planId,
-                    query:   this.#search?.value || '',
-                    sort:    this.#sort,
-                    order:   this.#order,
-                    field:   this.#field?.value || '',
+                    nonce:    config.lineItemNonce,
+                    plan_id:  this.#planId,
+                    query:    this.#search?.value || '',
+                    sort:     this.#sort,
+                    order:    this.#order,
+                    field:    this.#field?.value || '',
+                    page:     this.#page,
+                    per_page: this.#perPage,
                 });
                 const { success, data } = await (await fetch(url, { credentials: 'same-origin' })).json();
                 if (!success) return;
                 this.#tbody.innerHTML = data.html || '';
                 if (this.#count) this.#count.textContent = `${data.count} result${data.count === 1 ? '' : 's'}`;
                 this.#updateSortLinks();
+                this.#renderPagination(Number(data.total || 0));
             } catch (err) {
                 console.error('[EIM] Line item search failed:', err);
             } finally {
@@ -256,6 +268,15 @@
          *
          * @returns {void}
          */
+        #renderPagination(total) {
+            window.eimRenderPagination?.(this.#paginationNav, {
+                total,
+                perPage: this.#perPage,
+                page:    this.#page,
+                onPageChange: (p) => { this.#page = p; this.#refresh(); },
+            });
+        }
+
         #updateSortLinks() {
             if (!this.#table) return;
             this.#table.dataset.sort  = this.#sort;
@@ -425,11 +446,9 @@
         #populate(d) {
             this.#setField('line_item_id', d.id || '0');
             this.#setField('label',        d.label || '');
-            this.#setField('category',     d.category || 'other');
             this.#setField('event_id',     d.eventId || '0');
             this.#setField('unit_cost',    d.unitCost || '');
             this.#setField('paid_amount',  d.paid || '0.00');
-            this.#setField('vendor_name',  d.vendor || '');
             this.#setField('notes',        d.notes || '');
 
             const qtyMode = this.#form.querySelector('[name="quantity_mode"]');
@@ -438,6 +457,9 @@
                 qtyMode.dispatchEvent(new Event('change'));
             }
             this.#setField('quantity', d.quantity || '1');
+
+            const vendorPicker = window.eimVendorPickers?.['eim-li-vendor-picker'];
+            vendorPicker?.setValue(Number(d.vendorId || 0), d.vendorName || '');
 
             if (this.#formTitle)  this.#formTitle.textContent = 'Edit Line Item';
             if (this.#submitBtn)  this.#submitBtn.value = 'Update Line Item';
@@ -455,18 +477,16 @@
             this.#setField('event_id',     '0');
             this.#setField('unit_cost',    '');
             this.#setField('paid_amount',  '0.00');
-            this.#setField('vendor_name',  '');
             this.#setField('notes',        '');
             this.#setField('quantity',     '1');
-
-            const catSelect = this.#form.querySelector('[name="category"]');
-            if (catSelect) catSelect.selectedIndex = 0;
 
             const qtyMode = this.#form.querySelector('[name="quantity_mode"]');
             if (qtyMode) {
                 qtyMode.value = 'fixed';
                 qtyMode.dispatchEvent(new Event('change'));
             }
+
+            window.eimVendorPickers?.['eim-li-vendor-picker']?.clear();
 
             if (this.#formTitle)  this.#formTitle.textContent = 'Add Line Item';
             if (this.#submitBtn)  this.#submitBtn.value = 'Add Line Item';

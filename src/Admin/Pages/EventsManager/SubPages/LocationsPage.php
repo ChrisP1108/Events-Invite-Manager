@@ -51,19 +51,24 @@ final class LocationsPage extends AbstractAdminPage
             wp_send_json_error('Insufficient permissions.', 403);
         }
 
-        $query     = sanitize_text_field(wp_unslash($_GET['query'] ?? ''));
-        $sort      = $this->sanitizeLocationSortKey((string) ($_GET['sort'] ?? 'name'));
-        $order     = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
-        $field     = $this->sanitizeLocationFieldKey((string) ($_GET['field'] ?? ''));
-        $locations = Location::listForAdmin($query, $sort, $order, $field);
+        $query   = sanitize_text_field(wp_unslash($_GET['query'] ?? ''));
+        $sort    = $this->sanitizeLocationSortKey((string) ($_GET['sort'] ?? 'name'));
+        $order   = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
+        $field   = $this->sanitizeLocationFieldKey((string) ($_GET['field'] ?? ''));
+        $page    = max(1, (int) ($_GET['page']     ?? 1));
+        $perPage = in_array((int) ($_GET['per_page'] ?? 10), [5, 10, 25, 50, 100], true) ? (int) $_GET['per_page'] : 10;
+        $all     = Location::listForAdmin($query, $sort, $order, $field);
+        $total   = count($all);
+        $paged   = array_slice($all, ($page - 1) * $perPage, $perPage);
 
         ob_start();
-        $this->renderLocationRows($locations, $query);
+        $this->renderLocationRows($paged, $query);
         $html = (string) ob_get_clean();
 
         wp_send_json_success([
             'html'  => $html,
-            'count' => count($locations),
+            'count' => $total,
+            'total' => $total,
         ]);
     }
 
@@ -197,7 +202,9 @@ final class LocationsPage extends AbstractAdminPage
         $sort      = $this->sanitizeLocationSortKey((string) ($_GET['sort'] ?? 'name'));
         $order     = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
         $field     = $this->sanitizeLocationFieldKey((string) ($_GET['field'] ?? ''));
-        $locations = Location::listForAdmin($search, $sort, $order, $field);
+        $all       = Location::listForAdmin($search, $sort, $order, $field);
+        $total     = count($all);
+        $locations = array_slice($all, 0, 10);
         $addUrl    = AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS, ['action' => 'add']);
         ?>
         <div class="wrap">
@@ -216,7 +223,7 @@ final class LocationsPage extends AbstractAdminPage
                 'eim-location-count',
                 'eim-location-loading',
                 'Search by name, city, or state…',
-                count($locations),
+                $total,
                 $search,
                 [
                     ['value' => 'name',        'label' => 'Name'],
@@ -231,7 +238,8 @@ final class LocationsPage extends AbstractAdminPage
             <table id="eim-locations-table"
                    class="wp-list-table widefat fixed striped"
                    data-sort="<?= esc_attr($sort); ?>"
-                   data-order="<?= esc_attr($order); ?>">
+                   data-order="<?= esc_attr($order); ?>"
+                   data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
                         <th style="width:28%;"><?= $this->sortLink('Name', 'name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_LOCATIONS]); ?></th>
@@ -246,6 +254,7 @@ final class LocationsPage extends AbstractAdminPage
                     <?php $this->renderLocationRows($locations, $search); ?>
                 </tbody>
             </table>
+            <?php $this->renderPaginationBar('eim-location-search'); ?>
 
             <?php if (empty($locations) && $search === ''): ?>
                 <p style="margin-top:12px;">No locations yet. <a href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS, ['action' => 'add'])); ?>">Add the first location.</a></p>

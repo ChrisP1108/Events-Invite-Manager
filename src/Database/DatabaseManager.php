@@ -6,9 +6,20 @@ namespace EventsInviteManager\Database;
 
 if (!defined('ABSPATH')) exit;
 
+/**
+ * Handles database interactions for the plugin.
+ * 
+ * The database schema is defined in `schema.sql`.
+ * The database schema version is defined in `DatabaseManager::SCHEMA_VERSION`.
+ * All tables are prefixed with `eim_`.
+ * All tables are defined in `DatabaseManager::getTables()`.
+ * 
+ * @package EventsInviteManager
+ */
+
 final class DatabaseManager
 {
-    private const SCHEMA_VERSION = '16';
+    private const SCHEMA_VERSION = '17';
 
     private const EVENTS_TABLE                           = 'eim_events';
     private const INVITEES_TABLE                         = 'eim_invitees';
@@ -31,6 +42,7 @@ final class DatabaseManager
     private const NEWSLETTER_TAGS_TABLE                  = 'eim_newsletter_tags';
     private const NEWSLETTER_CATEGORY_MAP_TABLE          = 'eim_newsletter_category_map';
     private const NEWSLETTER_TAG_MAP_TABLE               = 'eim_newsletter_tag_map';
+    private const VENDORS_TABLE                          = 'eim_vendors';
 
     public static function createTables(): void
     {
@@ -59,6 +71,7 @@ final class DatabaseManager
         $newsletterTagsTable      = $wpdb->prefix . self::NEWSLETTER_TAGS_TABLE;
         $newsletterCategoryMapTable = $wpdb->prefix . self::NEWSLETTER_CATEGORY_MAP_TABLE;
         $newsletterTagMapTable    = $wpdb->prefix . self::NEWSLETTER_TAG_MAP_TABLE;
+        $vendorsTable             = $wpdb->prefix . self::VENDORS_TABLE;
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
@@ -208,12 +221,14 @@ final class DatabaseManager
                 label       VARCHAR(255)        NOT NULL DEFAULT '',
                 description TEXT,
                 price_cents INT UNSIGNED        NOT NULL DEFAULT 0,
+                vendor_id   BIGINT(20) UNSIGNED NULL DEFAULT NULL,
                 sort_order  INT                 NOT NULL DEFAULT 0,
                 is_active   TINYINT(1)          NOT NULL DEFAULT 1,
                 created_at  DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at  DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (id),
-                KEY type (type)
+                KEY type (type),
+                KEY vendor_id (vendor_id)
             ) ENGINE=InnoDB {$charset};
             CREATE TABLE {$eventMenuItemsTable} (
                 id           BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -250,7 +265,7 @@ final class DatabaseManager
                 id                   BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
                 plan_id              BIGINT(20) UNSIGNED NOT NULL,
                 event_id             BIGINT(20) UNSIGNED NULL DEFAULT NULL,
-                category             VARCHAR(30)         NOT NULL DEFAULT 'other',
+                vendor_id            BIGINT(20) UNSIGNED NULL DEFAULT NULL,
                 label                VARCHAR(255)        NOT NULL DEFAULT '',
                 source_type          VARCHAR(20)         NULL DEFAULT NULL,
                 source_id            BIGINT(20) UNSIGNED NULL DEFAULT NULL,
@@ -259,7 +274,6 @@ final class DatabaseManager
                 unit_cost_cents      INT UNSIGNED        NOT NULL DEFAULT 0,
                 total_override_cents INT UNSIGNED        NULL DEFAULT NULL,
                 paid_amount_cents    INT UNSIGNED        NOT NULL DEFAULT 0,
-                vendor_name          VARCHAR(255)        NOT NULL DEFAULT '',
                 notes                TEXT,
                 sort_order           INT                 NOT NULL DEFAULT 0,
                 created_at           DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -267,6 +281,22 @@ final class DatabaseManager
                 PRIMARY KEY (id),
                 KEY plan_id (plan_id),
                 KEY event_id (event_id),
+                KEY vendor_id (vendor_id)
+            ) ENGINE=InnoDB {$charset};
+            CREATE TABLE {$vendorsTable} (
+                id             BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                company_name   VARCHAR(255)        NOT NULL DEFAULT '',
+                category       VARCHAR(30)         NOT NULL DEFAULT 'other',
+                street_address VARCHAR(255)        NOT NULL DEFAULT '',
+                city           VARCHAR(100)        NOT NULL DEFAULT '',
+                state          VARCHAR(50)         NOT NULL DEFAULT '',
+                zip_code       VARCHAR(20)         NOT NULL DEFAULT '',
+                email          VARCHAR(255)        NOT NULL DEFAULT '',
+                phone          VARCHAR(40)         NOT NULL DEFAULT '',
+                notes          TEXT,
+                created_at     DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at     DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
                 KEY category (category)
             ) ENGINE=InnoDB {$charset};
             CREATE TABLE {$newslettersTable} (
@@ -348,6 +378,7 @@ final class DatabaseManager
 
         self::maybeAddV15Columns();
         self::maybeAddV16Columns();
+        self::maybeAddV17Columns();
         self::createTables();
     }
 
@@ -711,7 +742,7 @@ final class DatabaseManager
                 id                   BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
                 plan_id              BIGINT(20) UNSIGNED NOT NULL,
                 event_id             BIGINT(20) UNSIGNED NULL DEFAULT NULL,
-                category             VARCHAR(30)         NOT NULL DEFAULT 'other',
+                vendor_id            BIGINT(20) UNSIGNED NULL DEFAULT NULL,
                 label                VARCHAR(255)        NOT NULL DEFAULT '',
                 source_type          VARCHAR(20)         NULL DEFAULT NULL,
                 source_id            BIGINT(20) UNSIGNED NULL DEFAULT NULL,
@@ -720,7 +751,6 @@ final class DatabaseManager
                 unit_cost_cents      INT UNSIGNED        NOT NULL DEFAULT 0,
                 total_override_cents INT UNSIGNED        NULL DEFAULT NULL,
                 paid_amount_cents    INT UNSIGNED        NOT NULL DEFAULT 0,
-                vendor_name          VARCHAR(255)        NOT NULL DEFAULT '',
                 notes                TEXT,
                 sort_order           INT                 NOT NULL DEFAULT 0,
                 created_at           DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -728,8 +758,83 @@ final class DatabaseManager
                 PRIMARY KEY (id),
                 KEY plan_id (plan_id),
                 KEY event_id (event_id),
+                KEY vendor_id (vendor_id)
+            ) ENGINE=InnoDB {$charset};");
+        }
+    }
+
+    /** @return string Fully-qualified vendors table name. */
+    public static function vendorsTable(): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . self::VENDORS_TABLE;
+    }
+
+    /**
+     * Ensures the vendors table exists, creating it if missing.
+     */
+    public static function maybeCreateVendorTable(): void
+    {
+        global $wpdb;
+
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+
+        $charset      = $wpdb->get_charset_collate();
+        $vendorsTable = $wpdb->prefix . self::VENDORS_TABLE;
+
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        if ($wpdb->get_var("SHOW TABLES LIKE '{$vendorsTable}'") !== $vendorsTable) {
+            dbDelta("CREATE TABLE {$vendorsTable} (
+                id             BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                company_name   VARCHAR(255)        NOT NULL DEFAULT '',
+                category       VARCHAR(30)         NOT NULL DEFAULT 'other',
+                street_address VARCHAR(255)        NOT NULL DEFAULT '',
+                city           VARCHAR(100)        NOT NULL DEFAULT '',
+                state          VARCHAR(50)         NOT NULL DEFAULT '',
+                zip_code       VARCHAR(20)         NOT NULL DEFAULT '',
+                email          VARCHAR(255)        NOT NULL DEFAULT '',
+                phone          VARCHAR(40)         NOT NULL DEFAULT '',
+                notes          TEXT,
+                created_at     DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at     DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
                 KEY category (category)
             ) ENGINE=InnoDB {$charset};");
         }
+    }
+
+    /**
+     * Applies v17 schema changes:
+     *   - Creates the vendors table if missing.
+     *   - Drops legacy category and vendor_name from budget line items.
+     *   - Adds vendor_id to budget line items and menu items.
+     */
+    public static function maybeAddV17Columns(): void
+    {
+        global $wpdb;
+
+        self::maybeCreateVendorTable();
+
+        $lineItemsTable = $wpdb->prefix . self::BUDGET_LINE_ITEMS_TABLE;
+        $menuItemsTable = $wpdb->prefix . self::MENU_ITEMS_TABLE;
+
+        // phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $liCols = $wpdb->get_col("SHOW COLUMNS FROM {$lineItemsTable}") ?: [];
+
+        if (in_array('category', $liCols, true)) {
+            $wpdb->query("ALTER TABLE {$lineItemsTable} DROP COLUMN `category`");
+        }
+        if (in_array('vendor_name', $liCols, true)) {
+            $wpdb->query("ALTER TABLE {$lineItemsTable} DROP COLUMN `vendor_name`");
+        }
+        if (!in_array('vendor_id', $liCols, true)) {
+            $wpdb->query("ALTER TABLE {$lineItemsTable} ADD COLUMN vendor_id BIGINT(20) UNSIGNED NULL DEFAULT NULL AFTER event_id");
+        }
+
+        $miCols = $wpdb->get_col("SHOW COLUMNS FROM {$menuItemsTable}") ?: [];
+        if (!in_array('vendor_id', $miCols, true)) {
+            $wpdb->query("ALTER TABLE {$menuItemsTable} ADD COLUMN vendor_id BIGINT(20) UNSIGNED NULL DEFAULT NULL AFTER price_cents");
+        }
+        // phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
     }
 }

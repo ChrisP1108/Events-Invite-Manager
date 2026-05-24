@@ -52,82 +52,85 @@
     class NewsletterTable {
         /** @type {HTMLTableElement|null} */
         #table;
-
         /** @type {HTMLTableSectionElement|null} */
         #tbody;
-
         /** @type {HTMLInputElement|null} */
         #search;
-
         /** @type {HTMLSelectElement|null} */
         #field;
-
         /** @type {HTMLElement|null} */
         #count;
-
         /** @type {HTMLElement|null} */
         #spinner;
-
+        /** @type {HTMLSelectElement|null} */
+        #perPageSel;
+        /** @type {HTMLElement|null} */
+        #paginationNav;
         /** @type {string} */
         #sort;
-
         /** @type {string} */
         #order;
+        /** @type {number} */
+        #page = 1;
+        /** @type {number} */
+        #perPage = 10;
 
         constructor() {
-            this.#table   = document.getElementById('eim-newsletters-table');
-            this.#tbody   = document.getElementById('eim-newsletters-table-body');
-            this.#search  = document.getElementById('eim-newsletter-search');
-            this.#field   = document.getElementById('eim-newsletter-search-field');
-            this.#count   = document.getElementById('eim-newsletter-count');
-            this.#spinner = document.getElementById('eim-newsletter-loading');
+            this.#table        = document.getElementById('eim-newsletters-table');
+            this.#tbody        = document.getElementById('eim-newsletters-table-body');
+            this.#search       = document.getElementById('eim-newsletter-search');
+            this.#field        = document.getElementById('eim-newsletter-search-field');
+            this.#count        = document.getElementById('eim-newsletter-count');
+            this.#spinner      = document.getElementById('eim-newsletter-loading');
+            this.#perPageSel   = document.getElementById('eim-newsletter-search-per-page');
+            this.#paginationNav = document.getElementById('eim-newsletter-search-pagination');
 
-            if (!this.#table || !this.#tbody || !this.#search || !config.searchNonce) {
-                return;
-            }
+            if (!this.#table || !this.#tbody || !this.#search || !config.searchNonce) return;
 
-            this.#sort  = this.#table.dataset.sort  || config.table?.sort  || 'title';
-            this.#order = this.#table.dataset.order || config.table?.order || 'asc';
+            this.#sort    = this.#table.dataset.sort  || config.table?.sort  || 'title';
+            this.#order   = this.#table.dataset.order || config.table?.order || 'asc';
+            this.#perPage = Number(this.#perPageSel?.value || 10);
 
-            this.#search.addEventListener('input', debounce(() => this.#refresh()));
-            this.#field?.addEventListener('change', () => this.#refresh());
+            this.#perPageSel?.addEventListener('change', () => {
+                this.#perPage = Number(this.#perPageSel.value);
+                this.#page = 1;
+                this.#refresh();
+            });
+            this.#search.addEventListener('input', debounce(() => { this.#page = 1; this.#refresh(); }));
+            this.#field?.addEventListener('change', () => { this.#page = 1; this.#refresh(); });
 
             for (const link of this.#table.querySelectorAll('.eim-sort-link')) {
                 link.addEventListener('click', (event) => {
                     event.preventDefault();
                     this.#sort  = link.dataset.sort  || 'title';
                     this.#order = link.dataset.order || 'asc';
+                    this.#page  = 1;
                     this.#refresh();
                 });
             }
+
+            this.#renderPagination(Number(this.#table.dataset.total || 0));
         }
 
-        /**
-         * Fetches matching rows and updates the table body.
-         *
-         * @returns {Promise<void>}
-         */
         async #refresh() {
             this.#setLoading(true);
-
             try {
                 const url = ajaxUrl('eim_search_newsletters', {
-                    nonce: config.searchNonce,
-                    query: this.#search?.value || '',
-                    sort:  this.#sort,
-                    order: this.#order,
-                    field: this.#field?.value || '',
+                    nonce:    config.searchNonce,
+                    query:    this.#search?.value || '',
+                    sort:     this.#sort,
+                    order:    this.#order,
+                    field:    this.#field?.value || '',
+                    page:     this.#page,
+                    per_page: this.#perPage,
                 });
                 const response = await fetch(url, { credentials: 'same-origin' });
                 const { success, data } = await response.json();
-
-                if (!success) {
-                    return;
-                }
-
+                if (!success) return;
                 this.#tbody.innerHTML = data.html || '';
                 this.#updateCount(Number(data.count || 0));
                 this.#updateSortLinks();
+                this.#renderPagination(Number(data.total || 0));
             } catch (err) {
                 console.error('[EIM] Newsletter search failed:', err);
             } finally {
@@ -135,49 +138,32 @@
             }
         }
 
-        /**
-         * Shows or hides the WordPress spinner.
-         *
-         * @param {boolean} isLoading Whether a request is in progress.
-         * @returns {void}
-         */
+        #renderPagination(total) {
+            window.eimRenderPagination?.(this.#paginationNav, {
+                total,
+                perPage: this.#perPage,
+                page:    this.#page,
+                onPageChange: (p) => { this.#page = p; this.#refresh(); },
+            });
+        }
+
         #setLoading(isLoading) {
-            if (!this.#spinner) return;
-
-            this.#spinner.classList.toggle('is-active', isLoading);
+            this.#spinner?.classList.toggle('is-active', isLoading);
         }
 
-        /**
-         * Updates the visible result count next to the search input.
-         *
-         * @param {number} count Number of matching newsletters.
-         * @returns {void}
-         */
         #updateCount(count) {
-            if (!this.#count) return;
-
-            this.#count.textContent = `${count} result${count === 1 ? '' : 's'}`;
+            if (this.#count) this.#count.textContent = `${count} result${count === 1 ? '' : 's'}`;
         }
 
-        /**
-         * Updates sort link state and next-click direction after an AJAX sort.
-         *
-         * @returns {void}
-         */
         #updateSortLinks() {
             if (!this.#table) return;
-
             this.#table.dataset.sort  = this.#sort;
             this.#table.dataset.order = this.#order;
-
             for (const link of this.#table.querySelectorAll('.eim-sort-link')) {
                 const isCurrent = link.dataset.sort === this.#sort;
                 link.dataset.order = isCurrent && this.#order === 'asc' ? 'desc' : 'asc';
-
                 const indicator = link.querySelector('span');
-                if (indicator) {
-                    indicator.textContent = isCurrent ? (this.#order === 'asc' ? '^' : 'v') : '';
-                }
+                if (indicator) indicator.textContent = isCurrent ? (this.#order === 'asc' ? '^' : 'v') : '';
             }
         }
     }

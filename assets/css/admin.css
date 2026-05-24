@@ -35,6 +35,59 @@ h1 {
     min-width: 140px;
 }
 
+.eim-per-page-select {
+    min-width: 90px;
+}
+
+/* ---- Pagination bar ---- */
+
+.eim-pagination-nav {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 10px 0 4px;
+}
+
+.eim-pagination-nav[hidden] {
+    display: none;
+}
+
+.eim-page-btn {
+    background: #fff;
+    border: 1px solid #c3c4c7;
+    border-radius: 3px;
+    color: #1d2327;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    min-width: 30px;
+    padding: 4px 8px;
+}
+
+.eim-page-btn:hover:not(:disabled) {
+    background: #f0f0f1;
+    border-color: #8c8f94;
+}
+
+.eim-page-btn.eim-page-current {
+    background: #2271b1;
+    border-color: #2271b1;
+    color: #fff;
+    cursor: default;
+}
+
+.eim-page-btn:disabled {
+    color: #a7aaad;
+    cursor: default;
+}
+
+.eim-page-ellipsis {
+    color: #646970;
+    font-size: 13px;
+    padding: 4px 2px;
+}
+
 .nav-tab-active {
     animation: fade-in-1 0.35s ease-in-out;
 }
@@ -134,6 +187,43 @@ h1 {
 
 .eim-order-cell {
     white-space: nowrap;
+}
+
+/* ---- Menu item add form ---- */
+
+.eim-menu-add-form {
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    margin-bottom: 20px;
+    padding: 14px 16px;
+}
+
+.eim-menu-add-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 420px;
+}
+
+.eim-menu-add-row {
+    display: block;
+}
+
+.eim-menu-add-input {
+    width: 100% !important;
+    box-sizing: border-box;
+}
+
+.eim-menu-add-vendor {
+    display: block !important;
+    position: relative;
+    width: 100%;
+}
+
+.eim-menu-add-vendor .eim-vendor-search-input {
+    width: 100%;
+    box-sizing: border-box;
 }
 
 /* ---- Tag lists ---- */
@@ -434,4 +524,54 @@ h1 {
     color: #646970;
     font-size: 12px;
     font-style: italic;
+}
+
+/* ---- Vendor autocomplete picker ---- */
+
+.eim-vendor-autocomplete {
+    display: inline-block;
+    position: relative;
+}
+
+.eim-vendor-dropdown-item {
+    border-bottom: 1px solid #f0f0f1;
+    cursor: pointer;
+    font-size: 13px;
+    padding: 8px 12px;
+}
+
+.eim-vendor-dropdown-item:hover {
+    background: #2271b1;
+    color: #fff;
+}
+
+.eim-vendor-dropdown-item:hover span {
+    color: #fff;
+}
+
+.eim-vendor-selected {
+    align-items: center;
+    display: flex;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.eim-vendor-selected-name {
+    background: #e7f2fb;
+    border: 1px solid #b8d9f0;
+    border-radius: 999px;
+    color: #135e96;
+    font-size: 13px;
+    padding: 2px 10px;
+}
+
+.eim-vendor-clear {
+    color: #d63638;
+    font-size: 16px;
+    font-weight: bold;
+    text-decoration: none;
+}
+
+.eim-vendor-clear:hover {
+    color: #b32d2e;
 }

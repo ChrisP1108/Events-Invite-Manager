@@ -43,17 +43,21 @@ final class InviteesPage extends AbstractAdminPage
             wp_send_json_error('Insufficient permissions.', 403);
         }
 
-        $query = sanitize_text_field(wp_unslash($_GET['query'] ?? ''));
-        $sort  = $this->sanitizeSortKey((string) ($_GET['sort'] ?? 'last_name'));
-        $order = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
-        $field = $this->sanitizeInviteeFieldKey((string) ($_GET['field'] ?? ''));
-        $rows  = Invitee::listForAdmin($query, $sort, $order, $field);
+        $query   = sanitize_text_field(wp_unslash($_GET['query'] ?? ''));
+        $sort    = $this->sanitizeSortKey((string) ($_GET['sort'] ?? 'last_name'));
+        $order   = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
+        $field   = $this->sanitizeInviteeFieldKey((string) ($_GET['field'] ?? ''));
+        $page    = max(1, (int) ($_GET['page']     ?? 1));
+        $perPage = in_array((int) ($_GET['per_page'] ?? 10), [5, 10, 25, 50, 100], true) ? (int) $_GET['per_page'] : 10;
+        $all     = Invitee::listForAdmin($query, $sort, $order, $field);
+        $total   = count($all);
+        $rows    = array_slice($all, ($page - 1) * $perPage, $perPage);
 
         ob_start();
         $this->renderInviteeRows($rows, [], $query);
         $html = (string) ob_get_clean();
 
-        wp_send_json_success(['html' => $html, 'count' => count($rows)]);
+        wp_send_json_success(['html' => $html, 'count' => $total, 'total' => $total]);
     }
 
     /**
@@ -207,7 +211,9 @@ final class InviteesPage extends AbstractAdminPage
         $sort    = $this->sanitizeSortKey((string) ($_GET['sort'] ?? 'last_name'));
         $order   = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
         $field   = $this->sanitizeInviteeFieldKey((string) ($_GET['field'] ?? ''));
-        $rows    = Invitee::listForAdmin($search, $sort, $order, $field);
+        $all     = Invitee::listForAdmin($search, $sort, $order, $field);
+        $total   = count($all);
+        $rows    = array_slice($all, 0, 10);
         $addUrl  = AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, ['action' => 'add']);
 
         $inviteeIds      = array_map(static fn($r) => $r['invitee']->id, $rows);
@@ -231,7 +237,7 @@ final class InviteesPage extends AbstractAdminPage
                 'eim-invitee-count',
                 'eim-invitee-loading',
                 'Search invitees, events, or connected people...',
-                count($rows),
+                $total,
                 $search,
                 [
                     ['value' => 'first_name',        'label' => 'First Name'],
@@ -247,7 +253,8 @@ final class InviteesPage extends AbstractAdminPage
             <table id="eim-invitees-table"
                    class="wp-list-table widefat fixed striped"
                    data-sort="<?= esc_attr($sort); ?>"
-                   data-order="<?= esc_attr($order); ?>">
+                   data-order="<?= esc_attr($order); ?>"
+                   data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
                         <th style="width:12%;"><?= $this->sortLink('First Name', 'first_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
@@ -263,6 +270,7 @@ final class InviteesPage extends AbstractAdminPage
                     <?php $this->renderInviteeRows($rows, $groupsByInvitee, $search); ?>
                 </tbody>
             </table>
+            <?php $this->renderPaginationBar('eim-invitee-search'); ?>
         </div>
         <?php
     }

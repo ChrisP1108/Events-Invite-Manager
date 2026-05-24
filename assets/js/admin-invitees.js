@@ -69,56 +69,64 @@
     class InviteeTable {
         /** @type {HTMLTableElement|null} */
         #table;
-
         /** @type {HTMLTableSectionElement|null} */
         #tbody;
-
         /** @type {HTMLInputElement|null} */
         #search;
-
         /** @type {HTMLSelectElement|null} */
         #field;
-
         /** @type {HTMLElement|null} */
         #count;
-
         /** @type {HTMLElement|null} */
         #spinner;
-
+        /** @type {HTMLSelectElement|null} */
+        #perPageSel;
+        /** @type {HTMLElement|null} */
+        #paginationNav;
         /** @type {string} */
         #sort;
-
         /** @type {string} */
         #order;
+        /** @type {number} */
+        #page = 1;
+        /** @type {number} */
+        #perPage = 10;
 
-        /**
-         * Binds the table, search input, field dropdown, and sort links found in
-         * the DOM, then wires up all event listeners.
-         */
         constructor() {
-            this.#table   = document.getElementById('eim-invitees-table');
-            this.#tbody   = document.getElementById('eim-invitees-table-body');
-            this.#search  = document.getElementById('eim-invitee-search');
-            this.#field   = document.getElementById('eim-invitee-search-field');
-            this.#count   = document.getElementById('eim-invitee-count');
-            this.#spinner = document.getElementById('eim-invitee-loading');
+            this.#table        = document.getElementById('eim-invitees-table');
+            this.#tbody        = document.getElementById('eim-invitees-table-body');
+            this.#search       = document.getElementById('eim-invitee-search');
+            this.#field        = document.getElementById('eim-invitee-search-field');
+            this.#count        = document.getElementById('eim-invitee-count');
+            this.#spinner      = document.getElementById('eim-invitee-loading');
+            this.#perPageSel   = document.getElementById('eim-invitee-search-per-page');
+            this.#paginationNav = document.getElementById('eim-invitee-search-pagination');
 
             if (!this.#table || !this.#tbody || !this.#search || !config.searchNonce) return;
 
-            this.#sort  = this.#table.dataset.sort  || config.table?.sort  || 'last_name';
-            this.#order = this.#table.dataset.order || config.table?.order || 'asc';
+            this.#sort    = this.#table.dataset.sort  || config.table?.sort  || 'last_name';
+            this.#order   = this.#table.dataset.order || config.table?.order || 'asc';
+            this.#perPage = Number(this.#perPageSel?.value || 10);
 
-            this.#search.addEventListener('input', debounce(() => this.#refresh()));
-            this.#field?.addEventListener('change', () => this.#refresh());
+            this.#perPageSel?.addEventListener('change', () => {
+                this.#perPage = Number(this.#perPageSel.value);
+                this.#page = 1;
+                this.#refresh();
+            });
+            this.#search.addEventListener('input', debounce(() => { this.#page = 1; this.#refresh(); }));
+            this.#field?.addEventListener('change', () => { this.#page = 1; this.#refresh(); });
 
             for (const link of this.#table.querySelectorAll('.eim-sort-link')) {
                 link.addEventListener('click', (e) => {
                     e.preventDefault();
                     this.#sort  = link.dataset.sort  || 'last_name';
                     this.#order = link.dataset.order || 'asc';
+                    this.#page  = 1;
                     this.#refresh();
                 });
             }
+
+            this.#renderPagination(Number(this.#table.dataset.total || 0));
         }
 
         /**
@@ -131,17 +139,20 @@
             if (this.#spinner) this.#spinner.classList.add('is-active');
             try {
                 const url = ajaxUrl('eim_search_invitees', {
-                    nonce: config.searchNonce,
-                    query: this.#search?.value || '',
-                    sort:  this.#sort,
-                    order: this.#order,
-                    field: this.#field?.value || '',
+                    nonce:    config.searchNonce,
+                    query:    this.#search?.value || '',
+                    sort:     this.#sort,
+                    order:    this.#order,
+                    field:    this.#field?.value || '',
+                    page:     this.#page,
+                    per_page: this.#perPage,
                 });
                 const { success, data } = await (await fetch(url, { credentials: 'same-origin' })).json();
                 if (!success) return;
                 this.#tbody.innerHTML = data.html || '';
                 if (this.#count) this.#count.textContent = `${data.count} result${data.count === 1 ? '' : 's'}`;
                 this.#updateSortLinks();
+                this.#renderPagination(Number(data.total || 0));
             } catch (e) {
                 console.error('[EIM] Invitee search failed:', e);
             } finally {
@@ -149,12 +160,15 @@
             }
         }
 
-        /**
-         * Refreshes the sort-link indicators and their `data-order` attributes to
-         * reflect the current sort column and direction.
-         *
-         * @returns {void}
-         */
+        #renderPagination(total) {
+            window.eimRenderPagination?.(this.#paginationNav, {
+                total,
+                perPage: this.#perPage,
+                page:    this.#page,
+                onPageChange: (p) => { this.#page = p; this.#refresh(); },
+            });
+        }
+
         #updateSortLinks() {
             if (!this.#table) return;
             this.#table.dataset.sort  = this.#sort;
@@ -178,57 +192,65 @@
     class ConnectionGroupTable {
         /** @type {HTMLTableElement|null} */
         #table;
-
         /** @type {HTMLTableSectionElement|null} */
         #tbody;
-
         /** @type {HTMLInputElement|null} */
         #search;
-
         /** @type {HTMLSelectElement|null} */
         #field;
-
         /** @type {HTMLElement|null} */
         #count;
-
         /** @type {HTMLElement|null} */
         #spinner;
-
+        /** @type {HTMLSelectElement|null} */
+        #perPageSel;
+        /** @type {HTMLElement|null} */
+        #paginationNav;
         /** @type {string} */
         #sort;
-
         /** @type {string} */
         #order;
+        /** @type {number} */
+        #page = 1;
+        /** @type {number} */
+        #perPage = 10;
 
-        /**
-         * Binds the table, search input, field dropdown, and sort links found in
-         * the DOM, then wires up all event listeners.
-         */
         constructor() {
-            this.#table   = document.getElementById('eim-connection-groups-table');
-            this.#tbody   = document.getElementById('eim-connection-groups-table-body');
-            this.#search  = document.getElementById('eim-connection-group-search');
-            this.#field   = document.getElementById('eim-connection-group-search-field');
-            this.#count   = document.getElementById('eim-connection-group-count');
-            this.#spinner = document.getElementById('eim-connection-group-loading');
+            this.#table        = document.getElementById('eim-connection-groups-table');
+            this.#tbody        = document.getElementById('eim-connection-groups-table-body');
+            this.#search       = document.getElementById('eim-connection-group-search');
+            this.#field        = document.getElementById('eim-connection-group-search-field');
+            this.#count        = document.getElementById('eim-connection-group-count');
+            this.#spinner      = document.getElementById('eim-connection-group-loading');
+            this.#perPageSel   = document.getElementById('eim-connection-group-search-per-page');
+            this.#paginationNav = document.getElementById('eim-connection-group-search-pagination');
 
             if (!this.#tbody || !this.#search || !config.connectionGroupSearchNonce) return;
 
-            this.#sort  = this.#table?.dataset.sort  || config.connectionGroupTable?.sort  || 'name';
-            this.#order = this.#table?.dataset.order || config.connectionGroupTable?.order || 'asc';
+            this.#sort    = this.#table?.dataset.sort  || config.connectionGroupTable?.sort  || 'name';
+            this.#order   = this.#table?.dataset.order || config.connectionGroupTable?.order || 'asc';
+            this.#perPage = Number(this.#perPageSel?.value || 10);
 
-            this.#search.addEventListener('input', debounce(() => this.#refresh()));
-            this.#field?.addEventListener('change', () => this.#refresh());
+            this.#perPageSel?.addEventListener('change', () => {
+                this.#perPage = Number(this.#perPageSel.value);
+                this.#page = 1;
+                this.#refresh();
+            });
+            this.#search.addEventListener('input', debounce(() => { this.#page = 1; this.#refresh(); }));
+            this.#field?.addEventListener('change', () => { this.#page = 1; this.#refresh(); });
 
             for (const link of (this.#table?.querySelectorAll('.eim-sort-link') ?? [])) {
                 link.addEventListener('click', (e) => {
                     e.preventDefault();
                     this.#sort  = link.dataset.sort  || 'name';
                     this.#order = link.dataset.order || 'asc';
+                    this.#page  = 1;
                     this.#updateSortLinks();
                     this.#refresh();
                 });
             }
+
+            this.#renderPagination(Number(this.#table?.dataset.total || 0));
         }
 
         /**
@@ -239,21 +261,21 @@
          */
         async #refresh() {
             if (this.#spinner) this.#spinner.classList.add('is-active');
-
             try {
                 const url = ajaxUrl('eim_search_connection_groups', {
-                    nonce: config.connectionGroupSearchNonce,
-                    query: this.#search?.value || '',
-                    sort:  this.#sort,
-                    order: this.#order,
-                    field: this.#field?.value || '',
+                    nonce:    config.connectionGroupSearchNonce,
+                    query:    this.#search?.value || '',
+                    sort:     this.#sort,
+                    order:    this.#order,
+                    field:    this.#field?.value || '',
+                    page:     this.#page,
+                    per_page: this.#perPage,
                 });
                 const { success, data } = await (await fetch(url, { credentials: 'same-origin' })).json();
-
                 if (!success) return;
-
                 this.#tbody.innerHTML = data.html || '';
                 if (this.#count) this.#count.textContent = `${data.count} result${data.count === 1 ? '' : 's'}`;
+                this.#renderPagination(Number(data.total || 0));
             } catch (e) {
                 console.error('[EIM] Connection group search failed:', e);
             } finally {
@@ -261,12 +283,15 @@
             }
         }
 
-        /**
-         * Refreshes the sort-link indicators and their `data-order` attributes to
-         * reflect the current sort column and direction.
-         *
-         * @returns {void}
-         */
+        #renderPagination(total) {
+            window.eimRenderPagination?.(this.#paginationNav, {
+                total,
+                perPage: this.#perPage,
+                page:    this.#page,
+                onPageChange: (p) => { this.#page = p; this.#refresh(); },
+            });
+        }
+
         #updateSortLinks() {
             if (!this.#table) return;
             this.#table.dataset.sort  = this.#sort;

@@ -14,60 +14,23 @@ use EventsInviteManager\Database\DatabaseManager;
  * quantity_mode:
  *   'fixed'        — estimated total = quantity × unit_cost_cents
  *   'per_attending' — estimated total = attending RSVP count × unit_cost_cents
- *                    (event_id must be set; falls back to fixed if no RSVP data)
  *
- * source_type / source_id:
- *   When source_type = 'menu_item', source_id is a MenuItem id and unit_cost_cents
- *   is seeded from that item's price_cents on creation.
+ * vendor_id references eim_vendors. The line item's category is derived from
+ * the linked vendor's category; line items no longer carry their own category.
  */
 final class BudgetLineItem
 {
     /** @var string Quantity mode where estimated total = quantity × unit_cost_cents. */
-    public const QUANTITY_MODE_FIXED        = 'fixed';
+    public const QUANTITY_MODE_FIXED         = 'fixed';
 
     /** @var string Quantity mode where quantity is replaced by the event's attending RSVP count. */
     public const QUANTITY_MODE_PER_ATTENDING = 'per_attending';
 
-    /** @var array<string,string> Map of category slugs to human-readable labels. */
-    public const CATEGORIES = [
-        'catering'       => 'Catering',
-        'venue'          => 'Venue',
-        'lodging'        => 'Lodging',
-        'rentals'        => 'Rentals',
-        'music'          => 'Music / Entertainment',
-        'photography'    => 'Photography / Video',
-        'flowers'        => 'Flowers / Décor',
-        'gifts'          => 'Gifts / Favors',
-        'transportation' => 'Transportation',
-        'staffing'       => 'Staffing',
-        'attire'         => 'Attire',
-        'other'          => 'Other',
-    ];
-
-    /**
-     * @param int     $id                 Primary key.
-     * @param int     $planId             The parent budget plan ID.
-     * @param int|null $eventId           Optional event this cost is scoped to.
-     * @param string  $category           Category slug (must be a key of CATEGORIES).
-     * @param string  $label              Short description of the cost.
-     * @param string|null $sourceType     Origin type, e.g. "menu_item" (nullable).
-     * @param int|null $sourceId          Origin record ID matching $sourceType (nullable).
-     * @param float   $quantity           Number of units (interpreted per $quantityMode).
-     * @param string  $quantityMode       One of QUANTITY_MODE_FIXED or QUANTITY_MODE_PER_ATTENDING.
-     * @param int     $unitCostCents      Per-unit cost in cents.
-     * @param int|null $totalOverrideCents When set, overrides the computed quantity × unit_cost total.
-     * @param int     $paidAmountCents    Amount already paid in cents.
-     * @param string  $vendorName         Name of the vendor or payee.
-     * @param string  $notes              Free-text notes.
-     * @param int     $sortOrder          Display position within the plan.
-     * @param string  $createdAt          Row creation timestamp (MySQL datetime string).
-     * @param string  $updatedAt          Row last-update timestamp (MySQL datetime string).
-     */
     public function __construct(
         public readonly int     $id,
         public readonly int     $planId,
         public readonly ?int    $eventId,
-        public readonly string  $category,
+        public readonly ?int    $vendorId,
         public readonly string  $label,
         public readonly ?string $sourceType,
         public readonly ?int    $sourceId,
@@ -76,7 +39,6 @@ final class BudgetLineItem
         public readonly int     $unitCostCents,
         public readonly ?int    $totalOverrideCents,
         public readonly int     $paidAmountCents,
-        public readonly string  $vendorName,
         public readonly string  $notes,
         public readonly int     $sortOrder,
         public readonly string  $createdAt,
@@ -87,12 +49,6 @@ final class BudgetLineItem
     // CRUD
     // -------------------------------------------------------------------------
 
-    /**
-     * Finds a single budget line item by primary key.
-     *
-     * @param int $id Primary key of the line item.
-     * @return self|null The line item, or null if not found.
-     */
     public static function find(int $id): ?self
     {
         global $wpdb;
@@ -118,7 +74,7 @@ final class BudgetLineItem
     /**
      * Returns line items for a plan with optional search and sort.
      *
-     * DB-sortable: label, category, quantity, unit_cost, paid, sort_order.
+     * DB-sortable: label, vendor (company_name join), quantity, unit_cost, paid, sort_order.
      * PHP-sorted:  event (relational), estimated (computed).
      *
      * @return self[]
@@ -137,7 +93,6 @@ final class BudgetLineItem
 
         $dbSortMap = [
             'label'      => 'label',
-            'category'   => 'category',
             'quantity'   => 'quantity',
             'unit_cost'  => 'unit_cost_cents',
             'paid'       => 'paid_amount_cents',
@@ -156,21 +111,34 @@ final class BudgetLineItem
 
         $like        = '%' . $wpdb->esc_like(strtolower($search)) . '%';
         $eventsTable = DatabaseManager::eventsTable();
+        $vendorsTable = DatabaseManager::vendorsTable();
 
         if ($field === 'label') {
             // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
             $rows = $wpdb->get_results(
                 $wpdb->prepare("SELECT * FROM {$table} WHERE plan_id = %d AND LOWER(label) LIKE %s ORDER BY {$sortCol} {$orderSql}, id ASC", $planId, $like)
             );
-        } elseif ($field === 'category') {
-            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-            $rows = $wpdb->get_results(
-                $wpdb->prepare("SELECT * FROM {$table} WHERE plan_id = %d AND LOWER(category) LIKE %s ORDER BY {$sortCol} {$orderSql}, id ASC", $planId, $like)
-            );
         } elseif ($field === 'vendor') {
             // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
             $rows = $wpdb->get_results(
-                $wpdb->prepare("SELECT * FROM {$table} WHERE plan_id = %d AND LOWER(vendor_name) LIKE %s ORDER BY {$sortCol} {$orderSql}, id ASC", $planId, $like)
+                $wpdb->prepare(
+                    "SELECT li.* FROM {$table} li
+                     LEFT JOIN {$vendorsTable} v ON v.id = li.vendor_id
+                     WHERE li.plan_id = %d AND LOWER(v.company_name) LIKE %s
+                     ORDER BY li.{$sortCol} {$orderSql}, li.id ASC",
+                    $planId, $like
+                )
+            );
+        } elseif ($field === 'category') {
+            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+            $rows = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT li.* FROM {$table} li
+                     LEFT JOIN {$vendorsTable} v ON v.id = li.vendor_id
+                     WHERE li.plan_id = %d AND LOWER(v.category) LIKE %s
+                     ORDER BY li.{$sortCol} {$orderSql}, li.id ASC",
+                    $planId, $like
+                )
             );
         } elseif ($field === 'event') {
             // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
@@ -184,15 +152,18 @@ final class BudgetLineItem
                 )
             );
         } else {
-            // Any — label, category, vendor_name, notes
+            // Any — label, vendor company name, vendor category, notes
             // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
             $rows = $wpdb->get_results(
                 $wpdb->prepare(
-                    "SELECT * FROM {$table}
-                     WHERE plan_id = %d
-                       AND (LOWER(label) LIKE %s OR LOWER(category) LIKE %s
-                            OR LOWER(vendor_name) LIKE %s OR LOWER(COALESCE(notes,'')) LIKE %s)
-                     ORDER BY {$sortCol} {$orderSql}, id ASC",
+                    "SELECT li.* FROM {$table} li
+                     LEFT JOIN {$vendorsTable} v ON v.id = li.vendor_id
+                     WHERE li.plan_id = %d
+                       AND (LOWER(li.label) LIKE %s
+                            OR LOWER(COALESCE(v.company_name,'')) LIKE %s
+                            OR LOWER(COALESCE(v.category,'')) LIKE %s
+                            OR LOWER(COALESCE(li.notes,'')) LIKE %s)
+                     ORDER BY li.{$sortCol} {$orderSql}, li.id ASC",
                     $planId, $like, $like, $like, $like
                 )
             );
@@ -203,61 +174,66 @@ final class BudgetLineItem
     }
 
     /**
-     * Applies PHP-level sorting for computed/relational columns (event, estimated).
+     * Applies PHP-level sorting for computed/relational columns (event, estimated, vendor, category).
      *
      * @param self[] $items
      * @return self[]
      */
     private static function maybePhpSort(array $items, string $sort, string $order): array
     {
-        if (!in_array($sort, ['event', 'estimated'], true)) {
+        if (!in_array($sort, ['event', 'estimated', 'vendor', 'category'], true)) {
             return $items;
         }
 
-        $mul  = $order === 'desc' ? -1 : 1;
-        $keys = [];
+        $mul     = $order === 'desc' ? -1 : 1;
+        $keys    = [];
+        $vendors = [];
+
+        if (in_array($sort, ['vendor', 'category'], true)) {
+            $vendorIds = array_filter(array_map(static fn(self $i) => $i->vendorId, $items));
+            $vendors   = Vendor::findMany(array_values($vendorIds));
+        }
 
         foreach ($items as $item) {
             if ($sort === 'event') {
                 $event = $item->eventId ? Event::find($item->eventId) : null;
                 $keys[$item->id] = $event ? strtolower($event->name) : '';
+            } elseif ($sort === 'vendor') {
+                $vendor = $item->vendorId ? ($vendors[$item->vendorId] ?? null) : null;
+                $keys[$item->id] = $vendor ? strtolower($vendor->companyName) : '';
+            } elseif ($sort === 'category') {
+                $vendor = $item->vendorId ? ($vendors[$item->vendorId] ?? null) : null;
+                $keys[$item->id] = $vendor ? strtolower($vendor->categoryLabel()) : '';
             } else {
                 $keys[$item->id] = $item->estimatedCents();
             }
         }
 
         usort($items, static function (self $a, self $b) use ($mul, $sort, $keys): int {
-            if ($sort === 'event') {
-                return $mul * strcasecmp((string)($keys[$a->id] ?? ''), (string)($keys[$b->id] ?? ''));
+            if ($sort === 'estimated') {
+                return $mul * (($keys[$a->id] ?? 0) <=> ($keys[$b->id] ?? 0));
             }
-            return $mul * (($keys[$a->id] ?? 0) <=> ($keys[$b->id] ?? 0));
+            return $mul * strcasecmp((string) ($keys[$a->id] ?? ''), (string) ($keys[$b->id] ?? ''));
         });
 
         return $items;
     }
 
     /**
-     * Creates a new budget line item within a plan.
-     *
-     * Accepted keys in $data: plan_id, event_id, category, label, source_type,
-     * source_id, quantity, quantity_mode, unit_cost_cents, total_override_cents,
-     * paid_amount_cents, vendor_name, notes.  sort_order is assigned automatically.
-     *
-     * @param array<string,mixed> $data Column values for the new row.
-     * @return self|null The newly created line item, or null on failure.
+     * @param array<string,mixed> $data
      */
     public static function create(array $data): ?self
     {
         global $wpdb;
-        $table     = DatabaseManager::budgetLineItemsTable();
-        $maxOrder  = (int) $wpdb->get_var(
+        $table    = DatabaseManager::budgetLineItemsTable();
+        $maxOrder = (int) $wpdb->get_var(
             $wpdb->prepare("SELECT COALESCE(MAX(sort_order), 0) FROM {$table} WHERE plan_id = %d", (int) ($data['plan_id'] ?? 0))
         );
 
         $result = $wpdb->insert($table, [
             'plan_id'              => (int)    ($data['plan_id']              ?? 0),
             'event_id'             => isset($data['event_id']) && (int) $data['event_id'] > 0 ? (int) $data['event_id'] : null,
-            'category'             => self::sanitizeCategory((string) ($data['category'] ?? 'other')),
+            'vendor_id'            => isset($data['vendor_id']) && (int) $data['vendor_id'] > 0 ? (int) $data['vendor_id'] : null,
             'label'                => (string) ($data['label']                ?? ''),
             'source_type'          => isset($data['source_type']) ? (string) $data['source_type'] : null,
             'source_id'            => isset($data['source_id']) && (int) $data['source_id'] > 0 ? (int) $data['source_id'] : null,
@@ -268,7 +244,6 @@ final class BudgetLineItem
             'unit_cost_cents'      => (int)    ($data['unit_cost_cents']      ?? 0),
             'total_override_cents' => isset($data['total_override_cents']) && (int) $data['total_override_cents'] > 0 ? (int) $data['total_override_cents'] : null,
             'paid_amount_cents'    => (int)    ($data['paid_amount_cents']    ?? 0),
-            'vendor_name'          => (string) ($data['vendor_name']          ?? ''),
             'notes'                => (string) ($data['notes']                ?? ''),
             'sort_order'           => $maxOrder + 1,
         ]);
@@ -277,40 +252,25 @@ final class BudgetLineItem
     }
 
     /**
-     * Updates one or more columns on an existing budget line item.
-     *
-     * Accepted keys in $data: event_id, category, label, quantity, quantity_mode,
-     * unit_cost_cents, total_override_cents, paid_amount_cents, vendor_name, notes.
-     * Unknown keys are silently ignored.
-     *
-     * @param int                 $id   Primary key of the line item to update.
-     * @param array<string,mixed> $data Fields to update.
-     * @return bool True on success or when there are no fields to update.
+     * @param array<string,mixed> $data
      */
     public static function update(int $id, array $data): bool
     {
         global $wpdb;
         $fields = [];
         if (array_key_exists('event_id', $data))             $fields['event_id']             = $data['event_id'] > 0 ? (int) $data['event_id'] : null;
-        if (array_key_exists('category', $data))             $fields['category']             = self::sanitizeCategory((string) $data['category']);
+        if (array_key_exists('vendor_id', $data))            $fields['vendor_id']            = $data['vendor_id'] > 0 ? (int) $data['vendor_id'] : null;
         if (array_key_exists('label', $data))                $fields['label']                = (string) $data['label'];
         if (array_key_exists('quantity', $data))             $fields['quantity']             = (float)  $data['quantity'];
         if (array_key_exists('quantity_mode', $data))        $fields['quantity_mode']        = $data['quantity_mode'] === self::QUANTITY_MODE_PER_ATTENDING ? self::QUANTITY_MODE_PER_ATTENDING : self::QUANTITY_MODE_FIXED;
         if (array_key_exists('unit_cost_cents', $data))      $fields['unit_cost_cents']      = (int)    $data['unit_cost_cents'];
         if (array_key_exists('total_override_cents', $data)) $fields['total_override_cents'] = $data['total_override_cents'] > 0 ? (int) $data['total_override_cents'] : null;
         if (array_key_exists('paid_amount_cents', $data))    $fields['paid_amount_cents']    = (int)    $data['paid_amount_cents'];
-        if (array_key_exists('vendor_name', $data))          $fields['vendor_name']          = (string) $data['vendor_name'];
         if (array_key_exists('notes', $data))                $fields['notes']                = (string) $data['notes'];
         if (empty($fields)) return true;
         return $wpdb->update(DatabaseManager::budgetLineItemsTable(), $fields, ['id' => $id]) !== false;
     }
 
-    /**
-     * Deletes a single budget line item by primary key.
-     *
-     * @param int $id Primary key of the line item to delete.
-     * @return bool True on success.
-     */
     public static function delete(int $id): bool
     {
         global $wpdb;
@@ -321,11 +281,6 @@ final class BudgetLineItem
     // Totals
     // -------------------------------------------------------------------------
 
-    /**
-     * Returns the estimated total for this line item in cents.
-     * If a total_override is set, that wins. Otherwise quantity × unit_cost.
-     * For per_attending mode, quantity is replaced by the RSVP attending count.
-     */
     public function estimatedCents(): int
     {
         if ($this->totalOverrideCents !== null) {
@@ -344,28 +299,12 @@ final class BudgetLineItem
         return (int) round($qty * $this->unitCostCents);
     }
 
-    /**
-     * Returns the sum of estimated amounts for all line items in a plan, in cents.
-     *
-     * Each item's estimated value accounts for quantity mode and total overrides.
-     *
-     * @param int $planId The plan to aggregate.
-     * @return int Total estimated cost in cents.
-     */
     public static function sumEstimatedForPlan(int $planId): int
     {
         $items = self::forPlan($planId);
         return array_sum(array_map(static fn(self $i) => $i->estimatedCents(), $items));
     }
 
-    /**
-     * Returns the sum of paid amounts for all line items in a plan, in cents.
-     *
-     * Computed via a single SUM() query for efficiency.
-     *
-     * @param int $planId The plan to aggregate.
-     * @return int Total paid amount in cents.
-     */
     public static function sumPaidForPlan(int $planId): int
     {
         global $wpdb;
@@ -379,68 +318,34 @@ final class BudgetLineItem
     // Formatting helpers
     // -------------------------------------------------------------------------
 
-    /**
-     * Returns the formatted estimated total for this line item (e.g. "$250.00").
-     *
-     * @return string
-     */
     public function formattedEstimated(): string { return BudgetPlan::formatCents($this->estimatedCents()); }
-
-    /**
-     * Returns the formatted paid amount for this line item (e.g. "$100.00").
-     *
-     * @return string
-     */
     public function formattedPaid(): string       { return BudgetPlan::formatCents($this->paidAmountCents); }
-
-    /**
-     * Returns the formatted per-unit cost for this line item (e.g. "$25.00").
-     *
-     * @return string
-     */
     public function formattedUnitCost(): string   { return BudgetPlan::formatCents($this->unitCostCents); }
 
-    /**
-     * Returns the human-readable label for this item's category slug.
-     *
-     * Falls back to ucfirst($category) if the slug is not found in CATEGORIES.
-     *
-     * @return string
-     */
-    public function categoryLabel(): string       { return self::CATEGORIES[$this->category] ?? ucfirst($this->category); }
-
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
-    /**
-     * Validates a category slug, returning "other" if the slug is not in CATEGORIES.
-     *
-     * @param string $cat The category slug to validate.
-     * @return string A valid category slug.
-     */
-    private static function sanitizeCategory(string $cat): string
+    /** Returns the vendor for this item, or null if no vendor is linked. */
+    public function vendor(): ?Vendor
     {
-        return array_key_exists($cat, self::CATEGORIES) ? $cat : 'other';
+        return $this->vendorId ? Vendor::find($this->vendorId) : null;
+    }
+
+    /** Returns the category label derived from the linked vendor, or '—' if none. */
+    public function categoryLabel(?Vendor $vendor = null): string
+    {
+        $v = $vendor ?? ($this->vendorId ? Vendor::find($this->vendorId) : null);
+        return $v ? $v->categoryLabel() : '—';
     }
 
     // -------------------------------------------------------------------------
     // Hydration
     // -------------------------------------------------------------------------
 
-    /**
-     * Hydrates a BudgetLineItem instance from a database result row.
-     *
-     * @param object $row Raw row object returned by $wpdb->get_row() / get_results().
-     * @return self
-     */
     private static function fromRow(object $row): self
     {
         return new self(
             id:                  (int)   $row->id,
             planId:              (int)   $row->plan_id,
             eventId:             isset($row->event_id) && $row->event_id !== null ? (int) $row->event_id : null,
-            category:                    $row->category          ?? 'other',
+            vendorId:            isset($row->vendor_id) && $row->vendor_id !== null ? (int) $row->vendor_id : null,
             label:                       $row->label             ?? '',
             sourceType:          isset($row->source_type) ? (string) $row->source_type : null,
             sourceId:            isset($row->source_id) && $row->source_id !== null ? (int) $row->source_id : null,
@@ -449,7 +354,6 @@ final class BudgetLineItem
             unitCostCents:       (int)   ($row->unit_cost_cents  ?? 0),
             totalOverrideCents:  isset($row->total_override_cents) && $row->total_override_cents !== null ? (int) $row->total_override_cents : null,
             paidAmountCents:     (int)   ($row->paid_amount_cents ?? 0),
-            vendorName:                  $row->vendor_name        ?? '',
             notes:                       $row->notes              ?? '',
             sortOrder:           (int)   ($row->sort_order        ?? 0),
             createdAt:                   $row->created_at         ?? '',

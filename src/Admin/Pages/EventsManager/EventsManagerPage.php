@@ -14,6 +14,7 @@ use EventsInviteManager\Admin\Pages\EventsManager\SubPages\InviteesPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\LocationsPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\MenuItemsPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\NewslettersPage;
+use EventsInviteManager\Admin\Pages\EventsManager\SubPages\VendorsPage;
 
 /**
  * Renders the tabbed Events Manager admin page.
@@ -44,15 +45,9 @@ final class EventsManagerPage
     /** @var NewslettersPage Newsletters sub-page handler. */
     private NewslettersPage      $newslettersPage;
 
-    /**
-     * @param EventsPage           $eventsPage
-     * @param InviteesPage         $inviteesPage
-     * @param ConnectionGroupsPage $connectionGroupsPage
-     * @param LocationsPage        $locationsPage
-     * @param MenuItemsPage        $menuItemsPage
-     * @param BudgetPage           $budgetPage
-     * @param NewslettersPage      $newslettersPage
-     */
+    /** @var VendorsPage Vendors sub-page handler. */
+    private VendorsPage          $vendorsPage;
+
     public function __construct(
         EventsPage           $eventsPage,
         InviteesPage         $inviteesPage,
@@ -60,7 +55,8 @@ final class EventsManagerPage
         LocationsPage        $locationsPage,
         MenuItemsPage        $menuItemsPage,
         BudgetPage           $budgetPage,
-        NewslettersPage      $newslettersPage
+        NewslettersPage      $newslettersPage,
+        VendorsPage          $vendorsPage
     ) {
         $this->eventsPage           = $eventsPage;
         $this->inviteesPage         = $inviteesPage;
@@ -69,6 +65,7 @@ final class EventsManagerPage
         $this->menuItemsPage        = $menuItemsPage;
         $this->budgetPage           = $budgetPage;
         $this->newslettersPage      = $newslettersPage;
+        $this->vendorsPage          = $vendorsPage;
     }
 
     /**
@@ -87,6 +84,7 @@ final class EventsManagerPage
             AdminMenu::TAB_LOCATIONS         => 'Locations',
             AdminMenu::TAB_MENU_ITEMS        => 'Food &amp; Beverages',
             AdminMenu::TAB_BUDGET            => 'Budget',
+            AdminMenu::TAB_VENDORS           => 'Vendors',
             AdminMenu::TAB_NEWSLETTERS       => 'Newsletters',
         ];
 
@@ -115,6 +113,7 @@ final class EventsManagerPage
             AdminMenu::TAB_LOCATIONS         => $this->locationsPage,
             AdminMenu::TAB_MENU_ITEMS        => $this->menuItemsPage,
             AdminMenu::TAB_BUDGET            => $this->budgetPage,
+            AdminMenu::TAB_VENDORS           => $this->vendorsPage,
             AdminMenu::TAB_NEWSLETTERS       => $this->newslettersPage,
             default                          => $this->eventsPage,
         };

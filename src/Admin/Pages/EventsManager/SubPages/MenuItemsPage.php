@@ -8,7 +8,9 @@ if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Admin\AbstractAdminPage;
 use EventsInviteManager\Admin\AdminMenu;
+use EventsInviteManager\Database\DatabaseManager;
 use EventsInviteManager\Models\MenuItem;
+use EventsInviteManager\Models\Vendor;
 
 /**
  * Admin page for the global food and beverage menu item library.
@@ -26,6 +28,7 @@ final class MenuItemsPage extends AbstractAdminPage
      */
     public function handleAction(string $action): void
     {
+        DatabaseManager::maybeAddV17Columns();
         match ($action) {
             'save_menu_item'        => $this->handleSaveMenuItem(),
             'update_menu_item'      => $this->handleUpdateMenuItem(),
@@ -37,6 +40,7 @@ final class MenuItemsPage extends AbstractAdminPage
     /** Renders the Food &amp; Beverages admin page (list or single-item edit form). */
     public function renderPage(): void
     {
+        DatabaseManager::maybeAddV17Columns();
         $action  = $_GET['action'] ?? 'list';
         $message = (string) ($_GET['eim_message'] ?? '');
         $error   = (string) ($_GET['eim_error']   ?? '');
@@ -79,7 +83,8 @@ final class MenuItemsPage extends AbstractAdminPage
      */
     private function renderEditForm(MenuItem $item, string $message, string $error): void
     {
-        $backUrl = AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS);
+        $backUrl       = AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS);
+        $currentVendor = $item->vendorId ? Vendor::find($item->vendorId) : null;
         ?>
         <div class="wrap">
             <h1>Edit <?= esc_html(ucfirst($item->type)); ?> Item</h1>
@@ -103,6 +108,33 @@ final class MenuItemsPage extends AbstractAdminPage
                         <th scope="row"><label for="eim_mi_desc">Description</label></th>
                         <td><input type="text" id="eim_mi_desc" name="description" class="regular-text"
                                    value="<?= esc_attr($item->description); ?>"></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="eim_mi_edit_vendor_search">Vendor <span aria-hidden="true" style="color:#d63638;">*</span></label></th>
+                        <td>
+                            <div class="eim-vendor-autocomplete" id="eim-mi-edit-vendor-picker"
+                                 data-initial-id="<?= esc_attr((string) ($item->vendorId ?? 0)); ?>"
+                                 data-initial-name="<?= esc_attr($currentVendor ? $currentVendor->companyName : ''); ?>">
+                                <input type="text" id="eim_mi_edit_vendor_search"
+                                       class="regular-text eim-vendor-search-input"
+                                       placeholder="Search vendors…" autocomplete="off"
+                                       value="<?= esc_attr($currentVendor ? $currentVendor->companyName : ''); ?>">
+                                <input type="hidden" name="vendor_id" id="eim_mi_edit_vendor_id"
+                                       value="<?= esc_attr((string) ($item->vendorId ?? 0)); ?>">
+                                <?php if ($currentVendor): ?>
+                                    <div class="eim-vendor-selected" id="eim-mi-edit-vendor-selected">
+                                        <span class="eim-vendor-selected-name"><?= esc_html($currentVendor->companyName); ?></span>
+                                        <a href="#" class="eim-vendor-clear" aria-label="Remove vendor" style="margin-left:6px;">&times;</a>
+                                    </div>
+                                <?php else: ?>
+                                    <div class="eim-vendor-selected" id="eim-mi-edit-vendor-selected" style="display:none;">
+                                        <span class="eim-vendor-selected-name"></span>
+                                        <a href="#" class="eim-vendor-clear" aria-label="Remove vendor" style="margin-left:6px;">&times;</a>
+                                    </div>
+                                <?php endif; ?>
+                                <div class="eim-vendor-dropdown" id="eim-mi-edit-vendor-dropdown" style="display:none;position:absolute;background:#fff;border:1px solid #dcdcde;border-radius:4px;z-index:9999;min-width:300px;max-height:220px;overflow-y:auto;box-shadow:0 2px 8px rgba(0,0,0,.12);"></div>
+                            </div>
+                        </td>
                     </tr>
                     <tr>
                         <th scope="row"><label for="eim_mi_price">Price</label></th>
@@ -144,13 +176,18 @@ final class MenuItemsPage extends AbstractAdminPage
         $sort  = $this->sanitizeMenuItemSortKey((string) ($_GET['sort']  ?? 'label'));
         $order = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
         $field = $this->sanitizeMenuItemFieldKey((string) ($_GET['field'] ?? ''));
-        $items = MenuItem::listByType($type, $query, $sort, $order, $field);
+        $page    = max(1, (int) ($_GET['page']     ?? 1));
+        $perPage = in_array((int) ($_GET['per_page'] ?? 10), [5, 10, 25, 50, 100], true) ? (int) $_GET['per_page'] : 10;
+
+        $all   = MenuItem::listByType($type, $query, $sort, $order, $field);
+        $total = count($all);
+        $items = array_slice($all, ($page - 1) * $perPage, $perPage);
 
         ob_start();
         $this->renderItemRows($items, $type, $query);
         $html = (string) ob_get_clean();
 
-        wp_send_json_success(['html' => $html, 'count' => count($items)]);
+        wp_send_json_success(['html' => $html, 'count' => $total, 'total' => $total]);
     }
 
     /**
@@ -208,6 +245,7 @@ final class MenuItemsPage extends AbstractAdminPage
             'label'       => $label,
             'description' => sanitize_text_field(wp_unslash($_POST['description'] ?? '')),
             'price_cents' => $priceCents,
+            'vendor_id'   => (int) ($_POST['vendor_id'] ?? 0),
         ]);
 
         wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS, ['eim_message' => 'menu_item_updated']));
@@ -240,6 +278,7 @@ final class MenuItemsPage extends AbstractAdminPage
             'label'       => $label,
             'description' => $desc,
             'price_cents' => $priceCents,
+            'vendor_id'   => (int) ($_POST['vendor_id'] ?? 0),
         ]);
 
         wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS, [
@@ -285,17 +324,21 @@ final class MenuItemsPage extends AbstractAdminPage
         $tbodyId  = 'eim-menu-' . $type . '-table-body';
         $sort     = 'label';
         $order    = 'asc';
-        $items    = MenuItem::listByType($type);
+        $all      = MenuItem::listByType($type);
+        $total    = count($all);
+        $items    = array_slice($all, 0, 10);
         ?>
         <div class="eim-menu-section">
             <h2><?= esc_html($heading); ?></h2>
+
+            <?php $this->renderAddItemForm($type); ?>
 
             <?php $this->renderSearchBar(
                 $inputId,
                 $countId,
                 $spinnerId,
                 'Search ' . strtolower($heading) . '...',
-                count($items),
+                $total,
                 '',
                 [
                     ['value' => 'label',       'label' => 'Label'],
@@ -308,12 +351,14 @@ final class MenuItemsPage extends AbstractAdminPage
                        class="wp-list-table widefat fixed striped"
                        data-type="<?= esc_attr($type); ?>"
                        data-sort="<?= esc_attr($sort); ?>"
-                       data-order="<?= esc_attr($order); ?>">
+                       data-order="<?= esc_attr($order); ?>"
+                       data-total="<?= esc_attr($total); ?>">
                     <thead>
                         <tr>
-                            <th style="width:30%;"><?= $this->clientSortLink('Label', 'label', $sort, $order); ?></th>
+                            <th style="width:28%;"><?= $this->clientSortLink('Label', 'label', $sort, $order); ?></th>
                             <th><?= $this->clientSortLink('Description', 'description', $sort, $order); ?></th>
-                            <th style="width:10%;">Price</th>
+                            <th style="width:20%;">Vendor</th>
+                            <th style="width:9%;">Price</th>
                             <th style="width:10%;">Actions</th>
                         </tr>
                     </thead>
@@ -323,7 +368,7 @@ final class MenuItemsPage extends AbstractAdminPage
                 </table>
             </div>
 
-            <?php $this->renderAddItemForm($type); ?>
+            <?php $this->renderPaginationBar($inputId); ?>
         </div>
         <?php
     }
@@ -341,11 +386,15 @@ final class MenuItemsPage extends AbstractAdminPage
             $msg = $search !== ''
                 ? 'No results found based upon search criteria.'
                 : 'No ' . ($type === MenuItem::TYPE_BEVERAGE ? 'beverage' : 'food') . ' items yet.';
-            echo '<tr class="eim-no-results"><td colspan="4">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="5">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
+        $vendorIds  = array_values(array_filter(array_map(static fn(MenuItem $i) => $i->vendorId, $items)));
+        $vendorsMap = Vendor::findMany($vendorIds);
+
         foreach ($items as $item) {
+            $vendor    = $item->vendorId ? ($vendorsMap[$item->vendorId] ?? null) : null;
             $editUrl   = AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS, ['action' => 'edit', 'id' => $item->id]);
             $deleteUrl = wp_nonce_url(
                 AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS, ['action' => 'delete_menu_item', 'id' => $item->id]),
@@ -355,6 +404,13 @@ final class MenuItemsPage extends AbstractAdminPage
             <tr>
                 <td><strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($item->label); ?></a></strong></td>
                 <td><?= esc_html($item->description ?: '—'); ?></td>
+                <td>
+                    <?php if ($vendor): ?>
+                        <a href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_VENDORS, ['action' => 'edit', 'id' => $vendor->id])); ?>"><?= esc_html($vendor->companyName); ?></a>
+                    <?php else: ?>
+                        <span style="color:#999;">—</span>
+                    <?php endif; ?>
+                </td>
                 <td>
                     <?php if ($item->priceCents > 0): ?>
                         <span style="font-variant-numeric:tabular-nums;"><?= esc_html($item->formattedPrice()); ?></span>
@@ -379,27 +435,46 @@ final class MenuItemsPage extends AbstractAdminPage
      */
     private function renderAddItemForm(string $type): void
     {
-        $label = $type === MenuItem::TYPE_BEVERAGE ? 'Beverage' : 'Food';
+        $typeLabel = $type === MenuItem::TYPE_BEVERAGE ? 'Beverage' : 'Food';
+        $pickerId  = 'eim-mi-add-vendor-picker-' . $type;
         ?>
-        <div class="eim-menu-add-form" style="margin-top:14px;padding:14px;background:#f6f7f7;border:1px solid #dcdcde;border-radius:4px;">
-            <h3 style="margin:0 0 10px;">Add <?= esc_html($label); ?> Item</h3>
+        <div class="eim-menu-add-form">
+            <h3 style="margin:0 0 10px;">Add <?= esc_html($typeLabel); ?> Item</h3>
             <form method="post" action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS)); ?>">
                 <?php wp_nonce_field('eim_save_menu_item'); ?>
                 <input type="hidden" name="eim_action" value="save_menu_item">
                 <input type="hidden" name="type"       value="<?= esc_attr($type); ?>">
-                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                    <input type="text" name="label" class="regular-text"
-                           placeholder="Label (e.g. <?= $type === MenuItem::TYPE_BEVERAGE ? 'Red Wine' : 'Chicken'; ?>)"
-                           required>
-                    <input type="text" name="description" class="regular-text"
-                           placeholder="Description (optional)">
-                    <input type="text" name="price" class="small-text"
-                           placeholder="Price (e.g. 12.50)"
-                           style="width:90px;"
-                           title="Per-person price used in budget calculations">
-                    <button type="submit" class="button button-primary">Add <?= esc_html($label); ?> Item</button>
+                <div class="eim-menu-add-fields">
+                    <div class="eim-menu-add-row">
+                        <input type="text" name="label" class="regular-text eim-menu-add-input"
+                               placeholder="Label (e.g. <?= $type === MenuItem::TYPE_BEVERAGE ? 'Red Wine' : 'Chicken'; ?>) *"
+                               required>
+                    </div>
+                    <div class="eim-menu-add-row">
+                        <input type="text" name="description" class="regular-text eim-menu-add-input"
+                               placeholder="Description (optional)">
+                    </div>
+                    <div class="eim-menu-add-row">
+                        <input type="text" name="price" class="regular-text eim-menu-add-input"
+                               placeholder="Price e.g. 12.50 (optional)"
+                               title="Per-person price used in budget calculations">
+                    </div>
+                    <div class="eim-menu-add-row">
+                        <div class="eim-vendor-autocomplete eim-menu-add-vendor" id="<?= esc_attr($pickerId); ?>">
+                            <input type="text" class="regular-text eim-vendor-search-input eim-menu-add-input"
+                                   placeholder="Vendor — type to search…" autocomplete="off">
+                            <input type="hidden" name="vendor_id" value="0">
+                            <div class="eim-vendor-selected" style="display:none;">
+                                <span class="eim-vendor-selected-name"></span>
+                                <a href="#" class="eim-vendor-clear" aria-label="Remove vendor" style="margin-left:6px;">&times;</a>
+                            </div>
+                            <div class="eim-vendor-dropdown" style="display:none;position:absolute;background:#fff;border:1px solid #dcdcde;border-radius:4px;z-index:9999;min-width:300px;max-height:220px;overflow-y:auto;box-shadow:0 2px 8px rgba(0,0,0,.12);"></div>
+                        </div>
+                    </div>
+                    <div class="eim-menu-add-row">
+                        <button type="submit" class="button button-primary">Add <?= esc_html($typeLabel); ?> Item</button>
+                    </div>
                 </div>
-                <p class="description" style="margin-top:6px;">Price is optional — used for budget planning calculations. Leave blank for no price.</p>
             </form>
         </div>
         <?php

@@ -24,23 +24,13 @@ class MenuItem
     /** @var string Type constant for beverage items. */
     public const TYPE_BEVERAGE = 'beverage';
 
-    /**
-     * @param int    $id          Primary key.
-     * @param string $type        Item type — one of TYPE_FOOD or TYPE_BEVERAGE.
-     * @param string $label       Display name shown to invitees.
-     * @param string $description Optional longer description.
-     * @param int    $priceCents  Per-item price in cents (0 = no charge).
-     * @param int    $sortOrder   Display order within the event pivot.
-     * @param bool   $isActive    Whether the item is available for selection.
-     * @param string $createdAt   Row creation timestamp (MySQL datetime string).
-     * @param string $updatedAt   Row last-update timestamp (MySQL datetime string).
-     */
     public function __construct(
         public readonly int    $id,
         public readonly string $type,
         public readonly string $label,
         public readonly string $description,
         public readonly int    $priceCents,
+        public readonly ?int   $vendorId,
         public readonly int    $sortOrder,
         public readonly bool   $isActive,
         public readonly string $createdAt,
@@ -190,13 +180,18 @@ class MenuItem
             ? $data['type']
             : self::TYPE_FOOD;
 
-        $result = $wpdb->insert(DatabaseManager::menuItemsTable(), [
+        $insertData = [
             'type'        => $type,
             'label'       => (string) ($data['label']       ?? ''),
             'description' => (string) ($data['description'] ?? ''),
             'price_cents' => (int)    ($data['price_cents'] ?? 0),
             'is_active'   => isset($data['is_active']) ? (int) $data['is_active'] : 1,
-        ]);
+        ];
+        $vendorId = isset($data['vendor_id']) ? (int) $data['vendor_id'] : 0;
+        if ($vendorId > 0) {
+            $insertData['vendor_id'] = $vendorId;
+        }
+        $result = $wpdb->insert(DatabaseManager::menuItemsTable(), $insertData);
 
         return $result ? self::find((int) $wpdb->insert_id) : null;
     }
@@ -219,6 +214,7 @@ class MenuItem
         if (isset($data['label']))       $fields['label']       = (string) $data['label'];
         if (isset($data['description'])) $fields['description'] = (string) $data['description'];
         if (isset($data['price_cents'])) $fields['price_cents'] = (int)    $data['price_cents'];
+        if (array_key_exists('vendor_id', $data)) $fields['vendor_id'] = $data['vendor_id'] > 0 ? (int) $data['vendor_id'] : null;
         if (isset($data['is_active']))   $fields['is_active']   = (int)    $data['is_active'];
 
         if (empty($fields)) {
@@ -474,6 +470,7 @@ class MenuItem
             label:              $row->label       ?? '',
             description:        $row->description ?? '',
             priceCents:  (int)  ($row->price_cents ?? 0),
+            vendorId:    isset($row->vendor_id) && $row->vendor_id !== null ? (int) $row->vendor_id : null,
             sortOrder:   (int)  ($row->sort_order  ?? 0),
             isActive:    (bool) ($row->is_active   ?? true),
             createdAt:          $row->created_at   ?? '',

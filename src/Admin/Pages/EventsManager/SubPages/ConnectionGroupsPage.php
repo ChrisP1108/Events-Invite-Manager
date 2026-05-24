@@ -66,18 +66,23 @@ final class ConnectionGroupsPage extends AbstractAdminPage
             wp_send_json_error('Insufficient permissions.', 403);
         }
 
-        $query  = sanitize_text_field(wp_unslash($_GET['query'] ?? ''));
-        $sort   = $this->sanitizeGroupSortKey((string) ($_GET['sort']  ?? 'name'));
-        $order  = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
-        $field  = $this->sanitizeGroupFieldKey((string) ($_GET['field'] ?? ''));
-        $groups = ConnectionGroup::listForAdmin($query, $sort, $order, $field);
+        $query   = sanitize_text_field(wp_unslash($_GET['query'] ?? ''));
+        $sort    = $this->sanitizeGroupSortKey((string) ($_GET['sort']  ?? 'name'));
+        $order   = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
+        $field   = $this->sanitizeGroupFieldKey((string) ($_GET['field'] ?? ''));
+        $page    = max(1, (int) ($_GET['page']     ?? 1));
+        $perPage = in_array((int) ($_GET['per_page'] ?? 10), [5, 10, 25, 50, 100], true) ? (int) $_GET['per_page'] : 10;
+        $all     = ConnectionGroup::listForAdmin($query, $sort, $order, $field);
 
-        $groupIds      = array_map(static fn(ConnectionGroup $g) => $g->id, $groups);
-        $eventsByGroup = ConnectionGroup::eventsForGroups($groupIds);
+        $allIds        = array_map(static fn(ConnectionGroup $g) => $g->id, $all);
+        $eventsByGroup = ConnectionGroup::eventsForGroups($allIds);
 
         if ($sort === 'invited_to') {
-            $groups = $this->phpSortByEvents($groups, $eventsByGroup, $order);
+            $all = $this->phpSortByEvents($all, $eventsByGroup, $order);
         }
+
+        $total  = count($all);
+        $groups = array_slice($all, ($page - 1) * $perPage, $perPage);
 
         ob_start();
         $this->renderGroupRows($groups, $query, $eventsByGroup);
@@ -85,7 +90,8 @@ final class ConnectionGroupsPage extends AbstractAdminPage
 
         wp_send_json_success([
             'html'  => $html,
-            'count' => count($groups),
+            'count' => $total,
+            'total' => $total,
         ]);
     }
 
@@ -259,15 +265,18 @@ final class ConnectionGroupsPage extends AbstractAdminPage
         $sort    = $this->sanitizeGroupSortKey((string) ($_GET['sort']  ?? 'name'));
         $order   = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
         $field   = $this->sanitizeGroupFieldKey((string) ($_GET['field'] ?? ''));
-        $groups  = ConnectionGroup::listForAdmin($search, $sort, $order, $field);
+        $all     = ConnectionGroup::listForAdmin($search, $sort, $order, $field);
         $addUrl  = AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'add']);
 
-        $groupIds      = array_map(static fn(ConnectionGroup $g) => $g->id, $groups);
-        $eventsByGroup = ConnectionGroup::eventsForGroups($groupIds);
+        $allIds        = array_map(static fn(ConnectionGroup $g) => $g->id, $all);
+        $eventsByGroup = ConnectionGroup::eventsForGroups($allIds);
 
         if ($sort === 'invited_to') {
-            $groups = $this->phpSortByEvents($groups, $eventsByGroup, $order);
+            $all = $this->phpSortByEvents($all, $eventsByGroup, $order);
         }
+
+        $total  = count($all);
+        $groups = array_slice($all, 0, 10);
         ?>
         <div class="wrap">
             <h1 class="wp-heading-inline">Connection Groups</h1>
@@ -287,7 +296,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                 'eim-connection-group-count',
                 'eim-connection-group-loading',
                 'Search groups, members, or events...',
-                count($groups),
+                $total,
                 $search,
                 [
                     ['value' => 'name',       'label' => 'Name'],
@@ -302,7 +311,8 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                    class="wp-list-table widefat fixed striped"
                    style="margin-top:12px;"
                    data-sort="<?= esc_attr($sort); ?>"
-                   data-order="<?= esc_attr($order); ?>">
+                   data-order="<?= esc_attr($order); ?>"
+                   data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
                         <th style="width:22%;"><?= $this->sortLink('Name',       'name',       AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_CONNECTION_GROUPS]); ?></th>
@@ -316,6 +326,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                     <?php $this->renderGroupRows($groups, $search, $eventsByGroup); ?>
                 </tbody>
             </table>
+            <?php $this->renderPaginationBar('eim-connection-group-search'); ?>
         </div>
         <?php
     }

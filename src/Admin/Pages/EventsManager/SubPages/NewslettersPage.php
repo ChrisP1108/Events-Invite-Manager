@@ -84,7 +84,12 @@ final class NewslettersPage extends AbstractAdminPage
         $order = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
         $field = $this->sanitizeFieldKey((string) ($_GET['field'] ?? ''));
 
-        $newsletters = Newsletter::listForAdmin($query, $sort, $order, $field);
+        $page    = max(1, (int) ($_GET['page']     ?? 1));
+        $perPage = in_array((int) ($_GET['per_page'] ?? 10), [5, 10, 25, 50, 100], true) ? (int) $_GET['per_page'] : 10;
+
+        $all         = Newsletter::listForAdmin($query, $sort, $order, $field);
+        $total       = count($all);
+        $newsletters = array_slice($all, ($page - 1) * $perPage, $perPage);
 
         ob_start();
         $this->renderNewsletterRows($newsletters, $query);
@@ -92,7 +97,8 @@ final class NewslettersPage extends AbstractAdminPage
 
         wp_send_json_success([
             'html'  => $html,
-            'count' => count($newsletters),
+            'count' => $total,
+            'total' => $total,
         ]);
     }
 
@@ -350,7 +356,9 @@ final class NewslettersPage extends AbstractAdminPage
         $sort        = $this->sanitizeSortKey((string) ($_GET['sort']  ?? 'title'));
         $order       = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
         $field       = $this->sanitizeFieldKey((string) ($_GET['field'] ?? ''));
-        $newsletters = Newsletter::listForAdmin($search, $sort, $order, $field);
+        $all         = Newsletter::listForAdmin($search, $sort, $order, $field);
+        $total       = count($all);
+        $newsletters = array_slice($all, 0, 10);
         $addUrl      = AdminMenu::tabUrl(AdminMenu::TAB_NEWSLETTERS, ['action' => 'add']);
         $categories  = NewsletterCategory::all();
         $tags        = NewsletterTag::all();
@@ -371,7 +379,7 @@ final class NewslettersPage extends AbstractAdminPage
                 'eim-newsletter-count',
                 'eim-newsletter-loading',
                 'Search by title, event, category, or tag…',
-                count($newsletters),
+                $total,
                 $search,
                 [
                     ['value' => 'title',      'label' => 'Title'],
@@ -386,7 +394,8 @@ final class NewslettersPage extends AbstractAdminPage
             <table id="eim-newsletters-table"
                    class="wp-list-table widefat fixed striped"
                    data-sort="<?= esc_attr($sort); ?>"
-                   data-order="<?= esc_attr($order); ?>">
+                   data-order="<?= esc_attr($order); ?>"
+                   data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
                         <th style="width:26%;"><?= $this->sortLink('Title',        'title',        AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_NEWSLETTERS]); ?></th>
@@ -403,7 +412,9 @@ final class NewslettersPage extends AbstractAdminPage
                 </tbody>
             </table>
 
-            <?php if (empty($newsletters) && $search === ''): ?>
+            <?php $this->renderPaginationBar('eim-newsletter-search'); ?>
+
+            <?php if (empty($all) && $search === ''): ?>
                 <p style="margin-top:12px;">No newsletters yet. <a href="<?= esc_url($addUrl); ?>">Add the first newsletter.</a></p>
             <?php endif; ?>
         </div>

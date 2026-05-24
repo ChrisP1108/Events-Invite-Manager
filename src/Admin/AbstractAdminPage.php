@@ -65,12 +65,34 @@ abstract class AbstractAdminPage
                     <?php endforeach; ?>
                 </select>
             <?php endif; ?>
+            <label class="screen-reader-text" for="<?= esc_attr($inputId); ?>-per-page">Per page</label>
+            <select id="<?= esc_attr($inputId); ?>-per-page" class="eim-per-page-select">
+                <option value="5">5 / page</option>
+                <option value="10" selected>10 / page</option>
+                <option value="25">25 / page</option>
+                <option value="50">50 / page</option>
+                <option value="100">100 / page</option>
+            </select>
             <span id="<?= esc_attr($countId); ?>" class="description">
                 <?= esc_html($count); ?> result<?= $count === 1 ? '' : 's'; ?>
             </span>
             <span id="<?= esc_attr($spinnerId); ?>" class="spinner" aria-hidden="true"></span>
         </div>
         <?php
+    }
+
+    /**
+     * Outputs the pagination nav placeholder used by window.eimRenderPagination().
+     *
+     * The element starts hidden; JS shows and populates it after each AJAX response
+     * whenever total results exceed the current per-page limit.
+     *
+     * @param string $inputId The same $inputId passed to renderSearchBar() for this table.
+     * @return void
+     */
+    protected function renderPaginationBar(string $inputId): void
+    {
+        echo '<nav id="' . esc_attr($inputId) . '-pagination" class="eim-pagination-nav" hidden aria-label="Pagination"></nav>';
     }
 
     /**
@@ -199,6 +221,9 @@ abstract class AbstractAdminPage
             'nl_category_deleted'        => 'Category deleted.',
             'nl_tag_added'               => 'Tag added.',
             'nl_tag_deleted'             => 'Tag deleted.',
+            'vendor_created'             => 'Vendor added to library.',
+            'vendor_updated'             => 'Vendor updated.',
+            'vendor_deleted'             => 'Vendor deleted.',
         ];
 
         $errors = [
@@ -227,6 +252,7 @@ abstract class AbstractAdminPage
             'newsletter_title_required'  => 'A title is required for the newsletter.',
             'nl_category_name_required'  => 'A category name is required.',
             'nl_tag_name_required'       => 'A tag name is required.',
+            'vendor_name_required'       => 'A company name is required to save a vendor.',
         ];
 
         if (isset($successes[$messageKey])) {

@@ -52,83 +52,89 @@
     class MenuItemTable {
         /** @type {string} */
         #type;
-
         /** @type {HTMLTableElement|null} */
         #table;
-
         /** @type {HTMLTableSectionElement|null} */
         #tbody;
-
         /** @type {HTMLInputElement|null} */
         #search;
-
         /** @type {HTMLSelectElement|null} */
         #field;
-
         /** @type {HTMLElement|null} */
         #count;
-
         /** @type {HTMLElement|null} */
         #spinner;
-
+        /** @type {HTMLSelectElement|null} */
+        #perPageSel;
+        /** @type {HTMLElement|null} */
+        #paginationNav;
         /** @type {string} */
         #sort;
-
         /** @type {string} */
         #order;
+        /** @type {number} */
+        #page = 1;
+        /** @type {number} */
+        #perPage = 10;
 
-        /**
-         * @param {string} type The menu item type to manage — "food" or "beverage".
-         */
+        /** @param {string} type "food" or "beverage" */
         constructor(type) {
-            this.#type    = type;
-            this.#table   = document.getElementById(`eim-menu-${type}-table`);
-            this.#tbody   = document.getElementById(`eim-menu-${type}-table-body`);
-            this.#search  = document.getElementById(`eim-menu-${type}-search`);
-            this.#field   = document.getElementById(`eim-menu-${type}-search-field`);
-            this.#count   = document.getElementById(`eim-menu-${type}-count`);
-            this.#spinner = document.getElementById(`eim-menu-${type}-loading`);
+            this.#type         = type;
+            this.#table        = document.getElementById(`eim-menu-${type}-table`);
+            this.#tbody        = document.getElementById(`eim-menu-${type}-table-body`);
+            this.#search       = document.getElementById(`eim-menu-${type}-search`);
+            this.#field        = document.getElementById(`eim-menu-${type}-search-field`);
+            this.#count        = document.getElementById(`eim-menu-${type}-count`);
+            this.#spinner      = document.getElementById(`eim-menu-${type}-loading`);
+            this.#perPageSel   = document.getElementById(`eim-menu-${type}-search-per-page`);
+            this.#paginationNav = document.getElementById(`eim-menu-${type}-search-pagination`);
 
             if (!this.#table || !this.#tbody || !config.searchNonce) return;
 
-            this.#sort  = this.#table.dataset.sort  || 'label';
-            this.#order = this.#table.dataset.order || 'asc';
+            this.#sort    = this.#table.dataset.sort  || 'label';
+            this.#order   = this.#table.dataset.order || 'asc';
+            this.#perPage = Number(this.#perPageSel?.value || 10);
 
-            this.#search?.addEventListener('input', debounce(() => this.#refresh()));
-            this.#field?.addEventListener('change', () => this.#refresh());
+            this.#perPageSel?.addEventListener('change', () => {
+                this.#perPage = Number(this.#perPageSel.value);
+                this.#page = 1;
+                this.#refresh();
+            });
+            this.#search?.addEventListener('input', debounce(() => { this.#page = 1; this.#refresh(); }));
+            this.#field?.addEventListener('change', () => { this.#page = 1; this.#refresh(); });
 
             for (const link of this.#table.querySelectorAll('.eim-sort-link')) {
                 link.addEventListener('click', (e) => {
                     e.preventDefault();
                     this.#sort  = link.dataset.sort  || 'label';
                     this.#order = link.dataset.order || 'asc';
+                    this.#page  = 1;
                     this.#updateSortLinks();
                     this.#refresh();
                 });
             }
+
+            this.#renderPagination(Number(this.#table.dataset.total || 0));
         }
 
-        /**
-         * Fetches fresh table rows from the server using the current search query,
-         * field, sort column, and sort direction, then replaces the tbody contents.
-         *
-         * @returns {Promise<void>}
-         */
         async #refresh() {
             if (this.#spinner) this.#spinner.classList.add('is-active');
             try {
                 const url = ajaxUrl('eim_search_menu_items', {
-                    nonce: config.searchNonce,
-                    type:  this.#type,
-                    query: this.#search?.value || '',
-                    sort:  this.#sort,
-                    order: this.#order,
-                    field: this.#field?.value  || '',
+                    nonce:    config.searchNonce,
+                    type:     this.#type,
+                    query:    this.#search?.value || '',
+                    sort:     this.#sort,
+                    order:    this.#order,
+                    field:    this.#field?.value  || '',
+                    page:     this.#page,
+                    per_page: this.#perPage,
                 });
                 const { success, data } = await (await fetch(url, { credentials: 'same-origin' })).json();
                 if (!success) return;
                 this.#tbody.innerHTML = data.html || '';
                 if (this.#count) this.#count.textContent = `${data.count} result${data.count === 1 ? '' : 's'}`;
+                this.#renderPagination(Number(data.total || 0));
             } catch (e) {
                 console.error('[EIM] Menu item search failed:', e);
             } finally {
@@ -136,22 +142,22 @@
             }
         }
 
-        /**
-         * Refreshes the sort-link indicators and their `data-order` attributes to
-         * reflect the current sort column and direction.
-         *
-         * @returns {void}
-         */
+        #renderPagination(total) {
+            window.eimRenderPagination?.(this.#paginationNav, {
+                total,
+                perPage: this.#perPage,
+                page:    this.#page,
+                onPageChange: (p) => { this.#page = p; this.#refresh(); },
+            });
+        }
+
         #updateSortLinks() {
             if (!this.#table) return;
-
             this.#table.dataset.sort  = this.#sort;
             this.#table.dataset.order = this.#order;
-
             for (const link of this.#table.querySelectorAll('.eim-sort-link')) {
                 const isCurrent = (link.dataset.sort || '') === this.#sort;
                 link.dataset.order = isCurrent && this.#order === 'asc' ? 'desc' : 'asc';
-
                 const indicator = link.querySelector('span[aria-hidden]');
                 if (indicator) indicator.textContent = isCurrent ? (this.#order === 'asc' ? '^' : 'v') : '';
             }

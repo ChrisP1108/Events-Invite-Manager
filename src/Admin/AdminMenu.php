@@ -15,6 +15,7 @@ use EventsInviteManager\Admin\Pages\EventsManager\SubPages\LocationsPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\BudgetPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\MenuItemsPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\NewslettersPage;
+use EventsInviteManager\Admin\Pages\EventsManager\SubPages\VendorsPage;
 use EventsInviteManager\Email\EmailService;
 use EventsInviteManager\Email\TemplateRenderer;
 use EventsInviteManager\Services\QrCodeService;
@@ -51,6 +52,9 @@ final class AdminMenu
     /** @var string Tab slug for the Newsletters sub-page. */
     public const TAB_NEWSLETTERS        = 'newsletters';
 
+    /** @var string Tab slug for the Vendors sub-page. */
+    public const TAB_VENDORS            = 'vendors';
+
     /** @var AboutPage About / plugin-info page. */
     private AboutPage            $aboutPage;
 
@@ -78,6 +82,9 @@ final class AdminMenu
     /** @var NewslettersPage Newsletters sub-page handler. */
     private NewslettersPage      $newslettersPage;
 
+    /** @var VendorsPage Vendors sub-page handler. */
+    private VendorsPage          $vendorsPage;
+
     /**
      * Instantiates all sub-page handlers and shared services.
      */
@@ -93,6 +100,7 @@ final class AdminMenu
         $this->menuItemsPage        = new MenuItemsPage();
         $this->budgetPage           = new BudgetPage();
         $this->newslettersPage      = new NewslettersPage($emailService);
+        $this->vendorsPage          = new VendorsPage();
 
         $this->aboutPage          = new AboutPage();
         $this->eventsManagerPage  = new EventsManagerPage(
@@ -102,7 +110,8 @@ final class AdminMenu
             $this->locationsPage,
             $this->menuItemsPage,
             $this->budgetPage,
-            $this->newslettersPage
+            $this->newslettersPage,
+            $this->vendorsPage
         );
     }
 
@@ -157,6 +166,10 @@ final class AdminMenu
         add_action('wp_ajax_eim_send_newsletter',          [$this->newslettersPage, 'handleAjaxSendNewsletter']);
         add_action('wp_ajax_eim_send_newsletter_test',     [$this->newslettersPage, 'handleAjaxSendNewsletterTest']);
 
+        // Vendors list + suggest autocomplete.
+        add_action('wp_ajax_eim_search_vendors_list', [$this->vendorsPage, 'handleAjaxSearchVendors']);
+        add_action('wp_ajax_eim_suggest_vendors',     [$this->vendorsPage, 'handleAjaxSuggestVendors']);
+
         add_filter('script_loader_tag', [$this, 'addModuleTypeToScript'], 10, 2);
     }
 
@@ -200,6 +213,7 @@ final class AdminMenu
         }
 
         wp_enqueue_style('eim-admin', EIM_PLUGIN_URL . 'assets/css/admin.css', [], EIM_VERSION);
+        wp_enqueue_script('eim-admin-pagination', EIM_PLUGIN_URL . 'assets/js/admin-pagination.js', [], EIM_VERSION, true);
 
         if ($page !== self::PAGE_EVENTS_MANAGER) {
             return;
@@ -208,21 +222,29 @@ final class AdminMenu
         if ($tab === self::TAB_BUDGET) {
             wp_enqueue_script('eim-admin-budget', EIM_PLUGIN_URL . 'assets/js/admin-budget.js', [], EIM_VERSION, true);
             wp_localize_script('eim-admin-budget', 'eimBudgetAdmin', [
-                'searchNonce'       => wp_create_nonce('eim_search_budget_plans_nonce'),
-                'lineItemNonce'     => wp_create_nonce('eim_search_budget_line_items_nonce'),
+                'searchNonce'        => wp_create_nonce('eim_search_budget_plans_nonce'),
+                'lineItemNonce'      => wp_create_nonce('eim_search_budget_line_items_nonce'),
                 'suggestEventsNonce' => wp_create_nonce('eim_suggest_events_nonce'),
-                'planId'         => $action === 'edit' ? (int) ($_GET['id'] ?? 0) : 0,
-                'table'          => [
+                'planId'             => $action === 'edit' ? (int) ($_GET['id'] ?? 0) : 0,
+                'table'              => [
                     'enabled' => $action !== 'edit',
                     'sort'    => sanitize_key($_GET['sort']  ?? 'name'),
                     'order'   => strtolower((string) ($_GET['order'] ?? 'asc')) === 'desc' ? 'desc' : 'asc',
                 ],
-                'lineItems'      => [
+                'lineItems'          => [
                     'enabled' => $action === 'edit',
                     'sort'    => sanitize_key($_GET['li_sort']  ?? 'sort_order'),
                     'order'   => strtolower((string) ($_GET['li_order'] ?? 'asc')) === 'desc' ? 'desc' : 'asc',
                 ],
             ]);
+            if ($action === 'edit') {
+                wp_enqueue_script('eim-admin-vendors', EIM_PLUGIN_URL . 'assets/js/admin-vendors.js', [], EIM_VERSION, true);
+                wp_localize_script('eim-admin-vendors', 'eimVendorsAdmin', [
+                    'suggestNonce' => wp_create_nonce('eim_suggest_vendors_nonce'),
+                    'table'        => ['enabled' => false],
+                    'autocomplete' => ['enabled' => true],
+                ]);
+            }
         }
 
         if ($tab === self::TAB_LOCATIONS && !in_array($action, ['add', 'edit'], true)) {
@@ -237,10 +259,30 @@ final class AdminMenu
             ]);
         }
 
+        if ($tab === self::TAB_VENDORS) {
+            wp_enqueue_script('eim-admin-vendors', EIM_PLUGIN_URL . 'assets/js/admin-vendors.js', [], EIM_VERSION, true);
+            wp_localize_script('eim-admin-vendors', 'eimVendorsAdmin', [
+                'searchNonce'  => wp_create_nonce('eim_search_vendors_list_nonce'),
+                'suggestNonce' => wp_create_nonce('eim_suggest_vendors_nonce'),
+                'table'        => [
+                    'enabled' => !in_array($action, ['add', 'edit'], true),
+                    'sort'    => sanitize_key($_GET['sort']  ?? 'company_name'),
+                    'order'   => strtolower((string) ($_GET['order'] ?? 'asc')) === 'desc' ? 'desc' : 'asc',
+                ],
+                'autocomplete' => ['enabled' => false],
+            ]);
+        }
+
         if ($tab === self::TAB_MENU_ITEMS) {
             wp_enqueue_script('eim-admin-menu-items', EIM_PLUGIN_URL . 'assets/js/admin-menu-items.js', [], EIM_VERSION, true);
             wp_localize_script('eim-admin-menu-items', 'eimMenuItemsAdmin', [
                 'searchNonce' => wp_create_nonce('eim_search_menu_items_nonce'),
+            ]);
+            wp_enqueue_script('eim-admin-vendors', EIM_PLUGIN_URL . 'assets/js/admin-vendors.js', [], EIM_VERSION, true);
+            wp_localize_script('eim-admin-vendors', 'eimVendorsAdmin', [
+                'suggestNonce' => wp_create_nonce('eim_suggest_vendors_nonce'),
+                'table'        => ['enabled' => false],
+                'autocomplete' => ['enabled' => true],
             ]);
         }
 
@@ -368,6 +410,7 @@ final class AdminMenu
                 self::TAB_LOCATIONS         => $this->locationsPage->handleAction($action),
                 self::TAB_MENU_ITEMS        => $this->menuItemsPage->handleAction($action),
                 self::TAB_BUDGET            => $this->budgetPage->handleAction($action),
+                self::TAB_VENDORS           => $this->vendorsPage->handleAction($action),
                 self::TAB_NEWSLETTERS       => $this->newslettersPage->handleAction($action),
                 default                     => null,
             };
