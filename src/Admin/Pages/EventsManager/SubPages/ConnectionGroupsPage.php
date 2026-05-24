@@ -31,8 +31,10 @@ final class ConnectionGroupsPage extends AbstractAdminPage
         match ($action) {
             'save_connection_group'            => $this->handleSaveGroup(),
             'delete_connection_group'          => $this->handleDeleteGroup(),
+            'bulk_delete_connection_groups'    => $this->handleBulkDeleteGroups(),
             'add_member_to_connection_group'   => $this->handleAddMember(),
             'remove_member_from_connection_group' => $this->handleRemoveMember(),
+            'bulk_remove_connection_group_members' => $this->handleBulkRemoveMembers(),
             default                            => null,
         };
     }
@@ -214,6 +216,32 @@ final class ConnectionGroupsPage extends AbstractAdminPage
         exit;
     }
 
+    private function handleBulkDeleteGroups(): void
+    {
+        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_bulk_delete_connection_groups')) {
+            wp_die('Security check failed.');
+        }
+
+        if ($this->requestedBulkAction() !== 'delete') {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['eim_error' => 'bulk_invalid_action']));
+            exit;
+        }
+
+        $ids = $this->bulkActionIds();
+        if (empty($ids)) {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['eim_error' => 'bulk_no_selection']));
+            exit;
+        }
+
+        foreach ($ids as $id) {
+            Category::syncToEntity('connection_group', $id, []);
+            ConnectionGroup::delete($id);
+        }
+
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['eim_message' => 'bulk_deleted']));
+        exit;
+    }
+
     /** Handles adding a member to an existing connection group. */
     private function handleAddMember(): void
     {
@@ -255,6 +283,35 @@ final class ConnectionGroupsPage extends AbstractAdminPage
             'id'          => $groupId,
             'eim_message' => 'cg_member_removed',
         ]) . '#eim-cg-members');
+        exit;
+    }
+
+    private function handleBulkRemoveMembers(): void
+    {
+        $groupId = (int) ($_POST['connection_group_id'] ?? 0);
+
+        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_bulk_remove_cg_members_' . $groupId)) {
+            wp_die('Security check failed.');
+        }
+
+        $redirectUrl = AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'edit', 'id' => $groupId]);
+
+        if ($this->requestedBulkAction() !== 'delete') {
+            wp_redirect($redirectUrl . '&eim_error=bulk_invalid_action#eim-cg-members');
+            exit;
+        }
+
+        $ids = $this->bulkActionIds();
+        if (empty($ids)) {
+            wp_redirect($redirectUrl . '&eim_error=bulk_no_selection#eim-cg-members');
+            exit;
+        }
+
+        foreach ($ids as $inviteeId) {
+            ConnectionGroup::removeMember($groupId, $inviteeId);
+        }
+
+        wp_redirect($redirectUrl . '&eim_message=bulk_deleted#eim-cg-members');
         exit;
     }
 
@@ -312,6 +369,13 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                 $field
             ); ?>
 
+            <?php $this->renderBulkActions(
+                'eim-connection-groups-bulk-form',
+                AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS),
+                'bulk_delete_connection_groups',
+                'eim_bulk_delete_connection_groups'
+            ); ?>
+
             <table id="eim-connection-groups-table"
                    class="wp-list-table widefat fixed striped"
                    style="margin-top:12px;"
@@ -320,6 +384,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
+                        <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('connection-groups'); ?></th>
                         <th style="width:22%;"><?= $this->sortLink('Name',       'name',       AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_CONNECTION_GROUPS]); ?></th>
                         <th style="width:30%;"><?= $this->sortLink('Members',    'members',     AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_CONNECTION_GROUPS]); ?></th>
                         <th><?= $this->sortLink('Invited To', 'invited_to', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_CONNECTION_GROUPS]); ?></th>
@@ -350,7 +415,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
             $addUrl = AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'add']);
             ?>
             <tr>
-                <td colspan="5">
+                <td colspan="6">
                     <?= $search
                         ? 'No results found based upon search criteria.'
                         : 'No connection groups yet. <a href="' . esc_url($addUrl) . '">Add the first one.</a>'; ?>
@@ -373,6 +438,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
             $cats        = $catsByGroup[$group->id]   ?? [];
             ?>
             <tr>
+                <?= $this->renderBulkSelectCell('eim-connection-groups-bulk-form', 'connection-groups', $group->id, $group->name); ?>
                 <td>
                     <strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($group->name); ?></a></strong>
                 </td>
@@ -543,6 +609,14 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                     </div>
                     <?php endif; ?>
 
+                    <?php $this->renderBulkActions(
+                        'eim-cg-members-bulk-form',
+                        AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'edit', 'id' => $group->id]),
+                        'bulk_remove_connection_group_members',
+                        'eim_bulk_remove_cg_members_' . $group->id,
+                        ['connection_group_id' => $group->id]
+                    ); ?>
+
                     <table id="eim-cg-members-table"
                            class="wp-list-table widefat fixed striped"
                            style="margin-bottom:16px;"
@@ -550,6 +624,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                            data-order="asc">
                         <thead>
                             <tr>
+                                <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('cg-members-' . $group->id); ?></th>
                                 <th>
                                     <a href="#" class="eim-sort-link eim-cg-member-sort"
                                        data-sort="name" data-order="desc">
@@ -577,6 +652,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                                 ?>
                                 <tr data-name="<?= esc_attr(strtolower($member->fullName())); ?>"
                                     data-email="<?= esc_attr(strtolower($member->email)); ?>">
+                                    <?= $this->renderBulkSelectCell('eim-cg-members-bulk-form', 'cg-members-' . $group->id, $member->id, $member->fullName()); ?>
                                     <td><a href="<?= esc_url($editUrl); ?>"><?= esc_html($member->fullName()); ?></a></td>
                                     <td><?= esc_html($member->email); ?></td>
                                     <td><span style="color:#646970;">—</span></td>

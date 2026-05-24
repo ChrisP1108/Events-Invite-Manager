@@ -32,6 +32,7 @@ final class MenuItemsPage extends AbstractAdminPage
             'save_menu_item'        => $this->handleSaveMenuItem(),
             'update_menu_item'      => $this->handleUpdateMenuItem(),
             'delete_menu_item'      => $this->handleDeleteMenuItem(),
+            'bulk_delete_menu_items' => $this->handleBulkDeleteMenuItems(),
             default                 => null,
         };
     }
@@ -42,6 +43,7 @@ final class MenuItemsPage extends AbstractAdminPage
         $action  = $_GET['action'] ?? 'list';
         $message = (string) ($_GET['eim_message'] ?? '');
         $error   = (string) ($_GET['eim_error']   ?? '');
+        $hasVendors = Vendor::count() > 0;
 
         if ($action === 'edit') {
             $item = MenuItem::find((int) ($_GET['id'] ?? 0));
@@ -49,7 +51,7 @@ final class MenuItemsPage extends AbstractAdminPage
                 $this->renderError('Menu item not found.', AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS));
                 return;
             }
-            $this->renderEditForm($item, $message, $error);
+            $this->renderEditForm($item, $message, $error, $hasVendors);
             return;
         }
         ?>
@@ -65,8 +67,8 @@ final class MenuItemsPage extends AbstractAdminPage
             </p>
 
             <div class="eim-menu-items-layout">
-                <?php $this->renderTypeSection(MenuItem::TYPE_FOOD,     'Food Items'); ?>
-                <?php $this->renderTypeSection(MenuItem::TYPE_BEVERAGE, 'Beverage Items'); ?>
+                <?php $this->renderTypeSection(MenuItem::TYPE_FOOD,     'Food Items', $hasVendors); ?>
+                <?php $this->renderTypeSection(MenuItem::TYPE_BEVERAGE, 'Beverage Items', $hasVendors); ?>
             </div>
         </div>
         <?php
@@ -78,11 +80,13 @@ final class MenuItemsPage extends AbstractAdminPage
      * @param MenuItem $item    The item being edited.
      * @param string   $message Success message key to display.
      * @param string   $error   Error key to display.
+     * @param bool     $hasVendors Whether at least one vendor exists in the vendor library.
      */
-    private function renderEditForm(MenuItem $item, string $message, string $error): void
+    private function renderEditForm(MenuItem $item, string $message, string $error, bool $hasVendors): void
     {
         $backUrl       = AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS);
         $currentVendor = $item->vendorId ? Vendor::find($item->vendorId) : null;
+        $vendorAddUrl  = AdminMenu::tabUrl(AdminMenu::TAB_VENDORS, ['action' => 'add']);
         ?>
         <div class="wrap">
             <h1>Edit <?= esc_html(ucfirst($item->type)); ?> Item</h1>
@@ -90,6 +94,15 @@ final class MenuItemsPage extends AbstractAdminPage
             <hr class="wp-header-end">
 
             <?php $this->renderNotice($message, $error); ?>
+
+            <?php if (!$hasVendors): ?>
+                <div class="notice notice-warning inline">
+                    <p>
+                        Create at least one vendor before updating food or beverage items.
+                        <a href="<?= esc_url($vendorAddUrl); ?>" class="button button-primary" style="margin-left:8px;">Add Vendor</a>
+                    </p>
+                </div>
+            <?php endif; ?>
 
             <form method="post" action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS)); ?>" style="max-width:560px;">
                 <?php wp_nonce_field('eim_update_menu_item'); ?>
@@ -115,7 +128,7 @@ final class MenuItemsPage extends AbstractAdminPage
                                  data-initial-name="<?= esc_attr($currentVendor ? $currentVendor->companyName : ''); ?>">
                                 <input type="text" id="eim_mi_edit_vendor_search"
                                        class="regular-text eim-vendor-search-input"
-                                       placeholder="Search vendors…" autocomplete="off"
+                                       placeholder="Vendor — type to search…" autocomplete="off"
                                        value="<?= esc_attr($currentVendor ? $currentVendor->companyName : ''); ?>">
                                 <input type="hidden" name="vendor_id" id="eim_mi_edit_vendor_id"
                                        value="<?= esc_attr((string) ($item->vendorId ?? 0)); ?>">
@@ -255,12 +268,22 @@ final class MenuItemsPage extends AbstractAdminPage
 
         $priceRaw   = str_replace(['$', ',', ' '], '', wp_unslash($_POST['price'] ?? '0'));
         $priceCents = max(0, (int) round((float) $priceRaw * 100));
+        $vendorId   = (int) ($_POST['vendor_id'] ?? 0);
+
+        if ($vendorId <= 0 || Vendor::find($vendorId) === null) {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS, [
+                'action'    => 'edit',
+                'id'        => $id,
+                'eim_error' => 'menu_item_vendor_required',
+            ]));
+            exit;
+        }
 
         MenuItem::update($id, [
             'label'       => $label,
             'description' => sanitize_text_field(wp_unslash($_POST['description'] ?? '')),
             'price_cents' => $priceCents,
-            'vendor_id'   => (int) ($_POST['vendor_id'] ?? 0),
+            'vendor_id'   => $vendorId,
         ]);
 
         $categoryIds = array_map('intval', (array) ($_POST['category_ids'] ?? []));
@@ -283,10 +306,18 @@ final class MenuItemsPage extends AbstractAdminPage
         $desc     = sanitize_textarea_field(wp_unslash($_POST['description'] ?? ''));
         $priceRaw   = str_replace(['$', ',', ' '], '', wp_unslash($_POST['price'] ?? '0'));
         $priceCents = max(0, (int) round((float) $priceRaw * 100));
+        $vendorId   = (int) ($_POST['vendor_id'] ?? 0);
 
         if ($label === '') {
             wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS, [
                 'eim_error' => 'menu_item_label_required',
+            ]));
+            exit;
+        }
+
+        if ($vendorId <= 0 || Vendor::find($vendorId) === null) {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS, [
+                'eim_error' => 'menu_item_vendor_required',
             ]));
             exit;
         }
@@ -296,7 +327,7 @@ final class MenuItemsPage extends AbstractAdminPage
             'label'       => $label,
             'description' => $desc,
             'price_cents' => $priceCents,
-            'vendor_id'   => (int) ($_POST['vendor_id'] ?? 0),
+            'vendor_id'   => $vendorId,
         ]);
 
         if ($item !== null) {
@@ -329,6 +360,32 @@ final class MenuItemsPage extends AbstractAdminPage
         exit;
     }
 
+    private function handleBulkDeleteMenuItems(): void
+    {
+        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_bulk_delete_menu_items')) {
+            wp_die('Security check failed.');
+        }
+
+        if ($this->requestedBulkAction() !== 'delete') {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS, ['eim_error' => 'bulk_invalid_action']));
+            exit;
+        }
+
+        $ids = $this->bulkActionIds();
+        if (empty($ids)) {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS, ['eim_error' => 'bulk_no_selection']));
+            exit;
+        }
+
+        foreach ($ids as $id) {
+            Category::syncToEntity('menu_item', $id, []);
+            MenuItem::delete($id);
+        }
+
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS, ['eim_message' => 'bulk_deleted']));
+        exit;
+    }
+
     // -------------------------------------------------------------------------
     // Rendering
     // -------------------------------------------------------------------------
@@ -336,10 +393,11 @@ final class MenuItemsPage extends AbstractAdminPage
     /**
      * Renders one of the two side-by-side item type sections (food or beverage).
      *
-     * @param string $type    MenuItem::TYPE_FOOD or MenuItem::TYPE_BEVERAGE.
-     * @param string $heading Section heading text.
+     * @param string $type       MenuItem::TYPE_FOOD or MenuItem::TYPE_BEVERAGE.
+     * @param string $heading    Section heading text.
+     * @param bool   $hasVendors Whether at least one vendor exists in the vendor library.
      */
-    private function renderTypeSection(string $type, string $heading): void
+    private function renderTypeSection(string $type, string $heading, bool $hasVendors): void
     {
         $inputId  = 'eim-menu-' . $type . '-search';
         $countId  = 'eim-menu-' . $type . '-count';
@@ -355,7 +413,7 @@ final class MenuItemsPage extends AbstractAdminPage
         <div class="eim-menu-section">
             <h2><?= esc_html($heading); ?></h2>
 
-            <?php $this->renderAddItemForm($type); ?>
+            <?php $this->renderAddItemForm($type, $hasVendors); ?>
 
             <?php $this->renderSearchBar(
                 $inputId,
@@ -370,6 +428,14 @@ final class MenuItemsPage extends AbstractAdminPage
                 ]
             ); ?>
 
+            <?php $this->renderBulkActions(
+                'eim-menu-' . $type . '-bulk-form',
+                AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS),
+                'bulk_delete_menu_items',
+                'eim_bulk_delete_menu_items',
+                ['type' => $type]
+            ); ?>
+
             <div class="eim-menu-table-wrapper">
                 <table id="<?= esc_attr($tableId); ?>"
                        class="wp-list-table widefat fixed striped"
@@ -379,6 +445,7 @@ final class MenuItemsPage extends AbstractAdminPage
                        data-total="<?= esc_attr($total); ?>">
                     <thead>
                         <tr>
+                            <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('menu-' . $type); ?></th>
                             <th style="width:22%;"><?= $this->clientSortLink('Label', 'label', $sort, $order); ?></th>
                             <th><?= $this->clientSortLink('Description', 'description', $sort, $order); ?></th>
                             <th style="width:16%;">Vendor</th>
@@ -411,7 +478,7 @@ final class MenuItemsPage extends AbstractAdminPage
             $msg = $search !== ''
                 ? 'No results found based upon search criteria.'
                 : 'No ' . ($type === MenuItem::TYPE_BEVERAGE ? 'beverage' : 'food') . ' items yet.';
-            echo '<tr class="eim-no-results"><td colspan="6">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="7">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -431,6 +498,7 @@ final class MenuItemsPage extends AbstractAdminPage
             );
             ?>
             <tr>
+                <?= $this->renderBulkSelectCell('eim-menu-' . $type . '-bulk-form', 'menu-' . $type, $item->id, $item->label); ?>
                 <td><strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($item->label); ?></a></strong></td>
                 <td><?= esc_html($item->description ?: '—'); ?></td>
                 <td>
@@ -474,15 +542,23 @@ final class MenuItemsPage extends AbstractAdminPage
     /**
      * Renders the inline add-item form below the menu item table.
      *
-     * @param string $type MenuItem::TYPE_FOOD or MenuItem::TYPE_BEVERAGE.
+     * @param string $type       MenuItem::TYPE_FOOD or MenuItem::TYPE_BEVERAGE.
+     * @param bool   $hasVendors Whether at least one vendor exists in the vendor library.
      */
-    private function renderAddItemForm(string $type): void
+    private function renderAddItemForm(string $type, bool $hasVendors): void
     {
         $typeLabel = $type === MenuItem::TYPE_BEVERAGE ? 'Beverage' : 'Food';
         $pickerId  = 'eim-mi-add-vendor-picker-' . $type;
+        $vendorAddUrl = AdminMenu::tabUrl(AdminMenu::TAB_VENDORS, ['action' => 'add']);
         ?>
         <div class="eim-menu-add-form">
             <h3 style="margin:0 0 10px;">Add <?= esc_html($typeLabel); ?> Item</h3>
+            <?php if (!$hasVendors): ?>
+                <p class="description" style="margin-top:0;">
+                    Create at least one vendor before adding <?= esc_html(strtolower($typeLabel)); ?> items.
+                </p>
+                <p><a href="<?= esc_url($vendorAddUrl); ?>" class="button button-primary">Add Vendor</a></p>
+            <?php else: ?>
             <form method="post" action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS)); ?>">
                 <?php wp_nonce_field('eim_save_menu_item'); ?>
                 <input type="hidden" name="eim_action" value="save_menu_item">
@@ -505,7 +581,7 @@ final class MenuItemsPage extends AbstractAdminPage
                     <div class="eim-menu-add-row">
                         <div class="eim-vendor-autocomplete eim-menu-add-vendor" id="<?= esc_attr($pickerId); ?>">
                             <input type="text" class="regular-text eim-vendor-search-input eim-menu-add-input"
-                                   placeholder="Vendor — type to search…" autocomplete="off">
+                                   placeholder="Vendor — type to search… *" autocomplete="off">
                             <input type="hidden" name="vendor_id" value="0">
                             <div class="eim-vendor-selected" style="display:none;">
                                 <span class="eim-vendor-selected-name"></span>
@@ -526,6 +602,7 @@ final class MenuItemsPage extends AbstractAdminPage
                     </div>
                 </div>
             </form>
+            <?php endif; ?>
         </div>
         <?php
     }

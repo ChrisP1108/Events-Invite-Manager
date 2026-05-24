@@ -105,8 +105,10 @@ final class BudgetPage extends AbstractAdminPage
         match ($action) {
             'save_budget_plan'        => $this->handleSavePlan(),
             'delete_budget_plan'      => $this->handleDeletePlan(),
+            'bulk_delete_budget_plans' => $this->handleBulkDeletePlans(),
             'save_budget_line_item'   => $this->handleSaveLineItem(),
             'delete_budget_line_item' => $this->handleDeleteLineItem(),
+            'bulk_delete_budget_line_items' => $this->handleBulkDeleteLineItems(),
             default                   => null,
         };
     }
@@ -142,6 +144,7 @@ final class BudgetPage extends AbstractAdminPage
 
         $rawEventIds = wp_unslash($_POST['event_ids'] ?? []);
         $eventIds    = is_array($rawEventIds) ? array_map('intval', $rawEventIds) : [];
+        $categoryIds = array_map('intval', (array) ($_POST['category_ids'] ?? []));
 
         if (empty($name)) {
             wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_BUDGET, [
@@ -196,6 +199,32 @@ final class BudgetPage extends AbstractAdminPage
         Category::syncToEntity('budget_plan', $id, []);
         BudgetPlan::delete($id);
         wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_BUDGET, ['eim_message' => 'budget_plan_deleted']));
+        exit;
+    }
+
+    private function handleBulkDeletePlans(): void
+    {
+        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_bulk_delete_budget_plans')) {
+            wp_die('Security check failed.');
+        }
+
+        if ($this->requestedBulkAction() !== 'delete') {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_BUDGET, ['eim_error' => 'bulk_invalid_action']));
+            exit;
+        }
+
+        $ids = $this->bulkActionIds();
+        if (empty($ids)) {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_BUDGET, ['eim_error' => 'bulk_no_selection']));
+            exit;
+        }
+
+        foreach ($ids as $id) {
+            Category::syncToEntity('budget_plan', $id, []);
+            BudgetPlan::delete($id);
+        }
+
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_BUDGET, ['eim_message' => 'bulk_deleted']));
         exit;
     }
 
@@ -325,6 +354,43 @@ final class BudgetPage extends AbstractAdminPage
         exit;
     }
 
+    private function handleBulkDeleteLineItems(): void
+    {
+        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_bulk_delete_budget_line_items')) {
+            wp_die('Security check failed.');
+        }
+
+        $planId = (int) ($_POST['plan_id'] ?? 0);
+        $plan   = $planId > 0 ? BudgetPlan::find($planId) : null;
+        if ($plan === null) {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_BUDGET, ['eim_error' => 'invalid_request']));
+            exit;
+        }
+
+        $redirectUrl = AdminMenu::tabUrl(AdminMenu::TAB_BUDGET, ['action' => 'edit', 'id' => $planId]);
+
+        if ($this->requestedBulkAction() !== 'delete') {
+            wp_redirect($redirectUrl . '&eim_error=bulk_invalid_action#eim-budget-line-items');
+            exit;
+        }
+
+        $ids = $this->bulkActionIds();
+        if (empty($ids)) {
+            wp_redirect($redirectUrl . '&eim_error=bulk_no_selection#eim-budget-line-items');
+            exit;
+        }
+
+        foreach ($ids as $id) {
+            $item = BudgetLineItem::find($id);
+            if ($item !== null && $item->planId === $planId) {
+                BudgetLineItem::delete($id);
+            }
+        }
+
+        wp_redirect($redirectUrl . '&eim_message=bulk_deleted#eim-budget-line-items');
+        exit;
+    }
+
     // =========================================================================
     // Rendering
     // =========================================================================
@@ -369,6 +435,13 @@ final class BudgetPage extends AbstractAdminPage
                 ''
             ); ?>
 
+            <?php $this->renderBulkActions(
+                'eim-budget-plans-bulk-form',
+                AdminMenu::tabUrl(AdminMenu::TAB_BUDGET),
+                'bulk_delete_budget_plans',
+                'eim_bulk_delete_budget_plans'
+            ); ?>
+
             <table id="eim-budget-plans-table"
                    class="wp-list-table widefat fixed striped"
                    style="margin-top:8px;"
@@ -377,6 +450,7 @@ final class BudgetPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
+                        <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('budget-plans'); ?></th>
                         <th style="width:22%;"><?= $this->sortLink('Plan Name', 'name',      AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_BUDGET]); ?></th>
                         <th style="width:18%;"><?= $this->sortLink('Events',    'events',    AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_BUDGET]); ?></th>
                         <th style="width:11%;"><?= $this->sortLink('Target',    'target',    AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_BUDGET]); ?></th>
@@ -409,7 +483,7 @@ final class BudgetPage extends AbstractAdminPage
     {
         if (empty($plans)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No budget plans found.';
-            echo '<tr class="eim-no-results"><td colspan="7">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="8">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -426,6 +500,7 @@ final class BudgetPage extends AbstractAdminPage
             $cats   = $catsByPlan[$plan->id] ?? [];
             ?>
             <tr>
+                <?= $this->renderBulkSelectCell('eim-budget-plans-bulk-form', 'budget-plans', $plan->id, $plan->name); ?>
                 <td><strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($plan->name); ?></a></strong>
                     <?php if ($plan->description): ?>
                         <br><span style="color:#646970;font-size:12px;"><?= esc_html(wp_trim_words($plan->description, 8, '…')); ?></span>
@@ -584,6 +659,23 @@ final class BudgetPage extends AbstractAdminPage
         $liItems  = array_slice($liAll, 0, 10);
         $planCats = Category::forEntity('budget_plan', $plan->id);
 
+        // Pre-format linked event data for the event picker.
+        $dateFormat      = (string) get_option('date_format', 'M j, Y');
+        $formatDt = static function (?string $utcDt, string $tz) use ($dateFormat): string {
+            if (!$utcDt) return '';
+            $dt = new \DateTime($utcDt, new \DateTimeZone('UTC'));
+            if ($tz !== '') { try { $dt->setTimezone(new \DateTimeZone($tz)); } catch (\Throwable) {} }
+            return $dt->format($dateFormat . ', g:i A');
+        };
+        $linkedEventData = array_map(static fn(Event $e): array => [
+            'id'          => $e->id,
+            'name'        => $e->name,
+            'start_label' => $formatDt($e->startDatetime, $e->timezone),
+            'end_label'   => $e->endDatetime ? $formatDt($e->endDatetime, $e->timezone) : '',
+            'start_raw'   => $e->startDatetime ?? '',
+            'end_raw'     => $e->endDatetime   ?? '',
+        ], $events);
+
         ?>
         <div class="wrap">
             <h1><?= esc_html('Budget: ' . $plan->name); ?></h1>
@@ -640,6 +732,14 @@ final class BudgetPage extends AbstractAdminPage
                 ''
             ); ?>
 
+            <?php $this->renderBulkActions(
+                'eim-line-items-bulk-form',
+                AdminMenu::tabUrl(AdminMenu::TAB_BUDGET, ['action' => 'edit', 'id' => $plan->id]),
+                'bulk_delete_budget_line_items',
+                'eim_bulk_delete_budget_line_items',
+                ['plan_id' => $plan->id]
+            ); ?>
+
             <table id="eim-line-items-table"
                    class="wp-list-table widefat fixed striped"
                    style="margin-top:8px;margin-bottom:20px;"
@@ -649,6 +749,7 @@ final class BudgetPage extends AbstractAdminPage
                    data-total="<?= esc_attr($liTotal); ?>">
                 <thead>
                     <tr>
+                        <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('budget-line-items-' . $plan->id); ?></th>
                         <th style="width:24%;"><?= $this->lineItemSortLink('Label',   'label',    $liSort, $liOrder); ?></th>
                         <th style="width:15%;"><?= $this->lineItemSortLink('Event',   'event',    $liSort, $liOrder); ?></th>
                         <th style="width:9%;"><?= $this->lineItemSortLink('Qty',        'quantity',   $liSort, $liOrder); ?></th>
@@ -668,7 +769,7 @@ final class BudgetPage extends AbstractAdminPage
             <?php /* Edit plan settings */ ?>
             <hr style="margin:24px 0 16px;">
             <h2>Plan Settings</h2>
-            <form method="post" action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_BUDGET)); ?>" style="max-width:680px;">
+            <form method="post" action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_BUDGET)); ?>">
                 <?php wp_nonce_field('eim_save_budget_plan'); ?>
                 <input type="hidden" name="eim_action" value="save_budget_plan">
                 <input type="hidden" name="plan_id"    value="<?= esc_attr($plan->id); ?>">
@@ -691,14 +792,8 @@ final class BudgetPage extends AbstractAdminPage
                     <tr>
                         <th scope="row">Events</th>
                         <td>
-                            <?php foreach ($allEvents as $event): ?>
-                                <label style="display:block;margin-bottom:3px;">
-                                    <input type="checkbox" name="event_ids[]"
-                                           value="<?= esc_attr($event->id); ?>"
-                                           <?php checked(in_array($event->id, array_map(fn(Event $e) => $e->id, $events), true)); ?>>
-                                    <?= esc_html($event->name); ?>
-                                </label>
-                            <?php endforeach; ?>
+                            <?php $this->renderEventPicker('eim-budget-event-picker', $linkedEventData, 'event_ids[]'); ?>
+                            <p class="description" style="margin-top:8px;">Associate this budget plan with one or more events.</p>
                         </td>
                     </tr>
                     <tr>
@@ -947,6 +1042,7 @@ final class BudgetPage extends AbstractAdminPage
                 : number_format($item->quantity, $item->quantity == (int) $item->quantity ? 0 : 2);
             ?>
             <tr>
+                <?= $this->renderBulkSelectCell('eim-line-items-bulk-form', 'budget-line-items-' . $plan->id, $item->id, $item->label); ?>
                 <td>
                     <strong><?= esc_html($item->label); ?></strong>
                     <?php if ($vendor): ?>

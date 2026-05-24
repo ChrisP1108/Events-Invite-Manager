@@ -28,6 +28,7 @@ final class LocationsPage extends AbstractAdminPage
         match ($action) {
             'save_location'   => $this->handleSaveLocation(),
             'delete_location' => $this->handleDeleteLocation(),
+            'bulk_delete_locations' => $this->handleBulkDeleteLocations(),
             default           => null,
         };
     }
@@ -197,6 +198,32 @@ final class LocationsPage extends AbstractAdminPage
         exit;
     }
 
+    private function handleBulkDeleteLocations(): void
+    {
+        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_bulk_delete_locations')) {
+            wp_die('Security check failed.');
+        }
+
+        if ($this->requestedBulkAction() !== 'delete') {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS, ['eim_error' => 'bulk_invalid_action']));
+            exit;
+        }
+
+        $ids = $this->bulkActionIds();
+        if (empty($ids)) {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS, ['eim_error' => 'bulk_no_selection']));
+            exit;
+        }
+
+        foreach ($ids as $id) {
+            Category::syncToEntity('location', $id, []);
+            Location::delete($id);
+        }
+
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS, ['eim_message' => 'bulk_deleted']));
+        exit;
+    }
+
     /**
      * Renders the library locations list with search and sortable columns.
      *
@@ -243,6 +270,13 @@ final class LocationsPage extends AbstractAdminPage
                 $field
             ); ?>
 
+            <?php $this->renderBulkActions(
+                'eim-locations-bulk-form',
+                AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS),
+                'bulk_delete_locations',
+                'eim_bulk_delete_locations'
+            ); ?>
+
             <table id="eim-locations-table"
                    class="wp-list-table widefat fixed striped"
                    data-sort="<?= esc_attr($sort); ?>"
@@ -250,6 +284,7 @@ final class LocationsPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
+                        <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('locations'); ?></th>
                         <th style="width:28%;"><?= $this->sortLink('Name', 'name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_LOCATIONS]); ?></th>
                         <th style="width:14%;"><?= $this->sortLink('Type', 'is_other', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_LOCATIONS]); ?></th>
                         <th style="width:12%;"><?= $this->sortLink('Lodging', 'has_lodging', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_LOCATIONS]); ?></th>
@@ -282,7 +317,7 @@ final class LocationsPage extends AbstractAdminPage
     {
         if (empty($locations)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No locations found.';
-            echo '<tr class="eim-no-results"><td colspan="7">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="8">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -298,6 +333,7 @@ final class LocationsPage extends AbstractAdminPage
             );
             ?>
             <tr>
+                <?= $this->renderBulkSelectCell('eim-locations-bulk-form', 'locations', $loc->id, $loc->name); ?>
                 <td><strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($loc->name); ?></a></strong></td>
                 <td>
                     <?php if ($loc->isOther): ?>

@@ -443,6 +443,7 @@ final class AboutPage extends AbstractAdminPage
                         <code>event</code> (name, description, date, venue),
                         <code>rsvp_options</code> (food and beverage arrays, each with id, label, description, sort_order — empty arrays when the option is not enabled on the event),
                         <code>invitee</code> (primary recipient's first_name, last_name, email),
+                        <code>rsvp_notes</code> (shared general notes for the invitation group),
                         <code>group_members</code> (invitee_id, name, email, rsvp_status, registered_at, food_option_id, beverage_option_id, dietary_notes),
                         and <code>lodging</code> (name, address, booking_url, is_other).
                     </p>
@@ -455,11 +456,12 @@ final class AboutPage extends AbstractAdminPage
                     <code>/wp-json/eim/v1/register</code>
                 </div>
                 <div class="eim-about-endpoint-body">
-                    <p>Validates the confirmation code and updates RSVP status for the invitation group. If no <code>members</code> array is provided, all pending members are marked as attending (backward compatible). With a <code>members</code> array, each listed member can be set individually with RSVP status, food/beverage selection, and dietary notes.</p>
+                    <p>Validates the confirmation code and updates RSVP status for the invitation group. If no <code>members</code> array is provided, all pending members are marked as attending (backward compatible). With a <code>members</code> array, each listed member can be set individually with RSVP status, food/beverage selection, and dietary notes. A top-level <code>rsvp_notes</code> value stores the shared general notes for the whole invitation group.</p>
                     <table class="eim-about-table" style="margin-bottom:10px;">
                         <thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
                         <tbody>
                             <tr><td><code>confirmation_code</code></td><td>string</td><td>Yes</td><td>16-character code from the QR code URL</td></tr>
+                            <tr><td><code>rsvp_notes</code></td><td>string</td><td>No</td><td>Shared general notes for the invitation group.</td></tr>
                             <tr><td><code>members</code></td><td>array</td><td>No</td><td>
                                 List of objects, one per group member, each containing:
                                 <code>invitee_id</code> (int, required),

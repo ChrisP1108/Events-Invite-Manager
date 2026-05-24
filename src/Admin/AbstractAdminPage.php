@@ -96,6 +96,123 @@ abstract class AbstractAdminPage
     }
 
     /**
+     * Renders the reusable bulk action control shown above list tables.
+     *
+     * Row checkboxes live inside the table and point back to this form via the
+     * HTML form attribute, allowing the controls to sit between search and table.
+     *
+     * @param string               $formId      Unique form id used by row checkbox form attributes.
+     * @param string               $actionUrl   Form submit URL.
+     * @param string               $eimAction   eim_action value dispatched by AdminMenu.
+     * @param string               $nonceAction Nonce action used for wp_nonce_field().
+     * @param array<string,string|int> $hiddenFields Extra hidden fields to submit with the bulk action.
+     * @return void
+     */
+    protected function renderBulkActions(
+        string $formId,
+        string $actionUrl,
+        string $eimAction,
+        string $nonceAction,
+        array  $hiddenFields = []
+    ): void {
+        ?>
+        <form id="<?= esc_attr($formId); ?>"
+              class="eim-bulk-actions"
+              method="post"
+              action="<?= esc_url($actionUrl); ?>"
+              data-eim-bulk-form>
+            <?php wp_nonce_field($nonceAction); ?>
+            <input type="hidden" name="eim_action" value="<?= esc_attr($eimAction); ?>">
+            <?php foreach ($hiddenFields as $name => $value): ?>
+                <input type="hidden" name="<?= esc_attr((string) $name); ?>" value="<?= esc_attr((string) $value); ?>">
+            <?php endforeach; ?>
+            <label class="screen-reader-text" for="<?= esc_attr($formId); ?>-action">Bulk action</label>
+            <select id="<?= esc_attr($formId); ?>-action" name="bulk_action">
+                <option value="">Bulk actions</option>
+                <option value="delete">Delete</option>
+            </select>
+            <button type="submit" class="button">Apply</button>
+        </form>
+        <?php
+    }
+
+    protected function renderBulkActionFormShell(
+        string $formId,
+        string $actionUrl,
+        string $eimAction,
+        string $nonceAction,
+        array  $hiddenFields = []
+    ): void {
+        ?>
+        <form id="<?= esc_attr($formId); ?>"
+              method="post"
+              action="<?= esc_url($actionUrl); ?>"
+              data-eim-bulk-form
+              hidden>
+            <?php wp_nonce_field($nonceAction); ?>
+            <input type="hidden" name="eim_action" value="<?= esc_attr($eimAction); ?>">
+            <?php foreach ($hiddenFields as $name => $value): ?>
+                <input type="hidden" name="<?= esc_attr((string) $name); ?>" value="<?= esc_attr((string) $value); ?>">
+            <?php endforeach; ?>
+        </form>
+        <?php
+    }
+
+    protected function renderBulkActionControls(string $formId): void
+    {
+        ?>
+        <div class="eim-bulk-actions">
+            <label class="screen-reader-text" for="<?= esc_attr($formId); ?>-action">Bulk action</label>
+            <select id="<?= esc_attr($formId); ?>-action" name="bulk_action" form="<?= esc_attr($formId); ?>">
+                <option value="">Bulk actions</option>
+                <option value="delete">Delete</option>
+            </select>
+            <button type="submit" class="button" form="<?= esc_attr($formId); ?>">Apply</button>
+        </div>
+        <?php
+    }
+
+    protected function renderBulkSelectHeader(string $group): string
+    {
+        return sprintf(
+            '<input type="checkbox" class="eim-bulk-select-all" data-eim-bulk-group="%s" aria-label="%s">',
+            esc_attr($group),
+            esc_attr__('Select all visible rows', 'events-invite-manager')
+        );
+    }
+
+    protected function renderBulkSelectCell(string $formId, string $group, int $id, string $label): string
+    {
+        return sprintf(
+            '<td class="eim-bulk-select-cell"><input type="checkbox" form="%s" class="eim-bulk-select-row" data-eim-bulk-group="%s" name="bulk_ids[]" value="%d" aria-label="%s"></td>',
+            esc_attr($formId),
+            esc_attr($group),
+            $id,
+            esc_attr(sprintf(__('Select %s', 'events-invite-manager'), $label))
+        );
+    }
+
+    /**
+     * Returns sanitized IDs from a submitted bulk action request.
+     *
+     * @return int[]
+     */
+    protected function bulkActionIds(): array
+    {
+        $raw = wp_unslash($_POST['bulk_ids'] ?? []);
+        if (!is_array($raw)) {
+            return [];
+        }
+
+        return array_values(array_unique(array_filter(array_map('intval', $raw))));
+    }
+
+    protected function requestedBulkAction(): string
+    {
+        return sanitize_key(wp_unslash($_POST['bulk_action'] ?? ''));
+    }
+
+    /**
      * Builds a sortable column header link with AJAX data attributes and GET fallback.
      *
      * The rendered <a> tag carries data-sort and data-order attributes consumed
@@ -217,8 +334,6 @@ abstract class AbstractAdminPage
             'newsletter_created'         => 'Newsletter created.',
             'newsletter_updated'         => 'Newsletter updated.',
             'newsletter_deleted'         => 'Newsletter deleted.',
-            'nl_category_added'          => 'Category added.',
-            'nl_category_deleted'        => 'Category deleted.',
             'nl_tag_added'               => 'Tag added.',
             'nl_tag_deleted'             => 'Tag deleted.',
             'vendor_created'             => 'Vendor added to library.',
@@ -227,6 +342,7 @@ abstract class AbstractAdminPage
             'category_created'           => 'Category created.',
             'category_updated'           => 'Category updated.',
             'category_deleted'           => 'Category deleted.',
+            'bulk_deleted'               => 'Selected items deleted.',
         ];
 
         $errors = [
@@ -248,15 +364,17 @@ abstract class AbstractAdminPage
             'not_found'                  => 'Invitee or event not found.',
             'invalid_request'            => 'Invalid request — one or more required items could not be found.',
             'menu_item_label_required'   => 'A label is required to add a menu item.',
+            'menu_item_vendor_required'  => 'Create and select a vendor before saving a food or beverage item.',
             'line_item_label_required'   => 'A label is required for each line item.',
             'budget_name_required'       => 'A plan name is required.',
             'budget_save_failed'         => 'Could not save the budget plan. Please try again.',
             'per_attending_needs_event'  => '"Per attending guest" mode requires an event to be selected.',
             'newsletter_title_required'  => 'A title is required for the newsletter.',
-            'nl_category_name_required'  => 'A category name is required.',
             'nl_tag_name_required'       => 'A tag name is required.',
             'vendor_name_required'       => 'A company name is required to save a vendor.',
             'category_name_required'     => 'A category name is required.',
+            'bulk_no_selection'          => 'Select at least one item before applying a bulk action.',
+            'bulk_invalid_action'        => 'Choose a valid bulk action before applying.',
         ];
 
         if (isset($successes[$messageKey])) {

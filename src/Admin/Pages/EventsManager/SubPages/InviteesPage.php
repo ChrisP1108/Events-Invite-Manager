@@ -10,7 +10,9 @@ use EventsInviteManager\Admin\AbstractAdminPage;
 use EventsInviteManager\Admin\AdminMenu;
 use EventsInviteManager\Models\Category;
 use EventsInviteManager\Models\ConnectionGroup;
+use EventsInviteManager\Models\InvitationGroup;
 use EventsInviteManager\Models\Invitee;
+use EventsInviteManager\Models\MenuItem;
 
 /**
  * Handles global invitee-related admin actions, rendering, and AJAX search.
@@ -27,6 +29,7 @@ final class InviteesPage extends AbstractAdminPage
         match ($action) {
             'save_invitee'   => $this->handleSaveInvitee(),
             'delete_invitee' => $this->handleDeleteInvitee(),
+            'bulk_delete_invitees' => $this->handleBulkDeleteInvitees(),
             default          => null,
         };
     }
@@ -210,6 +213,133 @@ final class InviteesPage extends AbstractAdminPage
         exit;
     }
 
+    private function handleBulkDeleteInvitees(): void
+    {
+        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_bulk_delete_invitees')) {
+            wp_die('Security check failed.');
+        }
+
+        if ($this->requestedBulkAction() !== 'delete') {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, ['eim_error' => 'bulk_invalid_action']));
+            exit;
+        }
+
+        $ids = $this->bulkActionIds();
+        if (empty($ids)) {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, ['eim_error' => 'bulk_no_selection']));
+            exit;
+        }
+
+        foreach ($ids as $id) {
+            Category::syncToEntity('invitee', $id, []);
+            Invitee::delete($id);
+        }
+
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, ['eim_message' => 'bulk_deleted']));
+        exit;
+    }
+
+    /**
+     * Formats a MySQL datetime in the site's admin date/time format.
+     *
+     * @param string|null $datetime
+     * @return string
+     */
+    private function formatAdminDateTime(?string $datetime): string
+    {
+        if (!$datetime) {
+            return '';
+        }
+
+        $timestamp = strtotime($datetime);
+
+        if ($timestamp === false) {
+            return '';
+        }
+
+        return date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $timestamp);
+    }
+
+    /**
+     * Formats a stored RSVP status for admin display.
+     *
+     * @param string $status
+     * @return string
+     */
+    private function rsvpStatusLabel(string $status): string
+    {
+        return match ($status) {
+            InvitationGroup::RSVP_ATTENDING => 'Attending',
+            InvitationGroup::RSVP_DECLINED  => 'Declined',
+            default                         => 'Pending',
+        };
+    }
+
+    /**
+     * Returns a display label for an event-specific food or beverage response.
+     *
+     * @param array<string,mixed> $event
+     * @param string              $type food|beverage
+     * @return string
+     */
+    private function eventMenuSelectionLabel(array $event, string $type): string
+    {
+        $id = (int) ($event[$type . '_option_id'] ?? 0);
+
+        if ($id <= 0) {
+            return '';
+        }
+
+        $label = trim((string) ($event[$type . '_label'] ?? ''));
+        if ($label !== '') {
+            return $label;
+        }
+
+        $item = MenuItem::find($id);
+
+        if ($item === null) {
+            return 'Unavailable option';
+        }
+
+        return $item->label . ' (not assigned to this event)';
+    }
+
+    /**
+     * Encodes a Details modal payload for use in a data attribute.
+     *
+     * @param array<string,mixed> $payload
+     * @return string
+     */
+    private function rsvpDetailsAttribute(array $payload): string
+    {
+        return esc_attr((string) wp_json_encode($payload));
+    }
+
+    /**
+     * Builds the Details modal payload for an invitee's response to one event.
+     *
+     * @param array<string,mixed> $event
+     * @return array<string,mixed>
+     */
+    private function eventRsvpDetailsPayload(array $event): array
+    {
+        return [
+            'title'    => (string) ($event['name'] ?? 'Event Details'),
+            'sections' => [
+                [
+                    'heading' => 'RSVP Response',
+                    'rows'    => [
+                        ['label' => 'Status',         'value' => $this->rsvpStatusLabel((string) ($event['rsvp_status'] ?? InvitationGroup::RSVP_PENDING))],
+                        ['label' => 'Registered',     'value' => $this->formatAdminDateTime($event['registered_at'] ?? null)],
+                        ['label' => 'Food',           'value' => $this->eventMenuSelectionLabel($event, 'food')],
+                        ['label' => 'Beverage',       'value' => $this->eventMenuSelectionLabel($event, 'beverage')],
+                        ['label' => 'Dietary Notes',  'value' => (string) ($event['dietary_notes'] ?? '')],
+                    ],
+                ],
+            ],
+        ];
+    }
+
     /** Renders the global invitees list table with search bar and sortable columns. */
     private function renderInviteesList(): void
     {
@@ -258,6 +388,13 @@ final class InviteesPage extends AbstractAdminPage
                 $field
             ); ?>
 
+            <?php $this->renderBulkActions(
+                'eim-invitees-bulk-form',
+                AdminMenu::tabUrl(AdminMenu::TAB_INVITEES),
+                'bulk_delete_invitees',
+                'eim_bulk_delete_invitees'
+            ); ?>
+
             <table id="eim-invitees-table"
                    class="wp-list-table widefat fixed striped"
                    data-sort="<?= esc_attr($sort); ?>"
@@ -265,6 +402,7 @@ final class InviteesPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
+                        <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('invitees'); ?></th>
                         <th style="width:12%;"><?= $this->sortLink('First Name', 'first_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
                         <th style="width:12%;"><?= $this->sortLink('Last Name', 'last_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
                         <th style="width:18%;"><?= $this->sortLink('Email', 'email', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
@@ -292,7 +430,7 @@ final class InviteesPage extends AbstractAdminPage
     {
         if (empty($rows)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No invitees found.';
-            echo '<tr class="eim-no-results"><td colspan="8">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="9">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -317,6 +455,7 @@ final class InviteesPage extends AbstractAdminPage
             $cats        = $catsByInvitee[$invitee->id]   ?? [];
             ?>
             <tr>
+                <?= $this->renderBulkSelectCell('eim-invitees-bulk-form', 'invitees', $invitee->id, $invitee->fullName()); ?>
                 <td><a href="<?= esc_url($editUrl); ?>"><?= esc_html($invitee->firstName); ?></a></td>
                 <td><a href="<?= esc_url($editUrl); ?>"><?= esc_html($invitee->lastName); ?></a></td>
                 <td><a href="mailto:<?= esc_attr($invitee->email); ?>"><?= esc_html($invitee->email); ?></a></td>
@@ -472,10 +611,25 @@ final class InviteesPage extends AbstractAdminPage
                                 <?php else: ?>
                                     <span class="eim-tag-list">
                                         <?php foreach ($events as $event): ?>
-                                            <a class="eim-event-tag"
-                                               href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $event['id']]) . '#eim-event-invitees'); ?>">
-                                                <?= esc_html($event['name']); ?>
-                                            </a>
+                                            <?php
+                                            $eventUrl       = AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $event['id']]) . '#eim-event-invitees';
+                                            $detailsPayload = $this->eventRsvpDetailsPayload($event);
+                                            ?>
+                                            <span class="eim-event-detail-dropdown">
+                                                <button type="button"
+                                                        class="eim-event-tag eim-event-detail-trigger"
+                                                        aria-haspopup="true"
+                                                        aria-expanded="false">
+                                                    <?= esc_html($event['name']); ?>
+                                                </button>
+                                                <div class="eim-member-dropdown-menu eim-event-detail-menu" role="menu" hidden>
+                                                    <a href="<?= esc_url($eventUrl); ?>" role="menuitem">Open Event</a>
+                                                    <button type="button"
+                                                            class="eim-rsvp-details-trigger"
+                                                            role="menuitem"
+                                                            data-eim-rsvp-details="<?= $this->rsvpDetailsAttribute($detailsPayload); ?>">Details</button>
+                                                </div>
+                                            </span>
                                         <?php endforeach; ?>
                                     </span>
                                 <?php endif; ?>

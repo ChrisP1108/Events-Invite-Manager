@@ -15,7 +15,7 @@ if (!defined('ABSPATH')) exit;
 
 final class DatabaseManager
 {
-    private const SCHEMA_VERSION = '19';
+    private const SCHEMA_VERSION = '21';
 
     private const EVENTS_TABLE                           = 'eim_events';
     private const INVITEES_TABLE                         = 'eim_invitees';
@@ -34,9 +34,7 @@ final class DatabaseManager
     private const BUDGET_LINE_ITEMS_TABLE                = 'eim_budget_line_items';
     private const NEWSLETTERS_TABLE                      = 'eim_newsletters';
     private const NEWSLETTER_EVENTS_TABLE                = 'eim_newsletter_events';
-    private const NEWSLETTER_CATEGORIES_TABLE            = 'eim_newsletter_categories';
     private const NEWSLETTER_TAGS_TABLE                  = 'eim_newsletter_tags';
-    private const NEWSLETTER_CATEGORY_MAP_TABLE          = 'eim_newsletter_category_map';
     private const NEWSLETTER_TAG_MAP_TABLE               = 'eim_newsletter_tag_map';
     private const VENDORS_TABLE                          = 'eim_vendors';
     private const CATEGORIES_TABLE                       = 'eim_categories';
@@ -48,50 +46,7 @@ final class DatabaseManager
             return;
         }
         self::createTables();
-        self::migrateNewsletterCategoriesToUnified();
         update_option('eim_db_version', self::SCHEMA_VERSION, false);
-    }
-
-    private static function migrateNewsletterCategoriesToUnified(): void
-    {
-        global $wpdb;
-
-        $oldMap  = $wpdb->prefix . 'eim_newsletter_category_map';
-        $oldCats = $wpdb->prefix . 'eim_newsletter_categories';
-        $newMap  = $wpdb->prefix . self::CATEGORY_MAP_TABLE;
-        $newCats = $wpdb->prefix . self::CATEGORIES_TABLE;
-
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-        if ($wpdb->get_var("SHOW TABLES LIKE '{$oldMap}'") !== $oldMap) {
-            return;
-        }
-
-        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-        $rows = $wpdb->get_results(
-            "SELECT ncm.newsletter_id, nc.name, nc.slug
-             FROM {$oldMap} ncm
-             INNER JOIN {$oldCats} nc ON nc.id = ncm.category_id"
-        );
-
-        foreach ($rows ?? [] as $row) {
-            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-            $catId = (int) $wpdb->get_var($wpdb->prepare(
-                "SELECT id FROM {$newCats} WHERE slug = %s",
-                $row->slug
-            ));
-            if (!$catId) {
-                $wpdb->insert($newCats, ['name' => $row->name, 'slug' => $row->slug]);
-                $catId = (int) $wpdb->insert_id;
-            }
-            if ($catId > 0) {
-                // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-                $wpdb->query($wpdb->prepare(
-                    "INSERT IGNORE INTO {$newMap} (category_id, entity_type, entity_id) VALUES (%d, 'newsletter', %d)",
-                    $catId,
-                    (int) $row->newsletter_id
-                ));
-            }
-        }
     }
 
     public static function createTables(): void
@@ -117,9 +72,7 @@ final class DatabaseManager
         $budgetLineItemsTable  = $wpdb->prefix . self::BUDGET_LINE_ITEMS_TABLE;
         $newslettersTable           = $wpdb->prefix . self::NEWSLETTERS_TABLE;
         $newsletterEventsTable      = $wpdb->prefix . self::NEWSLETTER_EVENTS_TABLE;
-        $newsletterCategoriesTable  = $wpdb->prefix . self::NEWSLETTER_CATEGORIES_TABLE;
         $newsletterTagsTable        = $wpdb->prefix . self::NEWSLETTER_TAGS_TABLE;
-        $newsletterCategoryMapTable = $wpdb->prefix . self::NEWSLETTER_CATEGORY_MAP_TABLE;
         $newsletterTagMapTable      = $wpdb->prefix . self::NEWSLETTER_TAG_MAP_TABLE;
         $vendorsTable               = $wpdb->prefix . self::VENDORS_TABLE;
         $categoriesTable            = $wpdb->prefix . self::CATEGORIES_TABLE;
@@ -238,6 +191,8 @@ final class DatabaseManager
                 event_id            BIGINT(20) UNSIGNED NOT NULL,
                 primary_invitee_id  BIGINT(20) UNSIGNED NOT NULL,
                 invite_sent_at      DATETIME,
+                rsvp_notes          TEXT,
+                rsvp_notes_updated_at DATETIME NULL DEFAULT NULL,
                 created_at          DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at          DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (id),
@@ -344,6 +299,7 @@ final class DatabaseManager
                 zip_code       VARCHAR(20)         NOT NULL DEFAULT '',
                 email          VARCHAR(255)        NOT NULL DEFAULT '',
                 phone          VARCHAR(40)         NOT NULL DEFAULT '',
+                website_url    VARCHAR(255)        NOT NULL DEFAULT '',
                 notes          TEXT,
                 created_at     DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at     DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -371,14 +327,6 @@ final class DatabaseManager
                 KEY newsletter_id (newsletter_id),
                 KEY event_id (event_id)
             ) ENGINE=InnoDB {$charset};
-            CREATE TABLE {$newsletterCategoriesTable} (
-                id         BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-                name       VARCHAR(255)        NOT NULL DEFAULT '',
-                slug       VARCHAR(255)        NOT NULL DEFAULT '',
-                created_at DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (id),
-                UNIQUE KEY slug (slug)
-            ) ENGINE=InnoDB {$charset};
             CREATE TABLE {$newsletterTagsTable} (
                 id         BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
                 name       VARCHAR(255)        NOT NULL DEFAULT '',
@@ -386,16 +334,6 @@ final class DatabaseManager
                 created_at DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (id),
                 UNIQUE KEY slug (slug)
-            ) ENGINE=InnoDB {$charset};
-            CREATE TABLE {$newsletterCategoryMapTable} (
-                id            BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-                newsletter_id BIGINT(20) UNSIGNED NOT NULL,
-                category_id   BIGINT(20) UNSIGNED NOT NULL,
-                created_at    DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (id),
-                UNIQUE KEY newsletter_category (newsletter_id, category_id),
-                KEY newsletter_id (newsletter_id),
-                KEY category_id (category_id)
             ) ENGINE=InnoDB {$charset};
             CREATE TABLE {$newsletterTagMapTable} (
                 id            BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -551,25 +489,11 @@ final class DatabaseManager
         return $wpdb->prefix . self::NEWSLETTER_EVENTS_TABLE;
     }
 
-    /** @return string Fully-qualified newsletter categories table name. */
-    public static function newsletterCategoriesTable(): string
-    {
-        global $wpdb;
-        return $wpdb->prefix . self::NEWSLETTER_CATEGORIES_TABLE;
-    }
-
     /** @return string Fully-qualified newsletter tags table name. */
     public static function newsletterTagsTable(): string
     {
         global $wpdb;
         return $wpdb->prefix . self::NEWSLETTER_TAGS_TABLE;
-    }
-
-    /** @return string Fully-qualified newsletter-category pivot table name. */
-    public static function newsletterCategoryMapTable(): string
-    {
-        global $wpdb;
-        return $wpdb->prefix . self::NEWSLETTER_CATEGORY_MAP_TABLE;
     }
 
     /** @return string Fully-qualified newsletter-tag pivot table name. */

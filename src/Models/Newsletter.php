@@ -13,8 +13,8 @@ use EventsInviteManager\Database\DatabaseManager;
  *
  * Newsletters are standalone content items used for email blasts and website
  * display. They are linked to one or more events via eim_newsletter_events,
- * and categorised/tagged via the eim_newsletter_category_map /
- * eim_newsletter_tag_map pivot tables.
+ * tagged via eim_newsletter_tag_map, and categorised via the unified
+ * eim_category_map pivot table (entity_type = 'newsletter').
  *
  * The listForAdmin() method returns enriched instances with $events,
  * $categories, and $tags populated from GROUP_CONCAT subqueries so the list

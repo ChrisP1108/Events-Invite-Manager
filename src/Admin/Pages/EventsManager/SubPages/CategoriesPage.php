@@ -26,6 +26,7 @@ final class CategoriesPage extends AbstractAdminPage
         match ($action) {
             'save_category'   => $this->handleSaveCategory(),
             'delete_category' => $this->handleDeleteCategory(),
+            'bulk_delete_categories' => $this->handleBulkDeleteCategories(),
             default           => null,
         };
     }
@@ -48,7 +49,7 @@ final class CategoriesPage extends AbstractAdminPage
     /**
      * AJAX: searches the categories list table.
      *
-     * Expected GET params: nonce, query, sort, order.
+     * Expected GET params: nonce, query, sort, order, field.
      * Returns JSON: { success: true, data: { html, count } }
      */
     public function handleAjaxSearchCategories(): void
@@ -62,10 +63,11 @@ final class CategoriesPage extends AbstractAdminPage
         $query   = sanitize_text_field(wp_unslash($_GET['query'] ?? ''));
         $sort    = sanitize_key($_GET['sort']  ?? 'name');
         $order   = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
+        $field   = $this->sanitizeCategoryFieldKey(sanitize_key($_GET['field'] ?? ''));
         $page    = max(1, (int) ($_GET['page']     ?? 1));
-        $perPage = in_array((int) ($_GET['per_page'] ?? 25), [5, 10, 25, 50, 100], true) ? (int) $_GET['per_page'] : 25;
+        $perPage = in_array((int) ($_GET['per_page'] ?? 10), [5, 10, 25, 50, 100], true) ? (int) $_GET['per_page'] : 10;
 
-        $all   = Category::listForAdmin($query, $sort, $order);
+        $all   = Category::listForAdmin($query, $sort, $order, $field);
         $total = count($all);
         $paged = array_slice($all, ($page - 1) * $perPage, $perPage);
 
@@ -166,6 +168,31 @@ final class CategoriesPage extends AbstractAdminPage
         exit;
     }
 
+    private function handleBulkDeleteCategories(): void
+    {
+        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_bulk_delete_categories')) {
+            wp_die('Security check failed.');
+        }
+
+        if ($this->requestedBulkAction() !== 'delete') {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_CATEGORIES, ['eim_error' => 'bulk_invalid_action']));
+            exit;
+        }
+
+        $ids = $this->bulkActionIds();
+        if (empty($ids)) {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_CATEGORIES, ['eim_error' => 'bulk_no_selection']));
+            exit;
+        }
+
+        foreach ($ids as $id) {
+            Category::delete($id);
+        }
+
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_CATEGORIES, ['eim_message' => 'bulk_deleted']));
+        exit;
+    }
+
     // =========================================================================
     // Rendering
     // =========================================================================
@@ -177,10 +204,20 @@ final class CategoriesPage extends AbstractAdminPage
         $search   = sanitize_text_field(wp_unslash($_GET['s'] ?? ''));
         $sort     = sanitize_key($_GET['sort']  ?? 'name');
         $order    = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
-        $all      = Category::listForAdmin($search, $sort, $order);
+        $field    = $this->sanitizeCategoryFieldKey(sanitize_key($_GET['field'] ?? ''));
+        $all      = Category::listForAdmin($search, $sort, $order, $field);
         $total    = count($all);
-        $paged    = array_slice($all, 0, 25);
+        $paged    = array_slice($all, 0, 10);
         $addUrl   = AdminMenu::tabUrl(AdminMenu::TAB_CATEGORIES, ['action' => 'add']);
+        $sortArgs = ['tab' => AdminMenu::TAB_CATEGORIES];
+        if ($field !== '') {
+            $sortArgs['field'] = $field;
+        }
+        $filterOptions = Category::count() >= 2 ? [
+            ['value' => 'name',     'label' => 'Name'],
+            ['value' => 'parent',   'label' => 'Parent'],
+            ['value' => 'children', 'label' => 'Children'],
+        ] : [];
         ?>
         <div class="wrap">
             <h1 class="wp-heading-inline">Categories</h1>
@@ -202,8 +239,15 @@ final class CategoriesPage extends AbstractAdminPage
                 'Search categories…',
                 $total,
                 $search,
-                [],
-                ''
+                $filterOptions,
+                $field
+            ); ?>
+
+            <?php $this->renderBulkActions(
+                'eim-categories-bulk-form',
+                AdminMenu::tabUrl(AdminMenu::TAB_CATEGORIES),
+                'bulk_delete_categories',
+                'eim_bulk_delete_categories'
             ); ?>
 
             <table id="eim-categories-table"
@@ -213,7 +257,8 @@ final class CategoriesPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
-                        <th style="width:40%;"><?= $this->sortLink('Name', 'name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_CATEGORIES]); ?></th>
+                        <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('categories'); ?></th>
+                        <th style="width:40%;"><?= $this->sortLink('Name', 'name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, $sortArgs); ?></th>
                         <th style="width:30%;">Parent</th>
                         <th style="width:15%;">Children</th>
                         <th style="width:15%;">Actions</th>
@@ -237,25 +282,28 @@ final class CategoriesPage extends AbstractAdminPage
     {
         if (empty($categories)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No categories found.';
-            echo '<tr class="eim-no-results"><td colspan="4">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="5">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
-        // Build child count map.
+        // Build child link map for the visible parent categories.
         global $wpdb;
         $t         = DatabaseManager::categoriesTable();
         $allCatIds = array_map(static fn(Category $c): int => $c->id, $categories);
-        $childCounts = [];
+        $childrenByParent = [];
         if (!empty($allCatIds)) {
             $placeholders = implode(', ', array_fill(0, count($allCatIds), '%d'));
             $rows = $wpdb->get_results(
                 $wpdb->prepare( // phpcs:ignore
-                    "SELECT parent_id, COUNT(*) AS cnt FROM {$t} WHERE parent_id IN ({$placeholders}) GROUP BY parent_id",
+                    "SELECT id, parent_id, name FROM {$t} WHERE parent_id IN ({$placeholders}) ORDER BY name ASC",
                     ...$allCatIds
                 )
             );
             foreach ($rows ?? [] as $row) {
-                $childCounts[(int) $row->parent_id] = (int) $row->cnt;
+                $childrenByParent[(int) $row->parent_id][] = [
+                    'id'   => (int) $row->id,
+                    'name' => (string) $row->name,
+                ];
             }
         }
 
@@ -265,9 +313,11 @@ final class CategoriesPage extends AbstractAdminPage
                 AdminMenu::tabUrl(AdminMenu::TAB_CATEGORIES, ['action' => 'delete_category', 'id' => $cat->id]),
                 'eim_delete_category_' . $cat->id
             );
-            $childCount = $childCounts[$cat->id] ?? 0;
+            $children   = $childrenByParent[$cat->id] ?? [];
+            $childCount = count($children);
             ?>
             <tr>
+                <?= $this->renderBulkSelectCell('eim-categories-bulk-form', 'categories', $cat->id, $cat->name); ?>
                 <td>
                     <strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($cat->name); ?></a></strong>
                     <?php if ($cat->parentId !== null): ?>
@@ -285,9 +335,12 @@ final class CategoriesPage extends AbstractAdminPage
                     <?php endif; ?>
                 </td>
                 <td>
-                    <?php if ($childCount > 0): ?>
-                        <span style="background:#f0f0f1;padding:2px 8px;border-radius:3px;font-size:12px;">
-                            <?= esc_html($childCount); ?>
+                    <?php if (!empty($children)): ?>
+                        <span class="eim-tag-list">
+                            <?php foreach ($children as $child): ?>
+                                <?php $childEditUrl = AdminMenu::tabUrl(AdminMenu::TAB_CATEGORIES, ['action' => 'edit', 'id' => $child['id']]); ?>
+                                <a href="<?= esc_url($childEditUrl); ?>" class="eim-cat-chip"><?= esc_html($child['name']); ?></a>
+                            <?php endforeach; ?>
                         </span>
                     <?php else: ?>
                         <span style="color:#999;">—</span>
@@ -357,5 +410,10 @@ final class CategoriesPage extends AbstractAdminPage
             </form>
         </div>
         <?php
+    }
+
+    private function sanitizeCategoryFieldKey(string $field): string
+    {
+        return in_array($field, ['name', 'parent', 'children'], true) ? $field : '';
     }
 }

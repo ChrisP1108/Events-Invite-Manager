@@ -120,6 +120,10 @@ class RestController
                             ],
                         ],
                     ],
+                    'rsvp_notes' => [
+                        'required' => false,
+                        'type'     => 'string',
+                    ],
                     'lodging_id' => [
                         'required' => false,
                         'type'     => 'integer',
@@ -274,6 +278,9 @@ class RestController
         $members       = $group->getMembers();
         $rawMemberList = $request->get_param('members');
         $hasMemberList = is_array($rawMemberList);
+        $rawRsvpNotes  = $request->get_param('rsvp_notes');
+        $hasRsvpNotes  = $rawRsvpNotes !== null;
+        $rsvpNotes     = $hasRsvpNotes ? sanitize_textarea_field((string) $rawRsvpNotes) : '';
         $currentFlow   = $this->resolver->resolve($code);
         $event         = $currentFlow->event ?? Event::find($group->eventId);
 
@@ -307,6 +314,10 @@ class RestController
         $validationErrors      = $groupLodgingSelection['errors'];
         $validMemberIds        = array_map(static fn(Invitee $m): int => $m->id, $members);
         $memberEntriesById     = [];
+        $groupLodgingKey       = empty($groupLodgingSelection['errors'])
+            ? $this->lodgingSelectionKey($groupLodgingSelection)
+            : '';
+        $memberLodgingKey      = '';
 
         if ($hasMemberList) {
             foreach ($rawMemberList as $entry) {
@@ -345,6 +356,21 @@ class RestController
                 foreach ($entryLodgingSelection['errors'] as $field => $message) {
                     $validationErrors['members.' . $inviteeId . '.' . $field] = $message;
                 }
+
+                $entryLodgingKey = $this->lodgingSelectionKey($entryLodgingSelection);
+                if ($entryLodgingKey !== '') {
+                    if ($groupLodgingKey !== '' && $entryLodgingKey !== $groupLodgingKey) {
+                        $validationErrors['members.' . $inviteeId . '.lodging'] = 'Lodging is shared by the group. Use the group-level lodging selection.';
+                    } elseif ($groupLodgingKey === '' && $memberLodgingKey !== '' && $entryLodgingKey !== $memberLodgingKey) {
+                        $validationErrors['members.' . $inviteeId . '.lodging'] = 'Lodging is shared by the group. Choose one lodging option for the group.';
+                    } elseif ($groupLodgingKey === '' && $memberLodgingKey === '') {
+                        $memberLodgingKey = $entryLodgingKey;
+                    }
+                }
+            }
+
+            if (!empty($rawMemberList) && empty($memberEntriesById)) {
+                $validationErrors['members'] = 'No valid group members were found in the submitted payload.';
             }
         }
 
@@ -399,7 +425,8 @@ class RestController
         }
 
         if ($hasMemberList) {
-            $processedCount = 0;
+            $processedCount     = 0;
+            $memberLevelLodging = ['provided' => false, 'extras' => []];
 
             foreach ($rawMemberList as $entry) {
                 $inviteeId  = (int) ($entry['invitee_id']  ?? 0);
@@ -444,7 +471,11 @@ class RestController
                 $entryLodgingSelection = $this->parseLodgingSelection($entry, $validLodgingIds);
                 if ($entryLodgingSelection['provided']) {
                     $extras = array_merge($extras, $entryLodgingSelection['extras']);
-                } elseif ($rsvpStatus === InvitationGroup::RSVP_ATTENDING && $groupLodgingSelection['provided']) {
+                    // Capture the first member-level lodging for group-wide propagation below.
+                    if (!$memberLevelLodging['provided']) {
+                        $memberLevelLodging = $entryLodgingSelection;
+                    }
+                } elseif ($groupLodgingSelection['provided']) {
                     $extras = array_merge($extras, $groupLodgingSelection['extras']);
                 }
 
@@ -452,18 +483,37 @@ class RestController
                 $processedCount++;
             }
 
-            if ($processedCount === 0) {
+            // Auto-decline any pending members omitted from the payload.
+            // This handles checkbox-style UIs where unchecked = not attending.
+            foreach ($members as $member) {
+                if ($member->rsvpStatus === InvitationGroup::RSVP_PENDING
+                    && !array_key_exists($member->id, $memberEntriesById)) {
+                    InvitationGroup::updateMemberRsvp($group->id, $member->id, InvitationGroup::RSVP_DECLINED, $this->clearedSelectionExtras());
+                    $processedCount++;
+                }
+            }
+
+            $hasGroupLevelUpdate = $hasRsvpNotes || $groupLodgingSelection['provided'] || $memberLevelLodging['provided'];
+            if ($processedCount === 0 && !$hasGroupLevelUpdate) {
                 return new WP_REST_Response([
                     'success' => false,
                     'message' => 'No valid group members were found in the submitted payload.',
                 ], 400);
             }
 
-            if ($groupLodgingSelection['provided']) {
+            if ($hasRsvpNotes) {
+                InvitationGroup::updateRsvpNotes($group->id, $rsvpNotes);
+            }
+
+            // Propagate whichever lodging selection was provided (group-level takes
+            // precedence over member-level) to every attending member so lodging is
+            // always a single group-wide choice rather than per-member.
+            $effectiveLodging = $groupLodgingSelection['provided'] ? $groupLodgingSelection : $memberLevelLodging;
+            if ($effectiveLodging['provided']) {
                 $freshGroup = InvitationGroup::find($group->id);
                 foreach (($freshGroup?->getMembers() ?? []) as $member) {
                     if ($member->rsvpStatus === InvitationGroup::RSVP_ATTENDING) {
-                        InvitationGroup::updateMemberRsvp($group->id, $member->id, $member->rsvpStatus, $groupLodgingSelection['extras']);
+                        InvitationGroup::updateMemberRsvp($group->id, $member->id, $member->rsvpStatus, $effectiveLodging['extras']);
                     }
                 }
             }
@@ -481,6 +531,10 @@ class RestController
                     }
                 }
 
+                if ($hasRsvpNotes) {
+                    InvitationGroup::updateRsvpNotes($group->id, $rsvpNotes);
+                }
+
                 return $this->flowResponse(
                     $this->resolver->resolve($code),
                     [
@@ -491,6 +545,10 @@ class RestController
             }
 
             InvitationGroup::markAllMembersAttending($group->id);
+
+            if ($hasRsvpNotes) {
+                InvitationGroup::updateRsvpNotes($group->id, $rsvpNotes);
+            }
 
             if ($groupLodgingSelection['provided']) {
                 foreach ($members as $member) {
@@ -576,6 +634,8 @@ class RestController
             'requires_food'     => $result->requiresFood,
             'requires_beverage' => $result->requiresBeverage,
             'newsletter_url'    => $result->newsletterUrl,
+            'rsvp_notes'        => $group->rsvpNotes,
+            'rsvp_notes_updated_at' => $group->rsvpNotesUpdatedAt,
             'event'             => [
                 'name'        => $event->name,
                 'description' => $event->description,
@@ -707,6 +767,33 @@ class RestController
         }
 
         return ['provided' => true, 'extras' => [], 'errors' => $errors];
+    }
+
+    /**
+     * Returns a stable comparison key for a valid lodging selection.
+     *
+     * @param array{provided: bool, extras: array<string,mixed>, errors: array<string,string>} $selection
+     * @return string
+     */
+    private function lodgingSelectionKey(array $selection): string
+    {
+        if (!$selection['provided'] || !empty($selection['errors']) || empty($selection['extras'])) {
+            return '';
+        }
+
+        $extras = $selection['extras'];
+
+        if (!empty($extras['lodging_undisclosed'])) {
+            return 'undisclosed';
+        }
+
+        if (!empty($extras['lodging_is_other'])) {
+            return 'other';
+        }
+
+        $lodgingId = isset($extras['lodging_id']) ? (int) $extras['lodging_id'] : 0;
+
+        return $lodgingId > 0 ? 'lodging:' . $lodgingId : '';
     }
 
     /**
@@ -881,6 +968,8 @@ class RestController
             'event_id'           => $event->id,
             'group_id'           => $result->group->id,
             'edit_rsvp_url'      => $this->buildRsvpEditUrl($event, $code),
+            'rsvp_notes'         => $result->group->rsvpNotes,
+            'rsvp_notes_updated_at' => $result->group->rsvpNotesUpdatedAt,
             'requires_lodging'   => $result->requiresLodging,
             'requires_food'      => $result->requiresFood,
             'requires_beverage'  => $result->requiresBeverage,

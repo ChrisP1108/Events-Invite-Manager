@@ -328,10 +328,37 @@ final class Category
         }
 
         $like = '%' . $wpdb->esc_like(strtolower($query)) . '%';
-        $rows  = $wpdb->get_results($wpdb->prepare( // phpcs:ignore
-            "{$base} WHERE LOWER(c.name) LIKE %s OR LOWER(p.name) LIKE %s {$orderBy}",
-            $like,
-            $like
+
+        switch ($field) {
+            case 'name':
+                $where = 'WHERE LOWER(c.name) LIKE %s';
+                $args  = [$like];
+                break;
+            case 'parent':
+                $where = 'WHERE LOWER(p.name) LIKE %s';
+                $args  = [$like];
+                break;
+            case 'children':
+                $where = "WHERE EXISTS (
+                    SELECT 1 FROM {$t} child
+                    WHERE child.parent_id = c.id AND LOWER(child.name) LIKE %s
+                )";
+                $args  = [$like];
+                break;
+            default:
+                $where = "WHERE LOWER(c.name) LIKE %s
+                    OR LOWER(p.name) LIKE %s
+                    OR EXISTS (
+                        SELECT 1 FROM {$t} child
+                        WHERE child.parent_id = c.id AND LOWER(child.name) LIKE %s
+                    )";
+                $args  = [$like, $like, $like];
+                break;
+        }
+
+        $rows = $wpdb->get_results($wpdb->prepare( // phpcs:ignore
+            "{$base} {$where} {$orderBy}",
+            ...$args
         ));
 
         return array_map(static fn(object $r) => self::fromRow($r), $rows ?? []);

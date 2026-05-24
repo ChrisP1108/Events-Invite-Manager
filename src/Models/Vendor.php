@@ -26,6 +26,7 @@ final class Vendor
         public readonly string $zipCode,
         public readonly string $email,
         public readonly string $phone,
+        public readonly string $websiteUrl,
         public readonly string $notes,
         public readonly string $createdAt,
         public readonly string $updatedAt,
@@ -84,7 +85,7 @@ final class Vendor
         global $wpdb;
 
         $table    = DatabaseManager::vendorsTable();
-        $allowed  = ['company_name', 'email'];
+        $allowed  = ['company_name', 'email', 'website_url'];
         $sortCol  = in_array($sort, $allowed, true) ? $sort : 'company_name';
         $orderSql = strtolower($order) === 'desc' ? 'DESC' : 'ASC';
         $orderBy  = "ORDER BY {$sortCol} {$orderSql}, company_name ASC"; // phpcs:ignore
@@ -112,6 +113,11 @@ final class Vendor
                     "SELECT * FROM {$table} WHERE LOWER(phone) LIKE %s {$orderBy}", $like
                 );
                 break;
+            case 'website_url':
+                $sql = $wpdb->prepare( // phpcs:ignore
+                    "SELECT * FROM {$table} WHERE LOWER(website_url) LIKE %s {$orderBy}", $like
+                );
+                break;
             case 'address':
                 $sql = $wpdb->prepare( // phpcs:ignore
                     "SELECT * FROM {$table}
@@ -129,10 +135,11 @@ final class Vendor
                      WHERE LOWER(company_name) LIKE %s
                         OR LOWER(email) LIKE %s
                         OR LOWER(phone) LIKE %s
+                        OR LOWER(website_url) LIKE %s
                         OR LOWER(street_address) LIKE %s
                         OR LOWER(city) LIKE %s
                      {$orderBy}",
-                    $like, $like, $like, $like, $like
+                    $like, $like, $like, $like, $like, $like
                 );
         }
 
@@ -166,12 +173,23 @@ final class Vendor
             )
         );
 
-        return array_map(static function (object $row): array {
+        $vendorIds    = array_map(static fn(object $row): int => (int) $row->id, $rows ?? []);
+        $catsByVendor = Category::forEntities('vendor', $vendorIds);
+
+        return array_map(static function (object $row) use ($catsByVendor): array {
+            $cats = $catsByVendor[(int) $row->id] ?? [];
+            $categoryLabels = array_map(
+                static fn(Category $cat): string => $cat->parentName ? $cat->parentName . ' › ' . $cat->name : $cat->name,
+                $cats
+            );
+
             return [
                 'id'           => (int)  $row->id,
                 'company_name' =>        $row->company_name,
                 'email'        =>        $row->email ?? '',
                 'phone'        =>        $row->phone ?? '',
+                'website_url'  =>        $row->website_url ?? '',
+                'category_label' =>      implode(', ', $categoryLabels),
                 'label'        =>        $row->company_name,
             ];
         }, $rows ?? []);
@@ -190,6 +208,7 @@ final class Vendor
             'zip_code'       => (string) ($data['zip_code']       ?? ''),
             'email'          => (string) ($data['email']          ?? ''),
             'phone'          => (string) ($data['phone']          ?? ''),
+            'website_url'    => (string) ($data['website_url']    ?? ''),
             'notes'          => (string) ($data['notes']          ?? ''),
         ]);
 
@@ -209,6 +228,7 @@ final class Vendor
         if (array_key_exists('zip_code',       $data)) $fields['zip_code']       = (string) $data['zip_code'];
         if (array_key_exists('email',          $data)) $fields['email']          = (string) $data['email'];
         if (array_key_exists('phone',          $data)) $fields['phone']          = (string) $data['phone'];
+        if (array_key_exists('website_url',    $data)) $fields['website_url']    = (string) $data['website_url'];
         if (array_key_exists('notes',          $data)) $fields['notes']          = (string) $data['notes'];
 
         if (empty($fields)) return true;
@@ -229,6 +249,13 @@ final class Vendor
         $wpdb->update(DatabaseManager::menuItemsTable(),       ['vendor_id' => null], ['vendor_id' => $id]);
 
         return $wpdb->delete(DatabaseManager::vendorsTable(), ['id' => $id]) !== false;
+    }
+
+    public static function count(): int
+    {
+        global $wpdb;
+        $table = DatabaseManager::vendorsTable();
+        return (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table}"); // phpcs:ignore
     }
 
     // -------------------------------------------------------------------------
@@ -351,6 +378,7 @@ final class Vendor
             zipCode:              $row->zip_code       ?? '',
             email:                $row->email          ?? '',
             phone:                $row->phone          ?? '',
+            websiteUrl:           $row->website_url    ?? '',
             notes:                $row->notes          ?? '',
             createdAt:            $row->created_at     ?? '',
             updatedAt:            $row->updated_at     ?? '',

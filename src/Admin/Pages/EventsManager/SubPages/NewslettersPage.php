@@ -51,6 +51,7 @@ final class NewslettersPage extends AbstractAdminPage
         match ($action) {
             'save_newsletter'      => $this->handleSaveNewsletter(),
             'delete_newsletter'    => $this->handleDeleteNewsletter(),
+            'bulk_delete_newsletters' => $this->handleBulkDeleteNewsletters(),
             'add_newsletter_tag'   => $this->handleAddTag(),
             'delete_newsletter_tag' => $this->handleDeleteTag(),
             default                => null,
@@ -271,6 +272,32 @@ final class NewslettersPage extends AbstractAdminPage
         exit;
     }
 
+    private function handleBulkDeleteNewsletters(): void
+    {
+        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_bulk_delete_newsletters')) {
+            wp_die('Security check failed.');
+        }
+
+        if ($this->requestedBulkAction() !== 'delete') {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_NEWSLETTERS, ['eim_error' => 'bulk_invalid_action']));
+            exit;
+        }
+
+        $ids = $this->bulkActionIds();
+        if (empty($ids)) {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_NEWSLETTERS, ['eim_error' => 'bulk_no_selection']));
+            exit;
+        }
+
+        foreach ($ids as $id) {
+            Category::syncToEntity('newsletter', $id, []);
+            Newsletter::delete($id);
+        }
+
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_NEWSLETTERS, ['eim_message' => 'bulk_deleted']));
+        exit;
+    }
+
     /** Handles creating a new newsletter tag from the taxonomy panel form. */
     private function handleAddTag(): void
     {
@@ -352,6 +379,13 @@ final class NewslettersPage extends AbstractAdminPage
                 $field
             ); ?>
 
+            <?php $this->renderBulkActions(
+                'eim-newsletters-bulk-form',
+                AdminMenu::tabUrl(AdminMenu::TAB_NEWSLETTERS),
+                'bulk_delete_newsletters',
+                'eim_bulk_delete_newsletters'
+            ); ?>
+
             <table id="eim-newsletters-table"
                    class="wp-list-table widefat fixed striped"
                    data-sort="<?= esc_attr($sort); ?>"
@@ -359,6 +393,7 @@ final class NewslettersPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
+                        <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('newsletters'); ?></th>
                         <th style="width:26%;"><?= $this->sortLink('Title',        'title',        AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_NEWSLETTERS]); ?></th>
                         <th style="width:20%;"><?= $this->sortLink('Events',       'events',       AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_NEWSLETTERS]); ?></th>
                         <th style="width:16%;"><?= $this->sortLink('Categories',   'categories',   AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_NEWSLETTERS]); ?></th>
@@ -393,7 +428,7 @@ final class NewslettersPage extends AbstractAdminPage
     {
         if (empty($newsletters)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No newsletters found.';
-            echo '<tr class="eim-no-results"><td colspan="7">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="8">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -412,6 +447,7 @@ final class NewslettersPage extends AbstractAdminPage
             $statusLabel = $nl->status === 'published' ? 'Published' : 'Draft';
             ?>
             <tr>
+                <?= $this->renderBulkSelectCell('eim-newsletters-bulk-form', 'newsletters', $nl->id, $nl->title); ?>
                 <td><strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($nl->title); ?></a></strong></td>
                 <td>
                     <?php if (empty($nl->events)): ?>

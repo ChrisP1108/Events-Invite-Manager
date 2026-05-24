@@ -59,6 +59,191 @@
         return d.innerHTML;
     };
 
+    /**
+     * Shared RSVP Details modal used by event group member menus and invitee
+     * edit screen event-response menus.
+     */
+    class RsvpDetailsModal {
+        /** @type {HTMLElement|null} */
+        #overlay = null;
+
+        constructor() {
+            document.addEventListener('click', (e) => this.#handleClick(e));
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    this.#closeEventMenus();
+                    this.#close();
+                }
+            });
+        }
+
+        /**
+         * Routes clicks for event-response dropdowns, Details buttons, and modal close controls.
+         *
+         * @param {MouseEvent} e
+         * @returns {void}
+         */
+        #handleClick(e) {
+            const eventTrigger = e.target.closest('.eim-event-detail-trigger');
+            if (eventTrigger) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.#toggleEventMenu(eventTrigger);
+                return;
+            }
+
+            const detailsTrigger = e.target.closest('.eim-rsvp-details-trigger');
+            if (detailsTrigger) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.#closeEventMenus();
+                const memberMenu = detailsTrigger.closest('.eim-member-dropdown-menu');
+                if (memberMenu) {
+                    memberMenu.hidden = true;
+                    memberMenu.previousElementSibling?.setAttribute('aria-expanded', 'false');
+                }
+
+                const payload = this.#parsePayload(detailsTrigger.dataset.eimRsvpDetails || '');
+                if (payload) this.#open(payload);
+                return;
+            }
+
+            if (e.target.closest('.eim-rsvp-modal-close') || e.target.classList.contains('eim-rsvp-modal-backdrop')) {
+                e.preventDefault();
+                this.#close();
+                return;
+            }
+
+            if (!e.target.closest('.eim-event-detail-dropdown')) {
+                this.#closeEventMenus();
+            }
+        }
+
+        /**
+         * Toggles an invitee-edit event Details dropdown.
+         *
+         * @param {HTMLElement} trigger
+         * @returns {void}
+         */
+        #toggleEventMenu(trigger) {
+            const menu = trigger.nextElementSibling;
+            if (!menu) return;
+
+            const isOpen = !menu.hidden;
+            this.#closeEventMenus();
+
+            if (!isOpen) {
+                menu.hidden = false;
+                trigger.setAttribute('aria-expanded', 'true');
+            }
+        }
+
+        /**
+         * Closes all invitee-edit event Details dropdowns.
+         *
+         * @returns {void}
+         */
+        #closeEventMenus() {
+            document.querySelectorAll('.eim-event-detail-menu').forEach((menu) => {
+                menu.hidden = true;
+                menu.previousElementSibling?.setAttribute('aria-expanded', 'false');
+            });
+        }
+
+        /**
+         * Parses a JSON details payload stored in a data attribute.
+         *
+         * @param {string} raw
+         * @returns {object|null}
+         */
+        #parsePayload(raw) {
+            if (!raw) return null;
+            try {
+                return JSON.parse(raw);
+            } catch (err) {
+                console.error('[EIM] Could not parse RSVP details payload:', err);
+                return null;
+            }
+        }
+
+        /**
+         * Opens the modal for the given details payload.
+         *
+         * @param {{title?: string, sections?: Array<{heading?: string, rows?: Array<{label?: string, value?: string}>}>}} payload
+         * @returns {void}
+         */
+        #open(payload) {
+            this.#close();
+
+            const overlay = document.createElement('div');
+            overlay.className = 'eim-rsvp-modal-backdrop';
+            overlay.setAttribute('role', 'presentation');
+
+            const modal = document.createElement('div');
+            modal.className = 'eim-rsvp-modal';
+            modal.setAttribute('role', 'dialog');
+            modal.setAttribute('aria-modal', 'true');
+
+            const header = document.createElement('div');
+            header.className = 'eim-rsvp-modal-header';
+
+            const title = document.createElement('h2');
+            title.textContent = payload.title || 'RSVP Details';
+            header.appendChild(title);
+
+            const close = document.createElement('button');
+            close.type = 'button';
+            close.className = 'button-link eim-rsvp-modal-close';
+            close.setAttribute('aria-label', 'Close RSVP details');
+            close.textContent = 'Close';
+            header.appendChild(close);
+            modal.appendChild(header);
+
+            const body = document.createElement('div');
+            body.className = 'eim-rsvp-modal-body';
+
+            for (const section of payload.sections || []) {
+                const sectionEl = document.createElement('section');
+                sectionEl.className = 'eim-rsvp-modal-section';
+
+                if (section.heading) {
+                    const heading = document.createElement('h3');
+                    heading.textContent = section.heading;
+                    sectionEl.appendChild(heading);
+                }
+
+                const list = document.createElement('dl');
+                for (const row of section.rows || []) {
+                    const dt = document.createElement('dt');
+                    dt.textContent = row.label || '';
+                    const dd = document.createElement('dd');
+                    const value = row.value === null || row.value === undefined ? '' : String(row.value).trim();
+                    dd.textContent = value || 'Not provided';
+                    list.append(dt, dd);
+                }
+                sectionEl.appendChild(list);
+                body.appendChild(sectionEl);
+            }
+
+            modal.appendChild(body);
+            overlay.appendChild(modal);
+            document.body.appendChild(overlay);
+
+            this.#overlay = overlay;
+            close.focus();
+        }
+
+        /**
+         * Closes the active modal.
+         *
+         * @returns {void}
+         */
+        #close() {
+            this.#overlay?.remove();
+            this.#overlay = null;
+        }
+    }
+
     // -----------------------------------------------------------------------
     // InviteeTable — global Invitees list search/sort
     // -----------------------------------------------------------------------
@@ -1603,6 +1788,7 @@
     // Boot
     // -----------------------------------------------------------------------
     document.addEventListener('DOMContentLoaded', () => {
+        new RsvpDetailsModal();
         if (config.table?.enabled)                new InviteeTable();
         if (config.connectionGroupTable?.enabled) new ConnectionGroupTable();
         if (config.event?.enabled)                new EventInviteePicker();

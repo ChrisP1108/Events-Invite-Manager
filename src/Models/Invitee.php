@@ -276,7 +276,7 @@ final class Invitee
      * @param string $orderBy  first_name | last_name | email | phone | events
      * @param string $order    asc | desc
      * @param string $field    Restrict search to a single column; empty string searches all.
-     * @return array<int, array{invitee: self, events: array<int, array{id: int, name: string}>}>
+     * @return array<int, array{invitee: self, events: array<int, array<string, mixed>>}>
      */
     public static function listForAdmin(string $search = '', string $orderBy = 'last_name', string $order = 'asc', string $field = ''): array
     {
@@ -455,7 +455,7 @@ final class Invitee
      * Returns the events an invitee has been invited to, ordered by event name.
      *
      * @param int $inviteeId
-     * @return array<int, array{id: int, name: string}>
+     * @return array<int, array<string, mixed>>
      */
     public static function eventsForInvitee(int $inviteeId): array
     {
@@ -645,7 +645,7 @@ final class Invitee
      * Returns invited events grouped by invitee ID.
      *
      * @param int[] $inviteeIds
-     * @return array<int, array<int, array{id: int, name: string}>>
+     * @return array<int, array<int, array<string, mixed>>>
      */
     private static function eventsForInvitees(array $inviteeIds): array
     {
@@ -658,13 +658,34 @@ final class Invitee
 
         $eventsTable        = DatabaseManager::eventsTable();
         $eventInviteesTable = DatabaseManager::eventInviteesTable();
+        $groupsTable        = DatabaseManager::invitationGroupsTable();
+        $membersTable       = DatabaseManager::invitationGroupMembersTable();
+        $menuItemsTable     = DatabaseManager::menuItemsTable();
         $placeholders = implode(', ', array_fill(0, count($inviteeIds), '%d'));
 
         $rows = $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT ei.invitee_id, e.id, e.name
+                "SELECT ei.invitee_id, e.id, e.name,
+                        rsvp.rsvp_status,
+                        rsvp.registered_at,
+                        rsvp.food_option_id,
+                        food.label AS food_label,
+                        rsvp.beverage_option_id,
+                        beverage.label AS beverage_label,
+                        rsvp.dietary_notes,
+                        rsvp.food_confirmed_at,
+                        rsvp.beverage_confirmed_at
                  FROM {$eventInviteesTable} ei
                  INNER JOIN {$eventsTable} e ON e.id = ei.event_id
+                 LEFT JOIN (
+                     SELECT eig.event_id, egm.invitee_id, egm.rsvp_status, egm.registered_at,
+                            egm.food_option_id, egm.beverage_option_id, egm.dietary_notes,
+                            egm.food_confirmed_at, egm.beverage_confirmed_at
+                     FROM {$membersTable} egm
+                     INNER JOIN {$groupsTable} eig ON eig.id = egm.group_id
+                 ) rsvp ON rsvp.event_id = ei.event_id AND rsvp.invitee_id = ei.invitee_id
+                 LEFT JOIN {$menuItemsTable} food ON food.id = rsvp.food_option_id
+                 LEFT JOIN {$menuItemsTable} beverage ON beverage.id = rsvp.beverage_option_id
                  WHERE ei.invitee_id IN ({$placeholders})
                  ORDER BY e.name ASC",
                 ...$inviteeIds
@@ -674,8 +695,17 @@ final class Invitee
         $grouped = [];
         foreach ($rows ?? [] as $row) {
             $grouped[(int) $row->invitee_id][] = [
-                'id'   => (int) $row->id,
-                'name' => (string) $row->name,
+                'id'                      => (int) $row->id,
+                'name'                    => (string) $row->name,
+                'rsvp_status'             => (string) ($row->rsvp_status ?? InvitationGroup::RSVP_PENDING),
+                'registered_at'           => $row->registered_at ?? null,
+                'food_option_id'          => isset($row->food_option_id) && $row->food_option_id !== null ? (int) $row->food_option_id : null,
+                'food_label'              => $row->food_label ?? '',
+                'beverage_option_id'      => isset($row->beverage_option_id) && $row->beverage_option_id !== null ? (int) $row->beverage_option_id : null,
+                'beverage_label'          => $row->beverage_label ?? '',
+                'dietary_notes'           => $row->dietary_notes ?? '',
+                'food_confirmed_at'       => $row->food_confirmed_at ?? null,
+                'beverage_confirmed_at'   => $row->beverage_confirmed_at ?? null,
             ];
         }
 

@@ -101,17 +101,15 @@ final class RsvpFlowResolver
         }
 
         // ── Step 5: lodging completion check ─────────────────────────────────
-        // Lodging is confirmed at the group level (one selection per group).
-        // We check whether any attending member has lodging_confirmed_at set;
-        // if none do and lodging is required, the guest needs to choose.
+        // Lodging is a single group-level selection, propagated to all attending
+        // members when saved. All attending members must have lodging_confirmed_at
+        // set before the step is considered complete.
         if ($requiresLodging) {
-            $lodgingConfirmed = false;
-            foreach ($attendingMembers as $member) {
-                if ($member->lodgingConfirmedAt !== null) {
-                    $lodgingConfirmed = true;
-                    break;
-                }
-            }
+            $lodgingConfirmed = !empty($attendingMembers) && array_reduce(
+                $attendingMembers,
+                static fn(bool $carry, Invitee $m): bool => $carry && $m->lodgingConfirmedAt !== null,
+                true
+            );
             if (!$lodgingConfirmed) {
                 return new RsvpFlowResult(
                     success:          true,

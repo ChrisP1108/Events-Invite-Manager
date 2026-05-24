@@ -233,6 +233,8 @@ final class AdminMenu
             return;
         }
 
+        wp_enqueue_script('eim-admin-bulk-actions', EIM_PLUGIN_URL . 'assets/js/admin-bulk-actions.js', [], EIM_VERSION, true);
+
         // admin-categories.js provides CategoryPicker (used on all entity forms) and CategoriesTable.
         $categoryTableEnabled = $tab === self::TAB_CATEGORIES && !in_array($action, ['add', 'edit'], true);
         wp_enqueue_script('eim-admin-categories', EIM_PLUGIN_URL . 'assets/js/admin-categories.js', [], EIM_VERSION, true);

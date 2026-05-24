@@ -221,51 +221,72 @@
         #table;
         #tbody;
         #search;
+        #field;
         #count;
         #spinner;
+        #perPageSel;
+        #paginationNav;
         #sort;
         #order;
         #nonce;
+        #page = 1;
+        #perPage = 10;
 
         constructor() {
-            this.#table   = document.getElementById('eim-categories-table');
-            this.#tbody   = document.getElementById('eim-categories-table-body');
-            this.#search  = document.getElementById('eim-category-search');
-            this.#count   = document.getElementById('eim-category-count');
-            this.#spinner = document.getElementById('eim-category-loading');
+            this.#table         = document.getElementById('eim-categories-table');
+            this.#tbody         = document.getElementById('eim-categories-table-body');
+            this.#search        = document.getElementById('eim-category-search');
+            this.#field         = document.getElementById('eim-category-search-field');
+            this.#count         = document.getElementById('eim-category-count');
+            this.#spinner       = document.getElementById('eim-category-loading');
+            this.#perPageSel    = document.getElementById('eim-category-search-per-page');
+            this.#paginationNav = document.getElementById('eim-category-search-pagination');
 
             if (!this.#table || !this.#tbody || !this.#search) return;
 
             this.#sort  = this.#table.dataset.sort  ?? 'name';
             this.#order = this.#table.dataset.order ?? 'asc';
             this.#nonce = config.searchNonce ?? '';
+            this.#perPage = Number(this.#perPageSel?.value || 10);
 
-            this.#search.addEventListener('input', debounce(() => this.#fetch(), 250));
+            this.#perPageSel?.addEventListener('change', () => {
+                this.#perPage = Number(this.#perPageSel.value);
+                this.#page = 1;
+                this.#fetch();
+            });
+            this.#search.addEventListener('input', debounce(() => {
+                this.#page = 1;
+                this.#fetch();
+            }, 250));
+            this.#field?.addEventListener('change', () => {
+                this.#page = 1;
+                this.#fetch();
+            });
 
             this.#table.querySelectorAll('.eim-sort-link').forEach(link => {
                 link.addEventListener('click', (e) => {
                     e.preventDefault();
                     this.#sort  = link.dataset.sort;
                     this.#order = link.dataset.order;
+                    this.#page  = 1;
                     this.#fetch();
                 });
             });
 
-            window.addEventListener('eimPaginationChange', (e) => {
-                this.#fetch(e.detail.page, e.detail.perPage);
-            });
+            this.#renderPagination(Number(this.#table.dataset.total || 0));
         }
 
-        async #fetch(page = 1, perPage = 25) {
+        async #fetch() {
             if (this.#spinner) this.#spinner.classList.add('is-active');
 
             const url = ajaxUrl('eim_search_categories', {
                 nonce:    this.#nonce,
                 query:    this.#search.value,
+                field:    this.#field?.value || '',
                 sort:     this.#sort,
                 order:    this.#order,
-                page,
-                per_page: perPage,
+                page:     this.#page,
+                per_page: this.#perPage,
             });
 
             try {
@@ -275,9 +296,7 @@
                     this.#tbody.innerHTML = json.data.html;
                     if (this.#count) this.#count.textContent = json.data.count + ' result' + (json.data.count === 1 ? '' : 's');
                     this.#table.dataset.total = json.data.total;
-                    window.dispatchEvent(new CustomEvent('eimTableUpdated', {
-                        detail: { inputId: 'eim-category-search', total: json.data.total, page, perPage },
-                    }));
+                    this.#renderPagination(Number(json.data.total || 0));
                     this.#updateSortIndicators();
                 }
             } catch { /* silent */ } finally {
@@ -292,6 +311,18 @@
                 indicator.textContent = link.dataset.sort === this.#sort
                     ? (this.#order === 'asc' ? '^' : 'v')
                     : '';
+            });
+        }
+
+        #renderPagination(total) {
+            window.eimRenderPagination?.(this.#paginationNav, {
+                total,
+                perPage: this.#perPage,
+                page:    this.#page,
+                onPageChange: (page) => {
+                    this.#page = page;
+                    this.#fetch();
+                },
             });
         }
     }

@@ -50,17 +50,21 @@ final class EventsPage extends AbstractAdminPage
         match ($action) {
             'save_event'                => $this->handleSaveEvent(),
             'delete_event'              => $this->handleDeleteEvent(),
+            'bulk_delete_events'        => $this->handleBulkDeleteEvents(),
             'add_lodging_to_event'      => $this->handleAddLodgingToEvent(),
             'remove_lodging_from_event' => $this->handleRemoveLodgingFromEvent(),
+            'bulk_remove_lodging_from_event' => $this->handleBulkRemoveLodgingFromEvent(),
             'add_invitee_to_event'      => $this->handleAddInviteeToEvent(),
             'remove_invitee_from_event' => $this->handleRemoveInviteeFromEvent(),
             'set_group_primary'         => $this->handleSetGroupPrimary(),
             'add_member_to_group'       => $this->handleAddMemberToGroup(),
             'remove_group_from_event'   => $this->handleRemoveGroupFromEvent(),
+            'bulk_remove_groups_from_event' => $this->handleBulkRemoveGroupsFromEvent(),
             'send_event_invite'         => $this->handleSendEventInvite(),
             'send_all_event_invites'    => $this->handleSendAllEventInvites(),
             'add_menu_item_to_event'     => $this->handleAddMenuItemToEvent(),
             'remove_menu_item_from_event' => $this->handleRemoveMenuItemFromEvent(),
+            'bulk_remove_menu_items_from_event' => $this->handleBulkRemoveMenuItemsFromEvent(),
             default                     => null,
         };
     }
@@ -313,6 +317,32 @@ final class EventsPage extends AbstractAdminPage
         exit;
     }
 
+    private function handleBulkDeleteEvents(): void
+    {
+        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_bulk_delete_events')) {
+            wp_die('Security check failed.');
+        }
+
+        if ($this->requestedBulkAction() !== 'delete') {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['eim_error' => 'bulk_invalid_action']));
+            exit;
+        }
+
+        $ids = $this->bulkActionIds();
+        if (empty($ids)) {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['eim_error' => 'bulk_no_selection']));
+            exit;
+        }
+
+        foreach ($ids as $id) {
+            Category::syncToEntity('event', $id, []);
+            Event::delete($id);
+        }
+
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['eim_message' => 'bulk_deleted']));
+        exit;
+    }
+
     /** Handles adding a lodging location to an existing event. */
     private function handleAddLodgingToEvent(): void
     {
@@ -364,6 +394,38 @@ final class EventsPage extends AbstractAdminPage
             'id'          => $eventId,
             'eim_message' => 'lodging_deleted',
         ]) . '#eim-etab-lodging');
+        exit;
+    }
+
+    private function handleBulkRemoveLodgingFromEvent(): void
+    {
+        $eventId = (int) ($_POST['event_id'] ?? 0);
+
+        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_bulk_remove_lodging_from_event_' . $eventId)) {
+            wp_die('Security check failed.');
+        }
+
+        $redirectUrl = AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $eventId]);
+
+        if ($this->requestedBulkAction() !== 'delete') {
+            wp_redirect($redirectUrl . '&eim_error=bulk_invalid_action#eim-etab-lodging');
+            exit;
+        }
+
+        $ids = $this->bulkActionIds();
+        if (empty($ids)) {
+            wp_redirect($redirectUrl . '&eim_error=bulk_no_selection#eim-etab-lodging');
+            exit;
+        }
+
+        $validIds = array_flip(array_map(static fn(EventLodging $loc): int => $loc->id, EventLodging::forEvent($eventId)));
+        foreach ($ids as $id) {
+            if (isset($validIds[$id])) {
+                EventLodging::delete($id);
+            }
+        }
+
+        wp_redirect($redirectUrl . '&eim_message=bulk_deleted#eim-etab-lodging');
         exit;
     }
 
@@ -566,6 +628,38 @@ final class EventsPage extends AbstractAdminPage
         exit;
     }
 
+    private function handleBulkRemoveGroupsFromEvent(): void
+    {
+        $eventId = (int) ($_POST['event_id'] ?? 0);
+
+        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_bulk_remove_groups_from_event_' . $eventId)) {
+            wp_die('Security check failed.');
+        }
+
+        $redirectUrl = AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $eventId]);
+
+        if ($this->requestedBulkAction() !== 'delete') {
+            wp_redirect($redirectUrl . '&eim_error=bulk_invalid_action#eim-etab-invitees');
+            exit;
+        }
+
+        $ids = $this->bulkActionIds();
+        if (empty($ids)) {
+            wp_redirect($redirectUrl . '&eim_error=bulk_no_selection#eim-etab-invitees');
+            exit;
+        }
+
+        foreach ($ids as $groupId) {
+            $group = InvitationGroup::find($groupId);
+            if ($group !== null && $group->eventId === $eventId) {
+                InvitationGroup::deleteGroup($groupId, $eventId);
+            }
+        }
+
+        wp_redirect($redirectUrl . '&eim_message=bulk_deleted#eim-etab-invitees');
+        exit;
+    }
+
     /** Handles assigning a global menu item to an event. */
     private function handleAddMenuItemToEvent(): void
     {
@@ -614,6 +708,40 @@ final class EventsPage extends AbstractAdminPage
             'id'          => $eventId,
             'eim_message' => 'menu_item_removed_from_event',
         ]) . '#eim-etab-food');
+        exit;
+    }
+
+    private function handleBulkRemoveMenuItemsFromEvent(): void
+    {
+        $eventId = (int) ($_POST['event_id'] ?? 0);
+        $type    = sanitize_key($_POST['type'] ?? MenuItem::TYPE_FOOD);
+        $type    = $type === MenuItem::TYPE_BEVERAGE ? MenuItem::TYPE_BEVERAGE : MenuItem::TYPE_FOOD;
+
+        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_bulk_remove_menu_items_from_event_' . $eventId . '_' . $type)) {
+            wp_die('Security check failed.');
+        }
+
+        $redirectUrl = AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $eventId]);
+
+        if ($this->requestedBulkAction() !== 'delete') {
+            wp_redirect($redirectUrl . '&eim_error=bulk_invalid_action#eim-etab-food');
+            exit;
+        }
+
+        $ids = $this->bulkActionIds();
+        if (empty($ids)) {
+            wp_redirect($redirectUrl . '&eim_error=bulk_no_selection#eim-etab-food');
+            exit;
+        }
+
+        foreach ($ids as $menuItemId) {
+            $item = MenuItem::find($menuItemId);
+            if ($item !== null && $item->type === $type) {
+                MenuItem::removeFromEvent($eventId, $menuItemId);
+            }
+        }
+
+        wp_redirect($redirectUrl . '&eim_message=bulk_deleted#eim-etab-food');
         exit;
     }
 
@@ -950,14 +1078,22 @@ final class EventsPage extends AbstractAdminPage
                     $field
                 ); ?>
 
+                <?php $this->renderBulkActions(
+                    'eim-events-bulk-form',
+                    AdminMenu::tabUrl(AdminMenu::TAB_EVENTS),
+                    'bulk_delete_events',
+                    'eim_bulk_delete_events'
+                ); ?>
+
                 <table id="eim-events-list-table"
                        class="wp-list-table widefat fixed striped"
                        style="margin-top:12px;"
                        data-sort="<?= esc_attr($sort); ?>"
                        data-order="<?= esc_attr($order); ?>"
                        data-total="<?= esc_attr($total); ?>">
-                    <thead>
-                        <tr>
+                <thead>
+                    <tr>
+                            <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('events'); ?></th>
                             <th style="width:18%;"><?= $this->sortLink('Name', 'name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_EVENTS]); ?></th>
                             <th style="width:20%;"><?= $this->sortLink('Date / Time', 'start_datetime', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_EVENTS]); ?></th>
                             <th>Description</th>
@@ -985,7 +1121,7 @@ final class EventsPage extends AbstractAdminPage
     {
         if (empty($events)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No events found.';
-            echo '<tr class="eim-no-results"><td colspan="6">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="7">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -1005,6 +1141,7 @@ final class EventsPage extends AbstractAdminPage
             $cats        = $catsByEvent[$event->id] ?? [];
             ?>
             <tr>
+                <?= $this->renderBulkSelectCell('eim-events-bulk-form', 'events', $event->id, $event->name); ?>
                 <td>
                     <strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($event->name); ?></a></strong>
                 </td>
@@ -1305,6 +1442,13 @@ final class EventsPage extends AbstractAdminPage
 
             <?php if (!$isNew): ?>
                 <form id="<?= esc_attr($addLodgingFormId); ?>" method="post" action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS)); ?>"></form>
+                <?php $this->renderBulkActionFormShell(
+                    'eim-event-lodging-bulk-form',
+                    AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $event->id]),
+                    'bulk_remove_lodging_from_event',
+                    'eim_bulk_remove_lodging_from_event_' . $event->id,
+                    ['event_id' => $event->id]
+                ); ?>
             <?php endif; ?>
 
             <nav class="nav-tab-wrapper eim-event-tabs" data-event-id="<?= esc_attr($isNew ? '0' : $event->id); ?>" style="margin-top:12px;">
@@ -1592,6 +1736,7 @@ final class EventsPage extends AbstractAdminPage
 	                                        <p class="description eim-sortable-hint">Drag rows by the handle to set their order. Order numbers update automatically.</p>
 	                                        <p class="description eim-sort-status" aria-live="polite"></p>
 	                                    <?php endif; ?>
+                                        <?php $this->renderBulkActionControls('eim-event-lodging-bulk-form'); ?>
 	                                    <table id="eim-event-lodging-table"
                                                class="wp-list-table widefat fixed striped eim-sortable-assignment-list"
                                                data-kind="lodging"
@@ -1603,6 +1748,7 @@ final class EventsPage extends AbstractAdminPage
 	                                                <?php if ($canSortLodging): ?>
 	                                                    <th class="eim-drag-column"><span class="screen-reader-text">Move</span></th>
 	                                                <?php endif; ?>
+                                                    <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('event-lodging-' . $event->id); ?></th>
 	                                                <th style="width:8%;"><?= $this->clientSortLink('Order', 'order', 'order', 'asc'); ?></th>
 	                                                <th><?= $this->clientSortLink('Name / Address', 'name', 'order', 'asc'); ?></th>
 	                                                <th style="width:12%;">Actions</th>
@@ -1629,6 +1775,7 @@ final class EventsPage extends AbstractAdminPage
 	                                                            </button>
 	                                                        </td>
 	                                                    <?php endif; ?>
+                                                        <?= $this->renderBulkSelectCell('eim-event-lodging-bulk-form', 'event-lodging-' . $event->id, $loc->id, $loc->name); ?>
 	                                                    <td class="eim-order-cell"><?= esc_html($displayOrder); ?></td>
 	                                                    <td>
 	                                                        <strong><?= esc_html($loc->name); ?></strong>
@@ -1827,7 +1974,7 @@ final class EventsPage extends AbstractAdminPage
 	        $countId  = 'eim-event-' . $type . '-item-count';
 	        $tbodyId  = 'eim-event-' . $type . '-items-body';
 	        $canReorder = count($assignedItems) > 1;
-	        $columnCount = $canReorder ? 5 : 4;
+	        $columnCount = $canReorder ? 6 : 5;
 	        ?>
 	        <h3><?= esc_html($heading); ?></h3>
 
@@ -1849,6 +1996,13 @@ final class EventsPage extends AbstractAdminPage
 	                <p class="description eim-sortable-hint">Drag rows by the handle to set their order. Order numbers update automatically.</p>
 	                <p class="description eim-sort-status" aria-live="polite"></p>
 	            <?php endif; ?>
+                <?php $this->renderBulkActions(
+                    'eim-event-' . $type . '-items-bulk-form',
+                    AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $event->id]),
+                    'bulk_remove_menu_items_from_event',
+                    'eim_bulk_remove_menu_items_from_event_' . $event->id . '_' . $type,
+                    ['event_id' => $event->id, 'type' => $type]
+                ); ?>
 
 	            <table class="wp-list-table widefat fixed striped eim-sortable-assignment-list"
                        data-kind="menu"
@@ -1861,6 +2015,7 @@ final class EventsPage extends AbstractAdminPage
 	                        <?php if ($canReorder): ?>
 	                            <th class="eim-drag-column"><span class="screen-reader-text">Move</span></th>
 	                        <?php endif; ?>
+                            <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('event-' . $type . '-items-' . $event->id); ?></th>
 	                        <th style="width:10%;"><?= $this->clientSortLink('Order', 'order', 'order', 'asc'); ?></th>
 	                        <th><?= $this->clientSortLink('Label', 'label', 'order', 'asc'); ?></th>
 	                        <th style="width:40%;"><?= $this->clientSortLink('Description', 'description', 'order', 'asc'); ?></th>
@@ -1891,6 +2046,7 @@ final class EventsPage extends AbstractAdminPage
 	                                        </button>
 	                                    </td>
 	                                <?php endif; ?>
+                                    <?= $this->renderBulkSelectCell('eim-event-' . $type . '-items-bulk-form', 'event-' . $type . '-items-' . $event->id, $item->id, $item->label); ?>
 	                                <td class="eim-order-cell"><?= esc_html($displayOrder); ?></td>
 	                                <td><strong><?= esc_html($item->label); ?></strong></td>
 	                                <td><?= esc_html($item->description ?: '—'); ?></td>
@@ -1965,7 +2121,7 @@ final class EventsPage extends AbstractAdminPage
     private function sanitizeEventGroupSortKey(string $key): string
     {
         $key = sanitize_key($key);
-        return in_array($key, ['name', 'email', 'members', 'invite_sent', 'attending'], true) ? $key : 'name';
+        return in_array($key, ['name', 'email', 'members', 'invite_sent', 'attending', 'rsvp_notes'], true) ? $key : 'name';
     }
 
     /**
@@ -1977,7 +2133,118 @@ final class EventsPage extends AbstractAdminPage
     private function sanitizeEventGroupFieldKey(string $field): string
     {
         $field = sanitize_key($field);
-        return in_array($field, ['name', 'email', 'invite_sent', 'attending'], true) ? $field : '';
+        return in_array($field, ['name', 'email', 'invite_sent', 'attending', 'rsvp_notes'], true) ? $field : '';
+    }
+
+    /**
+     * Returns a display label for a stored food or beverage selection.
+     *
+     * @param int|null              $id
+     * @param array<int, MenuItem>  $optionMap
+     * @return string
+     */
+    private function menuSelectionLabel(?int $id, array $optionMap): string
+    {
+        if ($id === null || $id <= 0) {
+            return '';
+        }
+
+        if (isset($optionMap[$id])) {
+            return $optionMap[$id]->label;
+        }
+
+        $item = MenuItem::find($id);
+
+        if ($item === null) {
+            return 'Unavailable option';
+        }
+
+        return $item->label . ' (not assigned to this event)';
+    }
+
+    /**
+     * Formats a stored RSVP status for admin display.
+     *
+     * @param string $status
+     * @return string
+     */
+    private function rsvpStatusLabel(string $status): string
+    {
+        return match ($status) {
+            InvitationGroup::RSVP_ATTENDING => 'Attending',
+            InvitationGroup::RSVP_DECLINED  => 'Declined',
+            default                         => 'Pending',
+        };
+    }
+
+    /**
+     * Formats a MySQL datetime in the site's admin date/time format.
+     *
+     * @param string|null $datetime
+     * @return string
+     */
+    private function formatAdminDateTime(?string $datetime): string
+    {
+        if (!$datetime) {
+            return '';
+        }
+
+        $timestamp = strtotime($datetime);
+
+        if ($timestamp === false) {
+            return '';
+        }
+
+        return date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $timestamp);
+    }
+
+    /**
+     * Encodes a Details modal payload for use in a data attribute.
+     *
+     * @param array<string,mixed> $payload
+     * @return string
+     */
+    private function rsvpDetailsAttribute(array $payload): string
+    {
+        return esc_attr((string) wp_json_encode($payload));
+    }
+
+    /**
+     * Builds the Details modal payload for an invitee on an event invitation row.
+     *
+     * @param Invitee     $member
+     * @param string|null $foodLabel
+     * @param string|null $beverageLabel
+     * @return array<string,mixed>
+     */
+    private function memberDetailsPayload(Invitee $member, ?string $foodLabel, ?string $beverageLabel): array
+    {
+        $fullName = $member->fullName();
+
+        return [
+            'title'    => $fullName !== '' ? $fullName : $member->email,
+            'sections' => [
+                [
+                    'heading' => 'Invitee Information',
+                    'rows'    => [
+                        ['label' => 'Name',    'value' => $fullName],
+                        ['label' => 'Email',   'value' => $member->email],
+                        ['label' => 'Phone',   'value' => $member->phone],
+                        ['label' => 'Address', 'value' => $member->formattedAddress()],
+                    ],
+                ],
+                [
+                    'heading' => 'RSVP Response',
+                    'rows'    => [
+                        ['label' => 'Status',         'value' => $this->rsvpStatusLabel($member->rsvpStatus)],
+                        ['label' => 'Registered',     'value' => $this->formatAdminDateTime($member->registeredAt)],
+                        ['label' => 'Food',           'value' => $foodLabel ?: ''],
+                        ['label' => 'Beverage',       'value' => $beverageLabel ?: ''],
+                        ['label' => 'Dietary Notes',  'value' => $member->dietaryNotes],
+                    ],
+                ],
+            ],
+        ];
     }
 
     /**
@@ -2051,8 +2318,14 @@ final class EventsPage extends AbstractAdminPage
                         }
                         return str_contains($label, $needle);
 
+                    case 'rsvp_notes':
+                        return str_contains(strtolower($group->rsvpNotes), $needle);
+
                     default:
-                        // Any: search member names + emails
+                        // Any: search member names, emails, and group RSVP notes.
+                        if (str_contains(strtolower($group->rsvpNotes), $needle)) {
+                            return true;
+                        }
                         foreach ($members as $m) {
                             if (str_contains(strtolower($m->firstName . ' ' . $m->lastName), $needle)
                                 || str_contains(strtolower($m->email), $needle)) {
@@ -2112,6 +2385,9 @@ final class EventsPage extends AbstractAdminPage
             if ($sort === 'attending') {
                 return $mul * ($a->attendingCount() <=> $b->attendingCount());
             }
+            if ($sort === 'rsvp_notes') {
+                return $mul * strcasecmp($a->rsvpNotes, $b->rsvpNotes);
+            }
             return 0;
         });
 
@@ -2169,7 +2445,7 @@ final class EventsPage extends AbstractAdminPage
     {
         if (empty($groups)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No invitees have been added to this event yet.';
-            echo '<tr><td colspan="5">' . esc_html($msg) . '</td></tr>';
+            echo '<tr><td colspan="7">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -2199,6 +2475,7 @@ final class EventsPage extends AbstractAdminPage
             $uninvitedConnections = array_values(array_filter($allConnections, static fn(array $c) => !$c['already_invited']));
             ?>
             <tr>
+                <?= $this->renderBulkSelectCell('eim-event-groups-bulk-form', 'event-groups-' . $event->id, $group->id, 'invitation group ' . (string) $group->id); ?>
                 <td>
                     <span class="eim-tag-list">
                         <?php foreach ($members as $member): ?>
@@ -2215,10 +2492,9 @@ final class EventsPage extends AbstractAdminPage
                             $isPrimary      = $member->id === $group->primaryInviteeId;
                             ?>
                             <?php
-                            $foodLabel = ($member->foodOptionId && isset($rsvpOptionMap[$member->foodOptionId]))
-                                ? $rsvpOptionMap[$member->foodOptionId]->label : null;
-                            $bevLabel  = ($member->beverageOptionId && isset($rsvpOptionMap[$member->beverageOptionId]))
-                                ? $rsvpOptionMap[$member->beverageOptionId]->label : null;
+                            $foodLabel      = $this->menuSelectionLabel($member->foodOptionId, $rsvpOptionMap);
+                            $bevLabel       = $this->menuSelectionLabel($member->beverageOptionId, $rsvpOptionMap);
+                            $detailsPayload = $this->memberDetailsPayload($member, $foodLabel ?: null, $bevLabel ?: null);
                             ?>
                             <span class="eim-group-member-tag<?= $isPrimary ? ' eim-group-member-primary' : ''; ?>">
                                 <span class="eim-member-dropdown">
@@ -2228,6 +2504,10 @@ final class EventsPage extends AbstractAdminPage
                                             aria-expanded="false"><?= esc_html($member->fullName()); ?><?= $isPrimary ? ' <span class="eim-event-tag-role" title="Primary recipient">✉</span>' : ''; ?></button>
                                     <div class="eim-member-dropdown-menu" role="menu" hidden>
                                         <a href="<?= esc_url($editInvUrl); ?>" role="menuitem">Edit Invitee</a>
+                                        <button type="button"
+                                                class="eim-rsvp-details-trigger"
+                                                role="menuitem"
+                                                data-eim-rsvp-details="<?= $this->rsvpDetailsAttribute($detailsPayload); ?>">Details</button>
                                         <?php if (!$isPrimary): ?>
                                         <a href="<?= esc_url($makePrimaryUrl); ?>"
                                            role="menuitem"
@@ -2280,6 +2560,16 @@ final class EventsPage extends AbstractAdminPage
                         </span>
                     <?php endif; ?>
                 </td>
+                <td class="eim-rsvp-notes-cell">
+                    <?php if (trim($group->rsvpNotes) !== ''): ?>
+                        <div class="eim-rsvp-notes-preview"><?= esc_html($group->rsvpNotes); ?></div>
+                        <?php if ($group->rsvpNotesUpdatedAt): ?>
+                            <span class="description">Updated <?= esc_html($this->formatAdminDateTime($group->rsvpNotesUpdatedAt)); ?></span>
+                        <?php endif; ?>
+                    <?php else: ?>
+                        <span style="color:#999;">—</span>
+                    <?php endif; ?>
+                </td>
                 <td class="eim-group-actions">
                     <a href="<?= esc_url($sendUrl); ?>">Send Invite</a>
                     <span class="eim-action-sep">|</span>
@@ -2299,7 +2589,7 @@ final class EventsPage extends AbstractAdminPage
                 </td>
             </tr>
             <tr class="eim-add-member-row" id="eim-add-member-row-<?= esc_attr($group->id); ?>" style="display:none;">
-                <td colspan="5" class="eim-add-member-cell">
+                <td colspan="7" class="eim-add-member-cell">
                     <form method="post"
                           action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'add_member_to_group'])); ?>"
                           class="eim-add-member-form">
@@ -2329,7 +2619,7 @@ final class EventsPage extends AbstractAdminPage
             </tr>
             <?php if (!empty($uninvitedConnections)): ?>
             <tr class="eim-add-connection-row" id="eim-add-connection-row-<?= esc_attr($group->id); ?>" style="display:none;">
-                <td colspan="5" class="eim-add-member-cell">
+                <td colspan="7" class="eim-add-member-cell">
                     <form method="post"
                           action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'add_member_to_group'])); ?>"
                           class="eim-add-member-form">
@@ -2438,7 +2728,7 @@ final class EventsPage extends AbstractAdminPage
             'eim-event-groups-search',
             'eim-event-groups-count',
             'eim-event-groups-loading',
-            'Search group members, email...',
+            'Search group members, email, RSVP notes...',
             count($groups),
             '',
             [
@@ -2446,7 +2736,16 @@ final class EventsPage extends AbstractAdminPage
                 ['value' => 'email',       'label' => 'Email'],
                 ['value' => 'invite_sent', 'label' => 'Invite Sent'],
                 ['value' => 'attending',   'label' => 'Registered'],
+                ['value' => 'rsvp_notes',  'label' => 'RSVP Notes'],
             ]
+        ); ?>
+
+        <?php $this->renderBulkActions(
+            'eim-event-groups-bulk-form',
+            AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $event->id]),
+            'bulk_remove_groups_from_event',
+            'eim_bulk_remove_groups_from_event_' . $event->id,
+            ['event_id' => $event->id]
         ); ?>
 
         <?php $sortArgs = ['action' => 'edit', 'id' => $event->id, 'tab' => AdminMenu::TAB_EVENTS]; ?>
@@ -2457,11 +2756,13 @@ final class EventsPage extends AbstractAdminPage
                data-order="<?= esc_attr($order); ?>">
             <thead>
                 <tr>
-                    <th style="width:28%;"><?= $this->sortLink('Group Members',   'name',        AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
-                    <th style="width:20%;"><?= $this->sortLink('Email (Primary)', 'email',       AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
-                    <th style="width:13%;"><?= $this->sortLink('Invite Sent',     'invite_sent', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
-                    <th style="width:12%;"><?= $this->sortLink('Registered',      'attending',   AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
-                    <th style="width:27%;">Actions</th>
+                    <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('event-groups-' . $event->id); ?></th>
+                    <th style="width:25%;"><?= $this->sortLink('Group Members',   'name',        AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:18%;"><?= $this->sortLink('Email (Primary)', 'email',       AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:12%;"><?= $this->sortLink('Invite Sent',     'invite_sent', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:11%;"><?= $this->sortLink('Registered',      'attending',   AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:16%;"><?= $this->sortLink('RSVP Notes',      'rsvp_notes',  AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:18%;">Actions</th>
                 </tr>
             </thead>
             <tbody id="eim-event-groups-table-body">

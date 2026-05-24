@@ -29,6 +29,8 @@ final class InvitationGroup
         public readonly int     $eventId,
         public readonly int     $primaryInviteeId,
         public readonly ?string $inviteSentAt,
+        public readonly string  $rsvpNotes,
+        public readonly ?string $rsvpNotesUpdatedAt,
         public readonly string  $createdAt,
         public readonly string  $updatedAt,
     ) {}
@@ -398,6 +400,29 @@ final class InvitationGroup
     }
 
     /**
+     * Saves the shared RSVP notes for an invitation group.
+     *
+     * @param int    $groupId
+     * @param string $notes
+     * @return bool
+     */
+    public static function updateRsvpNotes(int $groupId, string $notes): bool
+    {
+        global $wpdb;
+
+        $result = $wpdb->update(
+            DatabaseManager::invitationGroupsTable(),
+            [
+                'rsvp_notes'            => $notes,
+                'rsvp_notes_updated_at' => current_time('mysql'),
+            ],
+            ['id' => $groupId]
+        );
+
+        return $result !== false;
+    }
+
+    /**
      * Marks all pending members of a group as attending.
      *
      * @param int $groupId
@@ -438,9 +463,22 @@ final class InvitationGroup
             ? $status
             : self::RSVP_PENDING;
 
+        // Preserve the original registered_at once it is set — later food/lodging edits
+        // should not overwrite the date the invitee first accepted.
+        if ($status === self::RSVP_ATTENDING) {
+            $existing = $wpdb->get_var($wpdb->prepare(
+                "SELECT registered_at FROM " . DatabaseManager::invitationGroupMembersTable() . " WHERE group_id = %d AND invitee_id = %d LIMIT 1", // phpcs:ignore
+                $groupId,
+                $inviteeId
+            ));
+            $registeredAt = $existing ?? current_time('mysql');
+        } else {
+            $registeredAt = null;
+        }
+
         $fields = [
             'rsvp_status'   => $status,
-            'registered_at' => $status === self::RSVP_ATTENDING ? current_time('mysql') : null,
+            'registered_at' => $registeredAt,
         ];
 
         if (array_key_exists('food_option_id', $extras)) {
@@ -580,6 +618,8 @@ final class InvitationGroup
             eventId:          (int) $row->event_id,
             primaryInviteeId: (int) $row->primary_invitee_id,
             inviteSentAt:           $row->invite_sent_at ?? null,
+            rsvpNotes:              $row->rsvp_notes ?? '',
+            rsvpNotesUpdatedAt:     $row->rsvp_notes_updated_at ?? null,
             createdAt:              $row->created_at     ?? '',
             updatedAt:              $row->updated_at     ?? '',
         );

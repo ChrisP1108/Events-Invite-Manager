@@ -24,6 +24,7 @@ final class VendorsPage extends AbstractAdminPage
         match ($action) {
             'save_vendor'   => $this->handleSaveVendor(),
             'delete_vendor' => $this->handleDeleteVendor(),
+            'bulk_delete_vendors' => $this->handleBulkDeleteVendors(),
             default         => null,
         };
     }
@@ -127,6 +128,7 @@ final class VendorsPage extends AbstractAdminPage
             'zip_code'       => sanitize_text_field(wp_unslash($_POST['zip_code']       ?? '')),
             'email'          => sanitize_email(wp_unslash($_POST['email']               ?? '')),
             'phone'          => sanitize_text_field(wp_unslash($_POST['phone']          ?? '')),
+            'website_url'    => esc_url_raw(wp_unslash($_POST['website_url']            ?? '')),
             'notes'          => sanitize_textarea_field(wp_unslash($_POST['notes']      ?? '')),
         ];
 
@@ -159,6 +161,32 @@ final class VendorsPage extends AbstractAdminPage
         Vendor::delete($id);
 
         wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_VENDORS, ['eim_message' => 'vendor_deleted']));
+        exit;
+    }
+
+    private function handleBulkDeleteVendors(): void
+    {
+        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_bulk_delete_vendors')) {
+            wp_die('Security check failed.');
+        }
+
+        if ($this->requestedBulkAction() !== 'delete') {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_VENDORS, ['eim_error' => 'bulk_invalid_action']));
+            exit;
+        }
+
+        $ids = $this->bulkActionIds();
+        if (empty($ids)) {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_VENDORS, ['eim_error' => 'bulk_no_selection']));
+            exit;
+        }
+
+        foreach ($ids as $id) {
+            Category::syncToEntity('vendor', $id, []);
+            Vendor::delete($id);
+        }
+
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_VENDORS, ['eim_message' => 'bulk_deleted']));
         exit;
     }
 
@@ -202,9 +230,17 @@ final class VendorsPage extends AbstractAdminPage
                     ['value' => 'company_name', 'label' => 'Company Name'],
                     ['value' => 'email',        'label' => 'Email'],
                     ['value' => 'phone',        'label' => 'Phone'],
+                    ['value' => 'website_url',  'label' => 'Website'],
                     ['value' => 'address',      'label' => 'Address'],
                 ],
                 $field
+            ); ?>
+
+            <?php $this->renderBulkActions(
+                'eim-vendors-bulk-form',
+                AdminMenu::tabUrl(AdminMenu::TAB_VENDORS),
+                'bulk_delete_vendors',
+                'eim_bulk_delete_vendors'
             ); ?>
 
             <table id="eim-vendors-table"
@@ -215,6 +251,7 @@ final class VendorsPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
+                        <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('vendors'); ?></th>
                         <th style="width:22%;"><?= $this->sortLink('Company Name', 'company_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_VENDORS]); ?></th>
                         <th style="width:16%;">Categories</th>
                         <th style="width:16%;">Contact</th>
@@ -245,7 +282,7 @@ final class VendorsPage extends AbstractAdminPage
     {
         if (empty($vendors)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No vendors found.';
-            echo '<tr class="eim-no-results"><td colspan="6">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="7">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -265,6 +302,7 @@ final class VendorsPage extends AbstractAdminPage
             $cats      = $catsByVendor[$vendor->id] ?? [];
             ?>
             <tr>
+                <?= $this->renderBulkSelectCell('eim-vendors-bulk-form', 'vendors', $vendor->id, $vendor->companyName); ?>
                 <td>
                     <strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($vendor->companyName); ?></a></strong>
                     <?php if ($vendor->formattedAddress()): ?>
@@ -279,13 +317,17 @@ final class VendorsPage extends AbstractAdminPage
                     <?php if (empty($cats)): ?><span style="color:#999;">—</span><?php endif; ?>
                 </td>
                 <td>
+                    <?php $hasContact = $vendor->email || $vendor->phone || $vendor->websiteUrl; ?>
                     <?php if ($vendor->email): ?>
                         <a href="mailto:<?= esc_attr($vendor->email); ?>" style="font-size:12px;"><?= esc_html($vendor->email); ?></a><br>
                     <?php endif; ?>
                     <?php if ($vendor->phone): ?>
-                        <span style="font-size:12px;"><?= esc_html($vendor->phone); ?></span>
+                        <span style="font-size:12px;"><?= esc_html($vendor->phone); ?></span><?php if ($vendor->websiteUrl): ?><br><?php endif; ?>
                     <?php endif; ?>
-                    <?php if (!$vendor->email && !$vendor->phone): ?>
+                    <?php if ($vendor->websiteUrl): ?>
+                        <a href="<?= esc_url($vendor->websiteUrl); ?>" target="_blank" rel="noopener" style="font-size:12px;">Website</a>
+                    <?php endif; ?>
+                    <?php if (!$hasContact): ?>
                         <span style="color:#999;">—</span>
                     <?php endif; ?>
                 </td>
@@ -378,6 +420,12 @@ final class VendorsPage extends AbstractAdminPage
                         <td><input type="text" id="eim_v_phone" name="phone" class="regular-text"
                                    value="<?= esc_attr($isNew ? '' : $vendor->phone); ?>"></td>
                     </tr>
+                    <tr>
+                        <th scope="row"><label for="eim_v_website_url">Website URL</label></th>
+                        <td><input type="url" id="eim_v_website_url" name="website_url" class="regular-text"
+                                   value="<?= esc_attr($isNew ? '' : $vendor->websiteUrl); ?>"
+                                   placeholder="https://example.com"></td>
+                    </tr>
                 </table>
 
                 <h2 class="title">Address</h2>
@@ -420,11 +468,11 @@ final class VendorsPage extends AbstractAdminPage
 
     private function sanitizeVendorSortKey(string $key): string
     {
-        return in_array($key, ['company_name', 'email'], true) ? $key : 'company_name';
+        return in_array($key, ['company_name', 'email', 'website_url'], true) ? $key : 'company_name';
     }
 
     private function sanitizeVendorFieldKey(string $field): string
     {
-        return in_array($field, ['company_name', 'email', 'phone', 'address'], true) ? $field : '';
+        return in_array($field, ['company_name', 'email', 'phone', 'website_url', 'address'], true) ? $field : '';
     }
 }
