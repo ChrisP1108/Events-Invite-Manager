@@ -39,6 +39,243 @@ h1 {
     min-width: 90px;
 }
 
+/* ---- Gift registry images ---- */
+
+.wp-list-table .eim-gift-image-column {
+    width: 72px;
+}
+
+.eim-gift-image-thumb {
+    align-items: center;
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    cursor: zoom-in;
+    display: inline-flex;
+    height: 52px;
+    justify-content: center;
+    overflow: hidden;
+    padding: 0;
+    width: 52px;
+}
+
+.eim-gift-image-thumb:hover,
+.eim-gift-image-thumb:focus {
+    border-color: #2271b1;
+    box-shadow: 0 0 0 1px #2271b1;
+    outline: none;
+}
+
+.eim-gift-image-thumb img {
+    display: block;
+    height: 100%;
+    object-fit: cover;
+    width: 100%;
+}
+
+.eim-gift-image-empty {
+    color: #999;
+}
+
+.eim-gift-image-picker {
+    align-items: flex-start;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.eim-gift-image-preview {
+    align-items: center;
+    display: flex;
+    min-height: 52px;
+}
+
+.eim-gift-image-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0;
+}
+
+.eim-gift-image-modal-open {
+    overflow: hidden;
+}
+
+.eim-gift-image-modal-backdrop {
+    align-items: center;
+    background: rgba(0, 0, 0, 0.72);
+    display: flex;
+    inset: 0;
+    justify-content: center;
+    padding: 24px;
+    position: fixed;
+    z-index: 100000;
+}
+
+.eim-gift-image-modal-backdrop[hidden] {
+    display: none;
+}
+
+.eim-gift-image-modal {
+    max-height: calc(100vh - 48px);
+    max-width: calc(100vw - 48px);
+    position: relative;
+}
+
+.eim-gift-image-modal img {
+    background: #fff;
+    border-radius: 4px;
+    display: block;
+    max-height: calc(100vh - 96px);
+    max-width: calc(100vw - 48px);
+    object-fit: contain;
+}
+
+.eim-gift-image-modal-close {
+    align-items: center;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    color: #1d2327;
+    cursor: pointer;
+    display: inline-flex;
+    font-size: 24px;
+    height: 32px;
+    justify-content: center;
+    line-height: 1;
+    position: absolute;
+    right: -12px;
+    text-decoration: none;
+    top: -12px;
+    width: 32px;
+}
+
+.eim-gift-image-modal-caption {
+    color: #fff;
+    font-size: 13px;
+    margin-top: 8px;
+    text-align: center;
+}
+
+/* ---- Invitee images ---- */
+
+.wp-list-table .eim-invitee-image-column {
+    width: 72px;
+}
+
+.eim-invitee-image-thumb {
+    align-items: center;
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    cursor: zoom-in;
+    display: inline-flex;
+    height: 52px;
+    justify-content: center;
+    overflow: hidden;
+    padding: 0;
+    width: 52px;
+}
+
+.eim-invitee-image-thumb:hover,
+.eim-invitee-image-thumb:focus {
+    border-color: #2271b1;
+    box-shadow: 0 0 0 1px #2271b1;
+    outline: none;
+}
+
+.eim-invitee-image-thumb img {
+    display: block;
+    height: 100%;
+    object-fit: cover;
+    width: 100%;
+}
+
+.eim-invitee-image-empty {
+    color: #999;
+}
+
+.eim-invitee-image-picker {
+    align-items: flex-start;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.eim-invitee-image-preview {
+    align-items: center;
+    display: flex;
+    min-height: 52px;
+}
+
+.eim-invitee-image-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0;
+}
+
+.eim-invitee-image-modal-open {
+    overflow: hidden;
+}
+
+.eim-invitee-image-modal-backdrop {
+    align-items: center;
+    background: rgba(0, 0, 0, 0.72);
+    display: flex;
+    inset: 0;
+    justify-content: center;
+    padding: 24px;
+    position: fixed;
+    z-index: 100000;
+}
+
+.eim-invitee-image-modal-backdrop[hidden] {
+    display: none;
+}
+
+.eim-invitee-image-modal {
+    max-height: calc(100vh - 48px);
+    max-width: calc(100vw - 48px);
+    position: relative;
+}
+
+.eim-invitee-image-modal img {
+    background: #fff;
+    border-radius: 4px;
+    display: block;
+    max-height: calc(100vh - 96px);
+    max-width: calc(100vw - 48px);
+    object-fit: contain;
+}
+
+.eim-invitee-image-modal-close {
+    align-items: center;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    color: #1d2327;
+    cursor: pointer;
+    display: inline-flex;
+    font-size: 16px;
+    font-weight: 600;
+    height: 32px;
+    justify-content: center;
+    line-height: 1;
+    position: absolute;
+    right: -12px;
+    text-decoration: none;
+    top: -12px;
+    width: 32px;
+}
+
+.eim-invitee-image-modal-caption {
+    color: #fff;
+    font-size: 13px;
+    margin-top: 8px;
+    text-align: center;
+}
+
 /* ---- Pagination bar ---- */
 
 .eim-pagination-nav {
@@ -111,6 +348,10 @@ h1 {
 
 .eim-etab-active {
     animation: fade-in-1 0.35s ease-in-out;
+}
+
+.eim-invitee-picker-wrap {
+    position: relative;
 }
 
 /* ---- Food & Beverage page ---- */

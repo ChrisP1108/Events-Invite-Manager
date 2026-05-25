@@ -110,9 +110,13 @@ final class Plugin
         $currentPageId = (int) get_queried_object_id();
         $isEditRequest = $this->isEditRequest();
 
-        // Newsletter pages also receive the confirmation code so their content
-        // can be gated by the public newsletters endpoint.
+        // The newsletter and dashboard pages both receive the confirmation code so
+        // their shortcodes can gate access via the public REST endpoints.
         if ($event->newsletterPageId !== null && $currentPageId === $event->newsletterPageId) {
+            return;
+        }
+
+        if ($event->dashboardPageId !== null && $currentPageId === $event->dashboardPageId) {
             return;
         }
 
@@ -121,10 +125,10 @@ final class Plugin
             !$isEditRequest
             &&
             $flowResult->success
-            && $flowResult->nextAction === RsvpFlowResult::ACTION_NEWSLETTER_REDIRECT
-            && $flowResult->newsletterUrl !== null
+            && $flowResult->isComplete()
+            && $flowResult->dashboardUrl !== null
         ) {
-            wp_safe_redirect($flowResult->newsletterUrl, 302);
+            wp_safe_redirect($flowResult->dashboardUrl, 302);
             exit;
         }
 

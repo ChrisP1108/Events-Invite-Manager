@@ -13,6 +13,8 @@ use EventsInviteManager\Models\Category;
 use EventsInviteManager\Models\ConnectionGroup;
 use EventsInviteManager\Models\Event;
 use EventsInviteManager\Models\EventLodging;
+use EventsInviteManager\Models\EventMessage;
+use EventsInviteManager\Models\Gift;
 use EventsInviteManager\Models\MenuItem;
 use EventsInviteManager\Models\InvitationGroup;
 use EventsInviteManager\Models\Invitee;
@@ -62,6 +64,9 @@ final class EventsPage extends AbstractAdminPage
             'bulk_remove_groups_from_event' => $this->handleBulkRemoveGroupsFromEvent(),
             'send_event_invite'         => $this->handleSendEventInvite(),
             'send_all_event_invites'    => $this->handleSendAllEventInvites(),
+            'add_gift_to_event'         => $this->handleAddGiftToEvent(),
+            'remove_gift_from_event'    => $this->handleRemoveGiftFromEvent(),
+            'bulk_remove_gifts_from_event' => $this->handleBulkRemoveGiftsFromEvent(),
             'add_menu_item_to_event'     => $this->handleAddMenuItemToEvent(),
             'remove_menu_item_from_event' => $this->handleRemoveMenuItemFromEvent(),
             'bulk_remove_menu_items_from_event' => $this->handleBulkRemoveMenuItemsFromEvent(),
@@ -110,6 +115,7 @@ final class EventsPage extends AbstractAdminPage
             'food_options_enabled'     => !empty($_POST['food_options_enabled']) ? 1 : 0,
             'beverage_options_enabled' => !empty($_POST['beverage_options_enabled']) ? 1 : 0,
             'newsletter_page_id'       => (int) ($_POST['newsletter_page_id'] ?? 0),
+            'dashboard_page_id'        => (int) ($_POST['dashboard_page_id'] ?? 0),
             'max_invitees'             => (int) ($_POST['max_invitees'] ?? 0),
         ];
 
@@ -660,6 +666,86 @@ final class EventsPage extends AbstractAdminPage
         exit;
     }
 
+    /** Handles assigning a global registry gift to an event. */
+    private function handleAddGiftToEvent(): void
+    {
+        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_add_gift_to_event')) {
+            wp_die('Security check failed.');
+        }
+
+        $eventId = (int) ($_POST['event_id'] ?? 0);
+        $giftId  = (int) ($_POST['gift_id']  ?? 0);
+
+        $event = $eventId > 0 ? Event::find($eventId) : null;
+        $gift  = $giftId > 0 ? Gift::find($giftId) : null;
+
+        if ($event && $gift) {
+            Gift::addToEvent($giftId, $eventId);
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
+                'action'      => 'edit',
+                'id'          => $eventId,
+                'eim_message' => 'gift_added_to_event',
+            ]) . '#eim-etab-gifts');
+        } else {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
+                'action'    => 'edit',
+                'id'        => $eventId ?: null,
+                'eim_error' => 'invalid_request',
+            ]) . '#eim-etab-gifts');
+        }
+        exit;
+    }
+
+    /** Handles removing a registry gift assignment from an event via a GET nonce link. */
+    private function handleRemoveGiftFromEvent(): void
+    {
+        $eventId = (int) ($_GET['event_id'] ?? 0);
+        $giftId  = (int) ($_GET['gift_id']  ?? 0);
+        $nonce   = (string) ($_GET['_wpnonce'] ?? '');
+
+        if (!wp_verify_nonce($nonce, 'eim_remove_gift_' . $eventId . '_' . $giftId)) {
+            wp_die('Security check failed.');
+        }
+
+        Gift::removeFromEvent($giftId, $eventId);
+
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
+            'action'      => 'edit',
+            'id'          => $eventId,
+            'eim_message' => 'gift_removed_from_event',
+        ]) . '#eim-etab-gifts');
+        exit;
+    }
+
+    private function handleBulkRemoveGiftsFromEvent(): void
+    {
+        $eventId = (int) ($_POST['event_id'] ?? 0);
+
+        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_bulk_remove_gifts_from_event_' . $eventId)) {
+            wp_die('Security check failed.');
+        }
+
+        $redirectUrl = AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $eventId]);
+
+        if ($this->requestedBulkAction() !== 'delete') {
+            wp_redirect($redirectUrl . '&eim_error=bulk_invalid_action#eim-etab-gifts');
+            exit;
+        }
+
+        $ids = $this->bulkActionIds();
+        if (empty($ids)) {
+            wp_redirect($redirectUrl . '&eim_error=bulk_no_selection#eim-etab-gifts');
+            exit;
+        }
+
+        foreach ($ids as $giftId) {
+            Gift::removeFromEvent($giftId, $eventId);
+        }
+
+        wp_redirect($redirectUrl . '&eim_message=bulk_deleted#eim-etab-gifts');
+        exit;
+    }
+
     /** Handles assigning a global menu item to an event. */
     private function handleAddMenuItemToEvent(): void
     {
@@ -867,6 +953,41 @@ final class EventsPage extends AbstractAdminPage
     }
 
     /**
+     * AJAX: returns filtered and sorted registry gift rows for one event.
+     */
+    public function handleAjaxSearchEventGifts(): void
+    {
+        check_ajax_referer('eim_search_event_gifts_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions.', 403);
+        }
+
+        $eventId = (int) ($_GET['event_id'] ?? 0);
+        $event   = $eventId > 0 ? Event::find($eventId) : null;
+
+        if ($event === null) {
+            wp_send_json_error('Event not found.', 404);
+        }
+
+        $query   = sanitize_text_field(wp_unslash($_GET['query'] ?? ''));
+        $sort    = $this->sanitizeEventGiftSortKey(sanitize_key($_GET['sort'] ?? 'name'));
+        $order   = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
+        $field   = $this->sanitizeEventGiftFieldKey(sanitize_key($_GET['field'] ?? ''));
+        $page    = max(1, (int) ($_GET['page'] ?? 1));
+        $perPage = in_array((int) ($_GET['per_page'] ?? 10), [5, 10, 25, 50, 100], true) ? (int) $_GET['per_page'] : 10;
+        $all     = Gift::forEvent($eventId, $query, $sort, $order, $field);
+        $total   = count($all);
+        $gifts   = array_slice($all, ($page - 1) * $perPage, $perPage);
+
+        ob_start();
+        $this->renderEventGiftRows($event, $gifts, $query);
+        $html = (string) ob_get_clean();
+
+        wp_send_json_success(['html' => $html, 'count' => $total, 'total' => $total]);
+    }
+
+    /**
      * Sends an invite email for a specific invitation group.
      *
      * GET params: event_id, group_id, _wpnonce
@@ -978,6 +1099,189 @@ final class EventsPage extends AbstractAdminPage
             'count'       => $sentCount,
         ]) . '#eim-etab-invitees');
         exit;
+    }
+
+    /**
+     * AJAX: sends a test invite email for an event to a single address.
+     *
+     * Expected POST params: nonce, event_id, test_email.
+     * Returns JSON: { success: true, data: { email } }
+     */
+    public function handleAjaxSendInviteTest(): void
+    {
+        check_ajax_referer('eim_send_invite_test_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions.', 403);
+        }
+
+        $eventId = (int) ($_POST['event_id'] ?? 0);
+        $email   = sanitize_email(wp_unslash($_POST['test_email'] ?? ''));
+        $event   = Event::find($eventId);
+
+        if (!$event) {
+            wp_send_json_error('Event not found.');
+        }
+
+        if (!is_email($email)) {
+            wp_send_json_error('Please enter a valid email address.');
+        }
+
+        if ($this->emailService->sendGroupInviteTest($event, $email)) {
+            wp_send_json_success(['email' => $email]);
+        } else {
+            wp_send_json_error('Failed to send. Check that the email template is saved and your server mail configuration.');
+        }
+    }
+
+    /**
+     * AJAX: sends invite emails to all unsent invitation groups for an event.
+     *
+     * Expected POST params: nonce, event_id.
+     * Returns JSON: { success: true, data: { sent, failed, total } }
+     */
+    public function handleAjaxSendAllInvites(): void
+    {
+        check_ajax_referer('eim_send_all_invites_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions.', 403);
+        }
+
+        $eventId = (int) ($_POST['event_id'] ?? 0);
+        $event   = Event::find($eventId);
+
+        if (!$event) {
+            wp_send_json_error('Event not found.');
+        }
+
+        $groups = InvitationGroup::forEvent($eventId);
+        $unsent = array_values(array_filter($groups, static fn(InvitationGroup $g) => $g->inviteSentAt === null));
+
+        if (empty($unsent)) {
+            wp_send_json_error('No unsent invitation groups found for this event.');
+        }
+
+        $sent   = 0;
+        $failed = 0;
+
+        foreach ($unsent as $group) {
+            $primaryInvitee = Invitee::find($group->primaryInviteeId);
+            if ($primaryInvitee === null) {
+                $failed++;
+                continue;
+            }
+
+            $qrCode = $this->qrCodeService->getOrCreateForGroup($event, $group);
+            if ($qrCode === null) {
+                $failed++;
+                continue;
+            }
+
+            $members = $group->getMembers();
+
+            if ($this->emailService->sendGroupInvite(
+                $event,
+                $group,
+                $primaryInvitee,
+                $members,
+                $this->qrCodeService->imgTag($qrCode),
+                $this->qrCodeService->inviteUrl($qrCode)
+            )) {
+                InvitationGroup::markInviteSent($group->id);
+                $sent++;
+            } else {
+                $failed++;
+            }
+        }
+
+        wp_send_json_success([
+            'sent'   => $sent,
+            'failed' => $failed,
+            'total'  => count($unsent),
+        ]);
+    }
+
+    /**
+     * AJAX: returns messages for a specific connection group and event.
+     *
+     * Expected GET params: nonce, event_id, group_id.
+     * Returns JSON: { success: true, data: { messages: [{id, message, is_read, created_at}] } }
+     */
+    public function handleAjaxGetGroupMessages(): void
+    {
+        check_ajax_referer('eim_get_group_messages_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions.', 403);
+        }
+
+        $eventId = (int) ($_GET['event_id'] ?? 0);
+        $groupId = (int) ($_GET['group_id'] ?? 0);
+
+        if (!$eventId || !$groupId) {
+            wp_send_json_error('Missing parameters.');
+        }
+
+        $messages = EventMessage::forEventGroup($eventId, $groupId);
+
+        wp_send_json_success([
+            'messages' => array_map(static fn(EventMessage $m) => [
+                'id'         => $m->id,
+                'message'    => $m->message,
+                'is_read'    => $m->isRead,
+                'created_at' => $m->createdAt,
+            ], $messages),
+        ]);
+    }
+
+    /**
+     * AJAX: sets the is_read flag on a message.
+     *
+     * Expected POST params: nonce, message_id, is_read (0 or 1).
+     * Returns JSON: { success: true }
+     */
+    public function handleAjaxMarkMessageRead(): void
+    {
+        check_ajax_referer('eim_mark_message_read_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions.', 403);
+        }
+
+        $messageId = (int) ($_POST['message_id'] ?? 0);
+        $isRead    = !empty($_POST['is_read']);
+
+        if (!$messageId) {
+            wp_send_json_error('Missing message_id.');
+        }
+
+        EventMessage::setRead($messageId, $isRead);
+        wp_send_json_success();
+    }
+
+    /**
+     * AJAX: deletes a single message.
+     *
+     * Expected POST params: nonce, message_id.
+     * Returns JSON: { success: true }
+     */
+    public function handleAjaxDeleteMessage(): void
+    {
+        check_ajax_referer('eim_delete_message_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions.', 403);
+        }
+
+        $messageId = (int) ($_POST['message_id'] ?? 0);
+
+        if (!$messageId) {
+            wp_send_json_error('Missing message_id.');
+        }
+
+        EventMessage::delete($messageId);
+        wp_send_json_success();
     }
 
     /**
@@ -1456,11 +1760,13 @@ final class EventsPage extends AbstractAdminPage
                 <a href="#eim-etab-venue"    class="nav-tab" data-etab="venue">Venue/Location</a>
                 <a href="#eim-etab-email"    class="nav-tab" data-etab="email">Invite Email</a>
                 <a href="#eim-etab-qr"       class="nav-tab" data-etab="qr">QR Code &amp; RSVP</a>
-                <a href="#eim-etab-lodging"  class="nav-tab" data-etab="lodging">Lodging</a>
-                <a href="#eim-etab-food"     class="nav-tab" data-etab="food">Food &amp; Beverage</a>
-                <?php if (!$isNew): ?>
-                    <a href="#eim-etab-invitees" class="nav-tab" data-etab="invitees">Invited Invitees</a>
-                <?php endif; ?>
+	                <a href="#eim-etab-lodging"  class="nav-tab" data-etab="lodging">Lodging</a>
+	                <a href="#eim-etab-food"     class="nav-tab" data-etab="food">Food &amp; Beverage</a>
+	                <?php if (!$isNew): ?>
+	                    <a href="#eim-etab-gifts" class="nav-tab" data-etab="gifts">Gifts &amp; Registry</a>
+	                    <a href="#eim-etab-invitees" class="nav-tab" data-etab="invitees">Invited Invitees</a>
+	                    <a href="#eim-etab-messages" class="nav-tab" data-etab="messages">Messages</a>
+	                <?php endif; ?>
             </nav>
 
             <form id="eim-event-form" method="post" action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS)); ?>">
@@ -1615,30 +1921,63 @@ final class EventsPage extends AbstractAdminPage
                                 </p>
                             </td>
                         </tr>
-                        <tr>
-                            <th scope="row"><label for="invite_email_template">Email Body</label></th>
-                            <td>
-                                <?php
-                                wp_editor(
-                                    $isNew ? '' : $event->inviteEmailTemplate,
-                                    'invite_email_template',
-                                    ['textarea_name' => 'invite_email_template', 'media_buttons' => false, 'textarea_rows' => 15]
-                                );
-                                ?>
-                                <p class="description">
-                                    Invitee tags:
-                                    <code>{{ event_name }}</code> <code>{{ first_name }}</code> <code>{{ last_name }}</code>
-                                    <code>{{ full_name }}</code> <code>{{ email }}</code> <code>{{ qr_code }}</code> <code>{{ invite_url }}</code>
-                                </p>
-                                <p class="description">
-                                    Group tags:
-                                    <code>{{ group_names }}</code> — all members' names ·
-                                    <code>{{ invitee_names }}</code> — same as group_names ·
-                                    <code>{{ invitee_count }}</code> — number of people in the group
-                                </p>
-                            </td>
-                        </tr>
                     </table>
+
+                    <h2 class="title">Email Body</h2>
+                    <p class="description" style="margin-bottom:4px;">
+                        Invitee tags:
+                        <code>{{ event_name }}</code> <code>{{ first_name }}</code> <code>{{ last_name }}</code>
+                        <code>{{ full_name }}</code> <code>{{ email }}</code> <code>{{ qr_code }}</code> <code>{{ invite_url }}</code>
+                    </p>
+                    <p class="description" style="margin-bottom:12px;">
+                        Group tags:
+                        <code>{{ group_names }}</code> — all members' names ·
+                        <code>{{ invitee_names }}</code> — same as group_names ·
+                        <code>{{ invitee_count }}</code> — number of people in the group
+                    </p>
+
+                    <style>
+                    #eim-invite-email-layout {
+                        display: flex;
+                        gap: 20px;
+                        align-items: stretch;
+                    }
+                    #eim-invite-editor-col  { flex: 1 1 0; min-width: 0; }
+                    #eim-invite-preview-col { flex: 1 1 0; min-width: 0; display: none; }
+                    @media (max-width: 1024px) {
+                        #eim-invite-email-layout { flex-direction: column; }
+                        #eim-invite-editor-col,
+                        #eim-invite-preview-col  { flex: none; width: 100%; }
+                    }
+                    </style>
+
+                    <div id="eim-invite-email-layout">
+                        <div id="eim-invite-editor-col">
+                            <?php
+                            wp_editor(
+                                $isNew ? '' : $event->inviteEmailTemplate,
+                                'invite_email_template',
+                                ['textarea_name' => 'invite_email_template', 'media_buttons' => false, 'textarea_rows' => 15]
+                            );
+                            ?>
+                            <p style="margin-top:10px;">
+                                <button type="button" id="eim-invite-preview-btn" class="button">Preview Email</button>
+                            </p>
+                        </div>
+                        <div id="eim-invite-preview-col">
+                            <div style="border:1px solid #dcdcde;border-radius:4px;overflow:hidden;">
+                                <div style="background:#f6f7f7;padding:8px 12px;border-bottom:1px solid #dcdcde;display:flex;justify-content:space-between;align-items:center;">
+                                    <strong style="font-size:13px;">Email Preview</strong>
+                                    <button type="button" id="eim-invite-preview-close"
+                                            class="button-link" style="color:#d63638;">Close Preview</button>
+                                </div>
+                                <iframe id="eim-invite-preview-frame"
+                                        style="width:100%;min-height:480px;border:none;display:block;background:#fff;"
+                                        title="Invite Email Preview"></iframe>
+                            </div>
+                        </div>
+                    </div>
+
                     <?php submit_button($saveLabel, 'primary', 'submit', false); ?>
                 </div>
 
@@ -1646,11 +1985,12 @@ final class EventsPage extends AbstractAdminPage
                 <div id="eim-etab-qr" class="eim-etab-panel">
                     <table class="form-table" role="presentation">
                         <tr>
-                            <th scope="row"><label for="eim_rsvp_page_id">QR Code RSVP Page Redirect</label></th>
+                            <th scope="row"><label for="eim_rsvp_page_id">QR Code RSVP Page</label></th>
                             <td>
                                 <?php
-                                $pages          = get_pages(['sort_column' => 'post_title', 'sort_order' => 'ASC']);
-                                $selectedPageId = $isNew ? 0 : ($event->rsvpPageId ?? 0);
+                                $pages             = get_pages(['sort_column' => 'post_title', 'sort_order' => 'ASC']);
+                                $selectedPageId    = $isNew ? 0 : ($event->rsvpPageId ?? 0);
+                                $selectedDashboard = $isNew ? 0 : ($event->dashboardPageId ?? 0);
                                 ?>
                                 <select id="eim_rsvp_page_id" name="rsvp_page_id">
                                     <option value="0">— No redirect page selected —</option>
@@ -1660,11 +2000,31 @@ final class EventsPage extends AbstractAdminPage
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
-                                <?php if ($selectedPageId > 0): ?>
-                                    <p class="description">
-                                        Current RSVP page: <a href="<?= esc_url(get_permalink($selectedPageId)); ?>" target="_blank"><?= esc_html(get_the_title($selectedPageId)); ?> ↗</a>
-                                    </p>
-                                <?php endif; ?>
+                                <p class="description">
+                                    The page guests land on when they scan the QR code from their invitation. This page should contain the RSVP shortcode so guests can confirm their attendance and food/beverage preferences.
+                                    <?php if ($selectedPageId > 0): ?>
+                                        <br><a href="<?= esc_url(get_permalink($selectedPageId)); ?>" target="_blank"><?= esc_html(get_the_title($selectedPageId)); ?> ↗</a>
+                                    <?php endif; ?>
+                                </p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="eim_dashboard_page_id">Invitee Dashboard Page</label></th>
+                            <td>
+                                <select id="eim_dashboard_page_id" name="dashboard_page_id">
+                                    <option value="0">— No dashboard page selected —</option>
+                                    <?php foreach ($pages as $page): ?>
+                                        <option value="<?= esc_attr($page->ID); ?>" <?php selected($selectedDashboard, $page->ID); ?>>
+                                            <?= esc_html($page->post_title); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <p class="description">
+                                    The page guests are redirected to after completing their RSVP. This will serve as the invitee dashboard — showing upcoming events they've registered for, allowing them to update their RSVP, and displaying newsletters relevant to their events.
+                                    <?php if ($selectedDashboard > 0): ?>
+                                        <br><a href="<?= esc_url(get_permalink($selectedDashboard)); ?>" target="_blank"><?= esc_html(get_the_title($selectedDashboard)); ?> ↗</a>
+                                    <?php endif; ?>
+                                </p>
                             </td>
                         </tr>
                     </table>
@@ -1848,11 +2208,20 @@ final class EventsPage extends AbstractAdminPage
             </form>
 
             <?php if (!$isNew): ?>
-                <div id="eim-etab-food-ext" class="eim-etab-ext-panel">
-                    <?php $this->renderRsvpOptionsSection($event); ?>
+                <div id="eim-etab-email-ext" class="eim-etab-ext-panel">
+                    <?php $this->renderInviteEmailSendPanel($event); ?>
                 </div>
-                <div id="eim-etab-invitees" class="eim-etab-ext-panel">
-                    <?php $this->renderEventInviteesSection($event); ?>
+	                <div id="eim-etab-food-ext" class="eim-etab-ext-panel">
+	                    <?php $this->renderRsvpOptionsSection($event); ?>
+	                </div>
+	                <div id="eim-etab-gifts" class="eim-etab-ext-panel">
+	                    <?php $this->renderEventGiftsSection($event); ?>
+	                </div>
+	                <div id="eim-etab-invitees" class="eim-etab-ext-panel">
+	                    <?php $this->renderEventInviteesSection($event); ?>
+	                </div>
+                <div id="eim-etab-messages" class="eim-etab-ext-panel">
+                    <?php $this->renderEventMessagesSection($event); ?>
                 </div>
             <?php endif; ?>
         </div>
@@ -1872,8 +2241,8 @@ final class EventsPage extends AbstractAdminPage
             const eventId    = nav.dataset.eventId || '0';
             const storageKey = 'eim_event_tab_' + eventId;
 
-            const panelIds = ['details', 'venue', 'email', 'qr', 'lodging', 'food', 'invitees'];
-            const extMap   = { food: 'food-ext' };
+	            const panelIds = ['details', 'venue', 'email', 'qr', 'lodging', 'food', 'gifts', 'invitees', 'messages'];
+            const extMap   = { food: 'food-ext', email: 'email-ext' };
 
             const getEl = (id) => document.getElementById('eim-etab-' + id);
 
@@ -1925,6 +2294,73 @@ final class EventsPage extends AbstractAdminPage
             activateTab(initialTab);
         })();
         </script>
+        <?php if (!$isNew): ?>
+        <script>
+        (() => {
+            'use strict';
+            const btn        = document.getElementById('eim-invite-preview-btn');
+            const previewCol = document.getElementById('eim-invite-preview-col');
+            const frame      = document.getElementById('eim-invite-preview-frame');
+            const close      = document.getElementById('eim-invite-preview-close');
+
+            if (!btn || !previewCol || !frame) return;
+
+            const debounce = (fn, ms) => {
+                let t;
+                return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+            };
+
+            const isOpen = () => previewCol.style.display !== 'none';
+
+            const getContent = () => {
+                if (window.tinyMCE) {
+                    const ed = tinyMCE.get('invite_email_template');
+                    if (ed && !ed.isHidden()) return ed.getContent();
+                }
+                return document.querySelector('textarea[name="invite_email_template"]')?.value ?? '';
+            };
+
+            const refreshFrame = () => {
+                frame.srcdoc = '<!DOCTYPE html><html><head><meta charset="utf-8">'
+                    + '<style>body{font-family:sans-serif;font-size:15px;line-height:1.7;'
+                    + 'padding:24px 28px;color:#1d1d1d;}'
+                    + 'img{max-width:100%;height:auto;}a{color:#0073aa;}'
+                    + 'p{margin:0 0 1em;}h1,h2,h3{line-height:1.3;}</style>'
+                    + '</head><body>' + getContent() + '</body></html>';
+            };
+
+            const liveRefresh = debounce(() => { if (isOpen()) refreshFrame(); }, 1000);
+
+            const hookEditor = (editor) => {
+                if (editor.id !== 'invite_email_template') return;
+                editor.on('KeyUp Change', liveRefresh);
+            };
+
+            if (window.tinyMCE) {
+                const existing = tinyMCE.get('invite_email_template');
+                if (existing) hookEditor(existing);
+                tinyMCE.on('AddEditor', (e) => hookEditor(e.editor));
+            }
+
+            document.querySelector('textarea[name="invite_email_template"]')
+                    ?.addEventListener('input', liveRefresh);
+
+            btn.addEventListener('click', () => {
+                refreshFrame();
+                previewCol.style.display = 'block';
+                window.dispatchEvent(new Event('resize'));
+                if (window.innerWidth <= 1024) {
+                    previewCol.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+            });
+
+            close.addEventListener('click', () => {
+                previewCol.style.display = 'none';
+                window.dispatchEvent(new Event('resize'));
+            });
+        })();
+        </script>
+        <?php endif; ?>
         <?php
     }
 
@@ -1962,6 +2398,208 @@ final class EventsPage extends AbstractAdminPage
             <?php endif; ?>
         </div>
         <?php
+    }
+
+    private function renderEventGiftsSection(Event $event): void
+    {
+        $sort    = $this->sanitizeEventGiftSortKey(sanitize_key($_GET['gift_sort'] ?? 'name'));
+        $order   = $this->sanitizeSortOrder((string) ($_GET['gift_order'] ?? 'asc'));
+        $field   = $this->sanitizeEventGiftFieldKey(sanitize_key($_GET['gift_field'] ?? ''));
+        $search  = sanitize_text_field(wp_unslash($_GET['gift_s'] ?? ''));
+        $all     = Gift::forEvent($event->id, $search, $sort, $order, $field);
+        $total   = count($all);
+        $gifts   = array_slice($all, 0, 10);
+        $addGiftUrl = AdminMenu::tabUrl(AdminMenu::TAB_GIFTS, ['action' => 'add']);
+        ?>
+        <h2 style="margin-top:20px;">Gifts &amp; Registry</h2>
+        <p class="description" style="margin-bottom:12px;">
+            Registry gifts linked to this event. Guests who have completed RSVP can view these from their dashboard and mark a gift as purchased.
+        </p>
+
+        <p style="margin-bottom:12px;">
+            <a href="<?= esc_url($addGiftUrl); ?>" class="button">Add Gift to Library</a>
+        </p>
+
+        <?php $this->renderSearchBar(
+            'eim-event-gifts-search',
+            'eim-event-gifts-count',
+            'eim-event-gifts-loading',
+            'Search event gifts…',
+            $total,
+            $search,
+            [
+                ['value' => 'name',        'label' => 'Name'],
+                ['value' => 'description', 'label' => 'Description'],
+                ['value' => 'website_url', 'label' => 'Website'],
+                ['value' => 'purchased',   'label' => 'Purchased'],
+            ],
+            $field
+        ); ?>
+
+        <?php $this->renderBulkActions(
+            'eim-event-gifts-bulk-form',
+            AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $event->id]),
+            'bulk_remove_gifts_from_event',
+            'eim_bulk_remove_gifts_from_event_' . $event->id,
+            ['event_id' => $event->id]
+        ); ?>
+
+        <table id="eim-event-gifts-table"
+               class="wp-list-table widefat fixed striped"
+               style="margin-top:8px;"
+               data-event-id="<?= esc_attr($event->id); ?>"
+               data-sort="<?= esc_attr($sort); ?>"
+               data-order="<?= esc_attr($order); ?>"
+               data-total="<?= esc_attr($total); ?>">
+            <thead>
+                <tr>
+                    <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('event-gifts-' . $event->id); ?></th>
+                    <th class="eim-gift-image-column">Image</th>
+                    <th style="width:22%;"><?= $this->clientSortLink('Name', 'name', $sort, $order); ?></th>
+                    <th style="width:9%;"><?= $this->clientSortLink('Price', 'price_cents', $sort, $order); ?></th>
+                    <th style="width:16%;">Categories</th>
+                    <th style="width:14%;"><?= $this->clientSortLink('Purchased', 'purchased', $sort, $order); ?></th>
+                    <th style="width:14%;"><?= $this->clientSortLink('Website', 'website_url', $sort, $order); ?></th>
+                    <th style="width:10%;">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="eim-event-gifts-table-body">
+                <?php $this->renderEventGiftRows($event, $gifts, $search); ?>
+            </tbody>
+        </table>
+        <?php $this->renderPaginationBar('eim-event-gifts-search'); ?>
+
+        <div style="border:1px solid #dcdcde;border-radius:4px;padding:14px;background:#f6f7f7;margin-top:16px;">
+            <h3 style="margin:0 0 8px;font-size:14px;">Add Existing Gift</h3>
+            <form method="post" action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS)); ?>">
+                <?php wp_nonce_field('eim_add_gift_to_event'); ?>
+                <input type="hidden" name="eim_action" value="add_gift_to_event">
+                <input type="hidden" name="event_id" value="<?= esc_attr($event->id); ?>">
+                <input type="hidden" id="eim_event_gift_id" name="gift_id" value="">
+
+                <div class="eim-invitee-picker-wrap" style="margin-bottom:8px;">
+                    <label class="screen-reader-text" for="eim_event_gift_search">Search gifts</label>
+                    <input type="text"
+                           id="eim_event_gift_search"
+                           class="regular-text"
+                           placeholder="Search gifts…"
+                           autocomplete="off"
+                           data-event-id="<?= esc_attr($event->id); ?>">
+                    <button type="submit" class="button">Add to Event</button>
+                </div>
+                <p id="eim_event_gift_selected" class="description"></p>
+            </form>
+        </div>
+        <?php
+    }
+
+    /** @param Gift[] $gifts */
+    private function renderEventGiftRows(Event $event, array $gifts, string $search = ''): void
+    {
+        if (empty($gifts)) {
+            $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No gifts linked to this event yet.';
+            echo '<tr class="eim-no-results"><td colspan="8">' . esc_html($msg) . '</td></tr>';
+            return;
+        }
+
+        $giftIds       = array_map(static fn(Gift $gift): int => $gift->id, $gifts);
+        $catsByGift    = Category::forEntities('gift', $giftIds);
+        $purchaseByGift = Gift::purchaseDetailsForEvent($event->id);
+
+        foreach ($gifts as $gift) {
+            $editUrl = AdminMenu::tabUrl(AdminMenu::TAB_GIFTS, ['action' => 'edit', 'id' => $gift->id]);
+            $removeUrl = wp_nonce_url(
+                AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
+                    'action'   => 'remove_gift_from_event',
+                    'event_id' => $event->id,
+                    'gift_id'  => $gift->id,
+                ]),
+                'eim_remove_gift_' . $event->id . '_' . $gift->id
+            );
+            $cats = $catsByGift[$gift->id] ?? [];
+            ?>
+            <tr>
+                <?= $this->renderBulkSelectCell('eim-event-gifts-bulk-form', 'event-gifts-' . $event->id, $gift->id, $gift->name); ?>
+                <td><?= $this->giftImageThumbnailMarkup($gift->imageAttachmentId, $gift->name); ?></td>
+                <td>
+                    <strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($gift->name); ?></a></strong>
+                    <?php if ($gift->description): ?>
+                        <br><span style="color:#646970;font-size:12px;"><?= esc_html(wp_trim_words($gift->description, 10)); ?></span>
+                    <?php endif; ?>
+                </td>
+                <td><?= $gift->priceCents > 0 ? esc_html($gift->formattedPrice()) : '<span style="color:#999;">—</span>'; ?></td>
+                <td>
+                    <?php foreach ($cats as $cat): ?>
+                        <?php $catEditUrl = AdminMenu::tabUrl(AdminMenu::TAB_CATEGORIES, ['action' => 'edit', 'id' => $cat->id]); ?>
+                        <a href="<?= esc_url($catEditUrl); ?>" class="eim-cat-chip"><?= esc_html($cat->parentName ? $cat->parentName . ' › ' . $cat->name : $cat->name); ?></a>
+                    <?php endforeach; ?>
+                    <?php if (empty($cats)): ?><span style="color:#999;">—</span><?php endif; ?>
+                </td>
+                <td><?= $this->eventGiftPurchaseMarkup($purchaseByGift[$gift->id] ?? null); ?></td>
+                <td>
+                    <?php if ($gift->websiteUrl): ?>
+                        <a href="<?= esc_url($gift->websiteUrl); ?>" target="_blank" rel="noopener" style="font-size:12px;">Visit</a>
+                    <?php else: ?>
+                        <span style="color:#999;">—</span>
+                    <?php endif; ?>
+                </td>
+                <td>
+                    <a href="<?= esc_url($editUrl); ?>">Edit</a> |
+                    <a href="<?= esc_url($removeUrl); ?>"
+                       onclick="return confirm('Remove &ldquo;<?= esc_js($gift->name); ?>&rdquo; from this event? The gift will remain in the registry library.');">Remove</a>
+                </td>
+            </tr>
+            <?php
+        }
+    }
+
+    /** @param array<string,mixed>|null $purchase */
+    private function eventGiftPurchaseMarkup(?array $purchase): string
+    {
+        if (empty($purchase['is_purchased'])) {
+            return '<span style="color:#d63638;">Not purchased</span>';
+        }
+
+        $details = [];
+        $purchaser = $this->giftPurchaserLabel($purchase);
+        if ($purchaser !== '') {
+            $details[] = 'by ' . $purchaser;
+        }
+        if (!empty($purchase['purchased_at'])) {
+            $details[] = $this->formatAdminDateTime((string) $purchase['purchased_at']);
+        }
+
+        $html = '<span style="color:#00a32a;">Purchased</span>';
+        if (!empty($details)) {
+            $html .= '<br><span style="color:#646970;font-size:12px;">' . esc_html(implode(' · ', $details)) . '</span>';
+        }
+
+        return $html;
+    }
+
+    /** @param array<string,mixed> $purchase */
+    private function giftPurchaserLabel(array $purchase): string
+    {
+        $inviteeId = isset($purchase['purchased_by_invitee_id']) ? (int) $purchase['purchased_by_invitee_id'] : 0;
+        if ($inviteeId > 0) {
+            $invitee = Invitee::find($inviteeId);
+            if ($invitee !== null) {
+                return $invitee->fullName() !== '' ? $invitee->fullName() : $invitee->email;
+            }
+        }
+
+        $groupId = isset($purchase['purchased_by_group_id']) ? (int) $purchase['purchased_by_group_id'] : 0;
+        if ($groupId > 0) {
+            $group = InvitationGroup::find($groupId);
+            if ($group !== null) {
+                $primary = Invitee::find($group->primaryInviteeId);
+                if ($primary !== null) {
+                    return $primary->fullName() !== '' ? $primary->fullName() : $primary->email;
+                }
+            }
+        }
+
+        return '';
     }
 
     /**
@@ -2124,6 +2762,12 @@ final class EventsPage extends AbstractAdminPage
         return in_array($key, ['name', 'email', 'members', 'invite_sent', 'attending', 'rsvp_notes'], true) ? $key : 'name';
     }
 
+    private function sanitizeEventGiftSortKey(string $key): string
+    {
+        $key = sanitize_key($key);
+        return in_array($key, ['name', 'price_cents', 'website_url', 'purchased'], true) ? $key : 'name';
+    }
+
     /**
      * Sanitizes an invitation group search field key against the allowed column list.
      *
@@ -2134,6 +2778,12 @@ final class EventsPage extends AbstractAdminPage
     {
         $field = sanitize_key($field);
         return in_array($field, ['name', 'email', 'invite_sent', 'attending', 'rsvp_notes'], true) ? $field : '';
+    }
+
+    private function sanitizeEventGiftFieldKey(string $field): string
+    {
+        $field = sanitize_key($field);
+        return in_array($field, ['name', 'description', 'website_url', 'purchased'], true) ? $field : '';
     }
 
     /**
@@ -2210,40 +2860,83 @@ final class EventsPage extends AbstractAdminPage
     }
 
     /**
+     * Returns a human-readable label for an invitee's lodging selection.
+     *
+     * @param Invitee          $member
+     * @param array<int,string> $lodgingById  Map of EventLodging ID → name.
+     * @return string  Empty string when no lodging has been confirmed.
+     */
+    private function lodgingSelectionLabel(Invitee $member, array $lodgingById): string
+    {
+        if ($member->lodgingUndisclosed) {
+            return 'Prefer not to disclose';
+        }
+        if ($member->lodgingIsOther) {
+            return 'Other (Booked Separately)';
+        }
+        if ($member->lodgingId !== null && isset($lodgingById[$member->lodgingId])) {
+            return $lodgingById[$member->lodgingId];
+        }
+        return '';
+    }
+
+    /**
      * Builds the Details modal payload for an invitee on an event invitation row.
      *
      * @param Invitee     $member
      * @param string|null $foodLabel
      * @param string|null $beverageLabel
+     * @param string      $lodgingLabel         Group-level lodging selection label.
+     * @param string|null $lodgingConfirmedAt   Group-level lodging confirmed datetime.
+     * @param string      $lodgingNotes         Optional notes left by the primary invitee.
      * @return array<string,mixed>
      */
-    private function memberDetailsPayload(Invitee $member, ?string $foodLabel, ?string $beverageLabel): array
-    {
+    private function memberDetailsPayload(
+        Invitee $member,
+        ?string $foodLabel,
+        ?string $beverageLabel,
+        string $lodgingLabel = '',
+        ?string $lodgingConfirmedAt = null,
+        string $lodgingNotes = '',
+    ): array {
         $fullName = $member->fullName();
+
+        $sections = [
+            [
+                'heading' => 'Invitee Information',
+                'rows'    => [
+                    ['label' => 'Name',    'value' => $fullName],
+                    ['label' => 'Email',   'value' => $member->email],
+                    ['label' => 'Phone',   'value' => $member->phone],
+                    ['label' => 'Address', 'value' => $member->formattedAddress()],
+                ],
+            ],
+            [
+                'heading' => 'RSVP Response',
+                'rows'    => [
+                    ['label' => 'Status',        'value' => $this->rsvpStatusLabel($member->rsvpStatus)],
+                    ['label' => 'Registered',    'value' => $this->formatAdminDateTime($member->registeredAt)],
+                    ['label' => 'Food',          'value' => $foodLabel ?: ''],
+                    ['label' => 'Beverage',      'value' => $beverageLabel ?: ''],
+                    ['label' => 'Dietary Notes', 'value' => $member->dietaryNotes],
+                ],
+            ],
+        ];
+
+        if ($lodgingLabel !== '' || $lodgingConfirmedAt !== null) {
+            $lodgingRows = [
+                ['label' => 'Selection', 'value' => $lodgingLabel],
+                ['label' => 'Confirmed', 'value' => $this->formatAdminDateTime($lodgingConfirmedAt)],
+            ];
+            if ($lodgingNotes !== '') {
+                $lodgingRows[] = ['label' => 'Notes', 'value' => $lodgingNotes];
+            }
+            $sections[] = ['heading' => 'Lodging', 'rows' => $lodgingRows];
+        }
 
         return [
             'title'    => $fullName !== '' ? $fullName : $member->email,
-            'sections' => [
-                [
-                    'heading' => 'Invitee Information',
-                    'rows'    => [
-                        ['label' => 'Name',    'value' => $fullName],
-                        ['label' => 'Email',   'value' => $member->email],
-                        ['label' => 'Phone',   'value' => $member->phone],
-                        ['label' => 'Address', 'value' => $member->formattedAddress()],
-                    ],
-                ],
-                [
-                    'heading' => 'RSVP Response',
-                    'rows'    => [
-                        ['label' => 'Status',         'value' => $this->rsvpStatusLabel($member->rsvpStatus)],
-                        ['label' => 'Registered',     'value' => $this->formatAdminDateTime($member->registeredAt)],
-                        ['label' => 'Food',           'value' => $foodLabel ?: ''],
-                        ['label' => 'Beverage',       'value' => $beverageLabel ?: ''],
-                        ['label' => 'Dietary Notes',  'value' => $member->dietaryNotes],
-                    ],
-                ],
-            ],
+            'sections' => $sections,
         ];
     }
 
@@ -2409,28 +3102,62 @@ final class EventsPage extends AbstractAdminPage
         }
 
         $eventId = (int) ($_GET['event_id'] ?? 0);
-        $sort    = $this->sanitizeEventGroupSortKey((string) ($_GET['sort']  ?? 'name'));
-        $order   = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
+        $sort    = $this->sanitizeEventGroupSortKey((string) ($_GET['sort']    ?? 'name'));
+        $order   = $this->sanitizeSortOrder((string) ($_GET['order']   ?? 'asc'));
         $query   = sanitize_text_field(wp_unslash($_GET['query'] ?? ''));
-        $field   = $this->sanitizeEventGroupFieldKey((string) ($_GET['field'] ?? ''));
+        $field   = $this->sanitizeEventGroupFieldKey((string) ($_GET['field']   ?? ''));
+        $page    = max(1, (int) ($_GET['page']     ?? 1));
+        $perPage = in_array((int) ($_GET['per_page'] ?? 10), [5, 10, 25, 50, 100], true) ? (int) $_GET['per_page'] : 10;
 
         $event = $eventId > 0 ? Event::find($eventId) : null;
         if (!$event) {
             wp_send_json_error('Event not found.', 404);
         }
 
-        $dateFormat = get_option('date_format');
-        $groups     = $this->sortEventGroups(
+        $dateFormat  = get_option('date_format');
+        $groups      = $this->sortEventGroups(
             $this->filterEventGroups(InvitationGroup::forEvent($eventId), $query, $field, $dateFormat),
             $sort,
             $order
         );
+        $total       = count($groups);
+        $pagedGroups = array_slice($groups, ($page - 1) * $perPage, $perPage);
 
         ob_start();
-        $this->renderEventGroupRows($event, $groups, $dateFormat, $query);
+        $this->renderEventGroupRows($event, $pagedGroups, $dateFormat, $query);
         $html = (string) ob_get_clean();
 
-        wp_send_json_success(['html' => $html, 'count' => count($groups)]);
+        wp_send_json_success(['html' => $html, 'count' => $total, 'total' => $total]);
+    }
+
+    /**
+     * AJAX: saves a seat assignment for a group member.
+     *
+     * Expected POST params: nonce, group_id, invitee_id, seat_assignment.
+     */
+    public function handleAjaxSaveSeating(): void
+    {
+        check_ajax_referer('eim_save_seat_assignment_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions.', 403);
+        }
+
+        $groupId   = (int) ($_POST['group_id']        ?? 0);
+        $inviteeId = (int) ($_POST['invitee_id']       ?? 0);
+        $seat      = sanitize_text_field(wp_unslash($_POST['seat_assignment'] ?? ''));
+
+        if (!$groupId || !$inviteeId) {
+            wp_send_json_error('Missing required parameters.');
+        }
+
+        $success = InvitationGroup::updateMemberSeatAssignment($groupId, $inviteeId, $seat);
+
+        if (!$success) {
+            wp_send_json_error('Could not save seat assignment.');
+        }
+
+        wp_send_json_success(['seat_assignment' => $seat]);
     }
 
     /**
@@ -2445,7 +3172,7 @@ final class EventsPage extends AbstractAdminPage
     {
         if (empty($groups)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No invitees have been added to this event yet.';
-            echo '<tr><td colspan="7">' . esc_html($msg) . '</td></tr>';
+            echo '<tr><td colspan="8">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -2456,9 +3183,26 @@ final class EventsPage extends AbstractAdminPage
             }
         }
 
+        // Build lodging name map once for all groups on this event.
+        $lodgingById = [];
+        foreach (EventLodging::forEvent($event->id) as $opt) {
+            $lodgingById[$opt->id] = $opt->name;
+        }
+
         foreach ($groups as $group) {
             $members              = $group->getMembers();
             $primaryInvitee       = Invitee::find($group->primaryInviteeId);
+
+            // Identify the primary group member for group-level lodging display.
+            $primaryMember = null;
+            foreach ($members as $m) {
+                if ($m->id === $group->primaryInviteeId) {
+                    $primaryMember = $m;
+                    break;
+                }
+            }
+            $groupLodgingLabel       = $primaryMember ? $this->lodgingSelectionLabel($primaryMember, $lodgingById) : '';
+            $groupLodgingConfirmedAt = $primaryMember?->lodgingConfirmedAt;
             $attendingCount       = $group->attendingCount();
             $memberCount          = $group->memberCount();
             $pending              = count(array_filter($members, static fn(Invitee $m) => $m->rsvpStatus === InvitationGroup::RSVP_PENDING));
@@ -2476,6 +3220,13 @@ final class EventsPage extends AbstractAdminPage
             ?>
             <tr>
                 <?= $this->renderBulkSelectCell('eim-event-groups-bulk-form', 'event-groups-' . $event->id, $group->id, 'invitation group ' . (string) $group->id); ?>
+                <td style="width:30px;vertical-align:middle;text-align:center;">
+                    <button type="button"
+                            class="button-link eim-seat-accordion-toggle"
+                            data-group-id="<?= esc_attr($group->id); ?>"
+                            aria-expanded="false"
+                            title="Show/hide seating assignments">▶</button>
+                </td>
                 <td>
                     <span class="eim-tag-list">
                         <?php foreach ($members as $member): ?>
@@ -2494,7 +3245,7 @@ final class EventsPage extends AbstractAdminPage
                             <?php
                             $foodLabel      = $this->menuSelectionLabel($member->foodOptionId, $rsvpOptionMap);
                             $bevLabel       = $this->menuSelectionLabel($member->beverageOptionId, $rsvpOptionMap);
-                            $detailsPayload = $this->memberDetailsPayload($member, $foodLabel ?: null, $bevLabel ?: null);
+                            $detailsPayload = $this->memberDetailsPayload($member, $foodLabel ?: null, $bevLabel ?: null, $groupLodgingLabel, $groupLodgingConfirmedAt, $group->lodgingNotes);
                             ?>
                             <span class="eim-group-member-tag<?= $isPrimary ? ' eim-group-member-primary' : ''; ?>">
                                 <span class="eim-member-dropdown">
@@ -2588,8 +3339,66 @@ final class EventsPage extends AbstractAdminPage
                        onclick="return confirm('Remove this entire group from the event? All group members will be removed.');">Remove Group</a>
                 </td>
             </tr>
+            <?php $accordionGroupLabel = $primaryInvitee ? $primaryInvitee->fullName() : 'Group ' . $group->id; ?>
+            <tr class="eim-seat-accordion-row" id="eim-seat-accordion-row-<?= esc_attr($group->id); ?>" style="display:none;" data-group-id="<?= esc_attr($group->id); ?>" data-group-label="<?= esc_attr($accordionGroupLabel); ?>">
+                <td colspan="8" style="background:#f6f7f7;padding:10px 16px;">
+                    <table class="wp-list-table widefat fixed striped eim-accordion-sortable">
+                        <thead>
+                            <tr>
+                                <th class="eim-invitee-image-column">Image</th>
+                                <th data-sort="1" style="width:15%;cursor:pointer;">First Name <span class="eim-sort-indicator"></span></th>
+                                <th data-sort="2" style="width:15%;cursor:pointer;">Last Name <span class="eim-sort-indicator"></span></th>
+                                <th data-sort="3" style="width:24%;cursor:pointer;">Email <span class="eim-sort-indicator"></span></th>
+                                <th data-sort="4" style="cursor:pointer;">Seat Assignment <span class="eim-sort-indicator"></span></th>
+                                <th style="width:80px;">Details</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($members as $member):
+                                $accFoodLabel = $this->menuSelectionLabel($member->foodOptionId, $rsvpOptionMap);
+                                $accBevLabel  = $this->menuSelectionLabel($member->beverageOptionId, $rsvpOptionMap);
+                                $accDetails   = $this->memberDetailsPayload($member, $accFoodLabel ?: null, $accBevLabel ?: null, $groupLodgingLabel, $groupLodgingConfirmedAt, $group->lodgingNotes);
+                            ?>
+                            <tr data-invitee-id="<?= esc_attr($member->id); ?>"
+                                data-group-id="<?= esc_attr($group->id); ?>">
+                                <td><?= $this->inviteeImageThumbnailMarkup($member->imageAttachmentId, $member->fullName()); ?></td>
+                                <td data-val="<?= esc_attr(strtolower($member->firstName)); ?>">
+                                    <a href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, ['action' => 'edit', 'id' => $member->id])); ?>"><?= esc_html($member->firstName); ?></a>
+                                </td>
+                                <td data-val="<?= esc_attr(strtolower($member->lastName)); ?>">
+                                    <a href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, ['action' => 'edit', 'id' => $member->id])); ?>"><?= esc_html($member->lastName); ?></a>
+                                </td>
+                                <td data-val="<?= esc_attr(strtolower($member->email)); ?>"><?= esc_html($member->email); ?></td>
+                                <td data-val="<?= esc_attr(strtolower($member->seatAssignment)); ?>">
+                                    <div style="display:flex;align-items:center;gap:6px;">
+                                        <input type="text"
+                                               class="regular-text eim-seat-input"
+                                               value="<?= esc_attr($member->seatAssignment); ?>"
+                                               placeholder="e.g. Table 5, Seat 2"
+                                               data-invitee-id="<?= esc_attr($member->id); ?>"
+                                               data-group-id="<?= esc_attr($group->id); ?>"
+                                               data-original="<?= esc_attr($member->seatAssignment); ?>"
+                                               style="max-width:200px;">
+                                        <button type="button"
+                                                class="button button-small eim-save-seat"
+                                                data-invitee-id="<?= esc_attr($member->id); ?>"
+                                                data-group-id="<?= esc_attr($group->id); ?>">Save</button>
+                                        <span class="eim-seat-save-status" style="font-size:12px;"></span>
+                                    </div>
+                                </td>
+                                <td>
+                                    <button type="button"
+                                            class="button button-small eim-rsvp-details-trigger"
+                                            data-eim-rsvp-details="<?= $this->rsvpDetailsAttribute($accDetails); ?>">Details</button>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </td>
+            </tr>
             <tr class="eim-add-member-row" id="eim-add-member-row-<?= esc_attr($group->id); ?>" style="display:none;">
-                <td colspan="7" class="eim-add-member-cell">
+                <td colspan="8" class="eim-add-member-cell">
                     <form method="post"
                           action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'add_member_to_group'])); ?>"
                           class="eim-add-member-form">
@@ -2619,7 +3428,7 @@ final class EventsPage extends AbstractAdminPage
             </tr>
             <?php if (!empty($uninvitedConnections)): ?>
             <tr class="eim-add-connection-row" id="eim-add-connection-row-<?= esc_attr($group->id); ?>" style="display:none;">
-                <td colspan="7" class="eim-add-member-cell">
+                <td colspan="8" class="eim-add-member-cell">
                     <form method="post"
                           action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'add_member_to_group'])); ?>"
                           class="eim-add-member-form">
@@ -2647,6 +3456,193 @@ final class EventsPage extends AbstractAdminPage
     }
 
     /**
+     * Renders the send panel for the Invite Email tab (test send + send all).
+     *
+     * @param Event $event The event being edited.
+     */
+    private function renderInviteEmailSendPanel(Event $event): void
+    {
+        $groups       = InvitationGroup::forEvent($event->id);
+        $totalGroups  = count($groups);
+        $unsentGroups = count(array_filter($groups, static fn(InvitationGroup $g) => $g->inviteSentAt === null));
+        $hasTemplate  = !empty($event->inviteEmailTemplate);
+        ?>
+        <div style="max-width:900px;margin-top:32px;border-top:2px solid #dcdcde;padding-top:24px;">
+            <h2 class="title">Send Invite Emails</h2>
+
+            <?php if (!$hasTemplate): ?>
+                <p class="description">No email template has been saved yet. Fill in the Email Body above and save the event before sending.</p>
+            <?php elseif ($totalGroups === 0): ?>
+                <p class="description">No invitation groups yet. Add invitees to this event first.</p>
+            <?php else: ?>
+                <p class="description" style="margin-bottom:16px;">
+                    This event has <strong><?= esc_html($totalGroups); ?></strong> invitation group<?= $totalGroups === 1 ? '' : 's'; ?>
+                    &mdash; <strong><?= esc_html($unsentGroups); ?></strong> not yet sent.
+                </p>
+                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:24px;">
+                    <button type="button"
+                            id="eim-invite-send-all"
+                            class="button button-primary"
+                            data-event-id="<?= esc_attr($event->id); ?>"
+                            <?= $unsentGroups === 0 ? 'disabled' : ''; ?>>
+                        Send to All Unsent (<?= esc_html($unsentGroups); ?>)
+                    </button>
+                    <span id="eim-invite-send-all-result" style="display:none;font-size:13px;"></span>
+                </div>
+            <?php endif; ?>
+
+            <h3 style="margin:0 0 6px;font-size:14px;">Send Test Email</h3>
+            <p class="description" style="margin-bottom:8px;">
+                Send the email template to a single address for review. Template tags like
+                <code>{{ first_name }}</code> will be replaced with placeholder values.
+            </p>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <input type="email"
+                       id="eim-invite-test-email"
+                       class="regular-text"
+                       placeholder="test@example.com"
+                       style="max-width:260px;"
+                       <?= !$hasTemplate ? 'disabled' : ''; ?>>
+                <button type="button"
+                        id="eim-invite-send-test"
+                        class="button"
+                        data-event-id="<?= esc_attr($event->id); ?>"
+                        <?= !$hasTemplate ? 'disabled' : ''; ?>>
+                    Send Test
+                </button>
+                <span id="eim-invite-send-test-result" style="display:none;font-size:13px;"></span>
+            </div>
+        </div>
+        <?php
+    }
+
+    /**
+     * Renders the Messages tab section: a table of connection groups that have
+     * submitted messages about this event, with per-row counts and popup access.
+     *
+     * @param Event $event The event being edited.
+     */
+    private function renderEventMessagesSection(Event $event): void
+    {
+        $summary  = EventMessage::summaryForEvent($event->id);
+        $groupIds = array_keys($summary);
+
+        // Load connection groups that have messages for this event.
+        $groups = [];
+        if (!empty($groupIds)) {
+            $groups = ConnectionGroup::findMany($groupIds);
+        }
+
+        // Batch-load categories for all groups.
+        $catsByGroup = empty($groupIds) ? [] : Category::forEntities('connection_group', $groupIds);
+        ?>
+        <h2 style="margin-top:20px;">Messages</h2>
+        <p class="description" style="margin-bottom:12px;">
+            Messages sent by invitation groups about this event. Use the counts to open a popup and review, mark as read, or delete individual messages.
+        </p>
+
+        <?php if (empty($groups)): ?>
+            <p style="color:#999;margin-top:8px;">No messages have been received for this event yet.</p>
+        <?php else: ?>
+            <div style="margin-bottom:8px;">
+                <input type="search"
+                       id="eim-messages-filter"
+                       class="regular-text"
+                       placeholder="Filter by group name…"
+                       style="max-width:280px;">
+            </div>
+            <table id="eim-messages-table" class="wp-list-table widefat fixed striped">
+                <thead>
+                    <tr>
+                        <th style="width:22%;">Name</th>
+                        <th style="width:28%;">Members</th>
+                        <th style="width:22%;">Categories</th>
+                        <th style="width:14%;text-align:center;">Messages</th>
+                        <th style="width:14%;text-align:center;">Unread</th>
+                    </tr>
+                </thead>
+                <tbody id="eim-messages-tbody">
+                    <?php foreach ($groups as $group):
+                        $counts     = $summary[$group->id] ?? ['total' => 0, 'unread' => 0];
+                        $total      = $counts['total'];
+                        $unread     = $counts['unread'];
+                        $members    = $group->getMembers();
+                        $memberList = implode(', ', array_map(static fn($m) => esc_html($m->fullName()), $members));
+                        $cats       = $catsByGroup[$group->id] ?? [];
+                        $cgUrl      = AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'edit', 'id' => $group->id]);
+                    ?>
+                    <tr data-group-id="<?= esc_attr($group->id); ?>"
+                        data-group-name="<?= esc_attr($group->name); ?>"
+                        data-name-lower="<?= esc_attr(strtolower($group->name)); ?>">
+                        <td>
+                            <a href="<?= esc_url($cgUrl); ?>">
+                                <strong><?= esc_html($group->name); ?></strong>
+                            </a>
+                        </td>
+                        <td><?= esc_html($memberList ?: '—'); ?></td>
+                        <td>
+                            <?php if (empty($cats)): ?>
+                                <span style="color:#999;">—</span>
+                            <?php else: ?>
+                                <span class="eim-tag-list">
+                                    <?php foreach ($cats as $cat): ?>
+                                        <span class="eim-connection-tag"><?= esc_html($cat->name); ?></span>
+                                    <?php endforeach; ?>
+                                </span>
+                            <?php endif; ?>
+                        </td>
+                        <td style="text-align:center;">
+                            <button type="button"
+                                    class="button button-small eim-messages-open"
+                                    data-group-id="<?= esc_attr($group->id); ?>"
+                                    data-group-name="<?= esc_attr($group->name); ?>"
+                                    data-unread-only="0">
+                                <?= esc_html($total); ?>
+                            </button>
+                        </td>
+                        <td style="text-align:center;">
+                            <?php if ($unread > 0): ?>
+                                <button type="button"
+                                        class="button button-small eim-messages-open"
+                                        style="background:#d63638;border-color:#b32d2e;color:#fff;"
+                                        data-group-id="<?= esc_attr($group->id); ?>"
+                                        data-group-name="<?= esc_attr($group->name); ?>"
+                                        data-unread-only="1">
+                                    <?= esc_html($unread); ?>
+                                </button>
+                            <?php else: ?>
+                                <span style="color:#999;">0</span>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        <?php endif; ?>
+
+        <!-- Messages modal (shared, populated via AJAX) -->
+        <div id="eim-messages-modal" style="display:none;position:fixed;inset:0;z-index:100000;">
+            <div id="eim-messages-modal-backdrop"
+                 style="position:absolute;inset:0;background:rgba(0,0,0,.5);"></div>
+            <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+                        background:#fff;border-radius:6px;width:min(640px,92vw);max-height:80vh;
+                        display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.25);">
+                <div style="display:flex;justify-content:space-between;align-items:center;
+                            padding:14px 18px;border-bottom:1px solid #dcdcde;flex-shrink:0;">
+                    <strong id="eim-messages-modal-title" style="font-size:14px;"></strong>
+                    <button type="button" id="eim-messages-modal-close"
+                            class="button-link" style="font-size:20px;line-height:1;color:#3c434a;">×</button>
+                </div>
+                <div id="eim-messages-modal-body"
+                     style="overflow-y:auto;padding:16px 18px;flex:1;min-height:120px;">
+                    <p style="color:#999;">Loading…</p>
+                </div>
+            </div>
+        </div>
+        <?php
+    }
+
+    /**
      * Renders the Invited Invitees section on the event edit screen.
      *
      * Includes the add-invitee picker, the Send All button, the search bar,
@@ -2659,6 +3655,8 @@ final class EventsPage extends AbstractAdminPage
         $sort        = $this->sanitizeEventGroupSortKey((string) ($_GET['sort']  ?? 'name'));
         $order       = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
         $groups      = $this->sortEventGroups(InvitationGroup::forEvent($event->id), $sort, $order);
+        $groupTotal  = count($groups);
+        $pagedGroups = array_slice($groups, 0, 10);
         $memberCount = $event->inviteeCount();
         $dateFormat  = get_option('date_format');
         $sendAllUrl   = wp_nonce_url(
@@ -2753,22 +3751,146 @@ final class EventsPage extends AbstractAdminPage
                class="wp-list-table widefat fixed striped"
                style="margin-top:12px;"
                data-sort="<?= esc_attr($sort); ?>"
-               data-order="<?= esc_attr($order); ?>">
+               data-order="<?= esc_attr($order); ?>"
+               data-total="<?= esc_attr($groupTotal); ?>">
             <thead>
                 <tr>
                     <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('event-groups-' . $event->id); ?></th>
-                    <th style="width:25%;"><?= $this->sortLink('Group Members',   'name',        AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
-                    <th style="width:18%;"><?= $this->sortLink('Email (Primary)', 'email',       AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
-                    <th style="width:12%;"><?= $this->sortLink('Invite Sent',     'invite_sent', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
-                    <th style="width:11%;"><?= $this->sortLink('Registered',      'attending',   AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
-                    <th style="width:16%;"><?= $this->sortLink('RSVP Notes',      'rsvp_notes',  AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
-                    <th style="width:18%;">Actions</th>
+                    <th style="width:30px;" title="Seating"></th>
+                    <th style="width:22%;"><?= $this->sortLink('Group Members',   'name',        AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:16%;"><?= $this->sortLink('Email (Primary)', 'email',       AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:11%;"><?= $this->sortLink('Invite Sent',     'invite_sent', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:10%;"><?= $this->sortLink('Registered',      'attending',   AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:14%;"><?= $this->sortLink('RSVP Notes',      'rsvp_notes',  AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:17%;">Actions</th>
                 </tr>
             </thead>
             <tbody id="eim-event-groups-table-body">
-                <?php $this->renderEventGroupRows($event, $groups, $dateFormat); ?>
+                <?php $this->renderEventGroupRows($event, $pagedGroups, $dateFormat); ?>
             </tbody>
         </table>
+        <?php $this->renderPaginationBar('eim-event-groups-search'); ?>
+
+        <?php $this->renderSeatingAssignmentsSection($groups); ?>
         <?php
+    }
+
+    /**
+     * Renders the Seating Assignments section below the invitation groups table.
+     *
+     * @param InvitationGroup[] $groups Loaded invitation groups (already have members populated).
+     */
+    private function renderSeatingAssignmentsSection(array $groups): void
+    {
+        $seated = [];
+        foreach ($groups as $group) {
+            $primary    = Invitee::find($group->primaryInviteeId);
+            $groupLabel = $primary ? $primary->fullName() : 'Group ' . $group->id;
+            foreach ($group->getMembers() as $member) {
+                if ($member->seatAssignment !== '') {
+                    $seated[] = [
+                        'member'     => $member,
+                        'group'      => $group,
+                        'groupLabel' => $groupLabel,
+                    ];
+                }
+            }
+        }
+
+        $memberIds   = array_map(fn($item) => $item['member']->id, $seated);
+        $cgsByMember = empty($memberIds) ? [] : ConnectionGroup::forInvitees($memberIds);
+        ?>
+        <h2 style="margin-top:32px;">Seating Assignments</h2>
+        <p class="description" style="margin-bottom:12px;">
+            Invitees with an assigned seat. Use the group accordion toggles above to assign or update seats.
+        </p>
+
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+            <input type="search"
+                   id="eim-seating-search"
+                   class="regular-text"
+                   placeholder="Filter seated invitees…"
+                   style="max-width:300px;"
+                   autocomplete="off">
+            <select id="eim-seating-field" style="max-width:200px;">
+                <option value="">All columns</option>
+                <option value="first_name">First Name</option>
+                <option value="last_name">Last Name</option>
+                <option value="email">Email</option>
+                <option value="phone">Phone</option>
+                <option value="group_name">Connection Group</option>
+                <option value="seat">Seat</option>
+            </select>
+            <span id="eim-seating-count" class="description"><?= count($seated); ?> assignment<?= count($seated) === 1 ? '' : 's'; ?></span>
+        </div>
+
+        <table id="eim-seating-assignments-table"
+               class="wp-list-table widefat fixed striped"
+               data-sort="lastName"
+               data-order="asc">
+            <thead>
+                <tr>
+                    <th style="width:14%;"><a href="#" class="eim-seating-sort" data-sort="firstName" data-order="asc">First Name <span aria-hidden="true"></span></a></th>
+                    <th style="width:14%;"><a href="#" class="eim-seating-sort" data-sort="lastName"  data-order="asc">Last Name <span aria-hidden="true"></span></a></th>
+                    <th style="width:20%;"><a href="#" class="eim-seating-sort" data-sort="email"     data-order="asc">Email <span aria-hidden="true"></span></a></th>
+                    <th style="width:12%;"><a href="#" class="eim-seating-sort" data-sort="phone"     data-order="asc">Phone <span aria-hidden="true"></span></a></th>
+                    <th style="width:22%;"><a href="#" class="eim-seating-sort" data-sort="groupName" data-order="asc">Connection Group <span aria-hidden="true"></span></a></th>
+                    <th style="width:18%;"><a href="#" class="eim-seating-sort" data-sort="seat"      data-order="asc">Seat <span aria-hidden="true"></span></a></th>
+                </tr>
+            </thead>
+            <tbody id="eim-seating-assignments-tbody">
+                <?php $this->renderSeatingAssignmentRows($seated, $cgsByMember); ?>
+            </tbody>
+        </table>
+        <?php $this->renderPaginationBar('eim-seating-search'); ?>
+        <?php
+    }
+
+    /**
+     * @param array<int, array{member: \EventsInviteManager\Models\Invitee, group: InvitationGroup, groupLabel: string}> $seated
+     * @param array<int, \EventsInviteManager\Models\ConnectionGroup[]> $cgsByMember
+     */
+    private function renderSeatingAssignmentRows(array $seated, array $cgsByMember = []): void
+    {
+        if (empty($seated)) {
+            echo '<tr id="eim-seating-empty-row"><td colspan="6" style="color:#999;">No seating assignments yet. Use the group accordions above to assign seats.</td></tr>';
+            return;
+        }
+
+        foreach ($seated as $item) {
+            $member     = $item['member'];
+            $group      = $item['group'];
+            $groupLabel = $item['groupLabel'];
+            $firstCg    = ($cgsByMember[$member->id] ?? [])[0] ?? null;
+            $cgLabel    = $firstCg ? $firstCg->name : $groupLabel;
+            ?>
+            <tr data-invitee-id="<?= esc_attr($member->id); ?>"
+                data-group-id="<?= esc_attr($group->id); ?>"
+                data-first-name="<?= esc_attr(strtolower($member->firstName)); ?>"
+                data-last-name="<?= esc_attr(strtolower($member->lastName)); ?>"
+                data-email="<?= esc_attr(strtolower($member->email)); ?>"
+                data-phone="<?= esc_attr(strtolower($member->phone)); ?>"
+                data-group-name="<?= esc_attr(strtolower($cgLabel)); ?>"
+                data-seat="<?= esc_attr(strtolower($member->seatAssignment)); ?>">
+                <td><?= esc_html($member->firstName); ?></td>
+                <td><?= esc_html($member->lastName); ?></td>
+                <td><?= esc_html($member->email); ?></td>
+                <td><?= esc_html($member->phone ?: '—'); ?></td>
+                <td>
+                    <?php if ($firstCg): ?>
+                        <span class="eim-tag-list">
+                            <a class="eim-connection-tag"
+                               href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'edit', 'id' => $firstCg->id])); ?>">
+                                <?= esc_html($firstCg->name); ?>
+                            </a>
+                        </span>
+                    <?php else: ?>
+                        <span style="color:#999;">—</span>
+                    <?php endif; ?>
+                </td>
+                <td><?= esc_html($member->seatAssignment); ?></td>
+            </tr>
+            <?php
+        }
     }
 }

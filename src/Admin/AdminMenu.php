@@ -16,7 +16,9 @@ use EventsInviteManager\Admin\Pages\EventsManager\SubPages\BudgetPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\MenuItemsPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\CategoriesPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\NewslettersPage;
+use EventsInviteManager\Admin\Pages\EventsManager\SubPages\GiftsPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\VendorsPage;
+use EventsInviteManager\Database\DatabaseManager;
 use EventsInviteManager\Email\EmailService;
 use EventsInviteManager\Email\TemplateRenderer;
 use EventsInviteManager\Services\QrCodeService;
@@ -59,6 +61,9 @@ final class AdminMenu
     /** @var string Tab slug for the Categories sub-page. */
     public const TAB_CATEGORIES         = 'categories';
 
+    /** @var string Tab slug for the Gifts sub-page. */
+    public const TAB_GIFTS              = 'gifts';
+
     /** @var AboutPage About / plugin-info page. */
     private AboutPage            $aboutPage;
 
@@ -92,6 +97,9 @@ final class AdminMenu
     /** @var CategoriesPage Categories sub-page handler. */
     private CategoriesPage       $categoriesPage;
 
+    /** @var GiftsPage Gifts sub-page handler. */
+    private GiftsPage            $giftsPage;
+
     /**
      * Instantiates all sub-page handlers and shared services.
      */
@@ -109,6 +117,7 @@ final class AdminMenu
         $this->newslettersPage      = new NewslettersPage($emailService);
         $this->vendorsPage          = new VendorsPage();
         $this->categoriesPage       = new CategoriesPage();
+        $this->giftsPage            = new GiftsPage();
 
         $this->aboutPage          = new AboutPage();
         $this->eventsManagerPage  = new EventsManagerPage(
@@ -120,7 +129,8 @@ final class AdminMenu
             $this->budgetPage,
             $this->newslettersPage,
             $this->vendorsPage,
-            $this->categoriesPage
+            $this->categoriesPage,
+            $this->giftsPage
         );
     }
 
@@ -149,6 +159,7 @@ final class AdminMenu
     {
         add_action('admin_menu',            [$this, 'addMenuPages']);
         add_action('admin_init',            [$this, 'processFormSubmissions']);
+        add_action('admin_init',            [DatabaseManager::class, 'maybeUpgrade']);
         add_action('admin_enqueue_scripts', [$this, 'enqueueScripts']);
 
         // Menu items library + event-edit autocomplete.
@@ -183,6 +194,23 @@ final class AdminMenu
         // Categories list + suggest autocomplete (shared picker for all entity types).
         add_action('wp_ajax_eim_search_categories',   [$this->categoriesPage,  'handleAjaxSearchCategories']);
         add_action('wp_ajax_eim_suggest_categories',  [$this->categoriesPage,  'handleAjaxSuggestCategories']);
+
+        // Gifts list.
+        add_action('wp_ajax_eim_search_gifts_list',   [$this->giftsPage,       'handleAjaxSearchGifts']);
+        add_action('wp_ajax_eim_suggest_gifts',        [$this->giftsPage,       'handleAjaxSuggestGifts']);
+        add_action('wp_ajax_eim_search_event_gifts',   [$this->eventsPage,      'handleAjaxSearchEventGifts']);
+
+        // Seating assignments save.
+        add_action('wp_ajax_eim_save_seat_assignment',  [$this->eventsPage, 'handleAjaxSaveSeating']);
+
+        // Invite email: test send and send-all.
+        add_action('wp_ajax_eim_send_invite_test',      [$this->eventsPage, 'handleAjaxSendInviteTest']);
+        add_action('wp_ajax_eim_send_all_invites_ajax', [$this->eventsPage, 'handleAjaxSendAllInvites']);
+
+        // Event messages.
+        add_action('wp_ajax_eim_get_group_messages',    [$this->eventsPage, 'handleAjaxGetGroupMessages']);
+        add_action('wp_ajax_eim_mark_message_read',     [$this->eventsPage, 'handleAjaxMarkMessageRead']);
+        add_action('wp_ajax_eim_delete_message',        [$this->eventsPage, 'handleAjaxDeleteMessage']);
 
         add_filter('script_loader_tag', [$this, 'addModuleTypeToScript'], 10, 2);
     }
@@ -321,6 +349,10 @@ final class AdminMenu
             || $tab === self::TAB_CONNECTION_GROUPS;
 
         if ($needsInviteeJs) {
+            if ($tab === self::TAB_INVITEES && in_array($action, ['add', 'edit'], true)) {
+                wp_enqueue_media();
+            }
+
             wp_enqueue_script('eim-admin-invitees', EIM_PLUGIN_URL . 'assets/js/admin-invitees.js', [], EIM_VERSION, true);
             wp_localize_script('eim-admin-invitees', 'eimInviteesAdmin', [
                 'searchNonce'             => wp_create_nonce('eim_search_invitees_nonce'),
@@ -337,6 +369,12 @@ final class AdminMenu
                     'id'                  => (int) ($_GET['id'] ?? 0),
                     'groupsSortNonce'     => wp_create_nonce('eim_event_groups_sort_nonce'),
                     'assignmentSortNonce' => wp_create_nonce('eim_event_assignment_sort_nonce'),
+                    'seatNonce'           => wp_create_nonce('eim_save_seat_assignment_nonce'),
+                    'inviteTestNonce'     => wp_create_nonce('eim_send_invite_test_nonce'),
+                    'inviteAllNonce'      => wp_create_nonce('eim_send_all_invites_nonce'),
+                    'getMessagesNonce'    => wp_create_nonce('eim_get_group_messages_nonce'),
+                    'markReadNonce'       => wp_create_nonce('eim_mark_message_read_nonce'),
+                    'deleteMessageNonce'  => wp_create_nonce('eim_delete_message_nonce'),
                 ],
                 'connectionGroup' => [
                     'enabled' => $tab === self::TAB_CONNECTION_GROUPS && in_array($action, ['add', 'edit'], true),
@@ -346,6 +384,33 @@ final class AdminMenu
                     'enabled' => $tab === self::TAB_CONNECTION_GROUPS && !in_array($action, ['add', 'edit'], true),
                     'sort'    => sanitize_key($_GET['sort']  ?? 'name'),
                     'order'   => strtolower((string) ($_GET['order'] ?? 'asc')) === 'desc' ? 'desc' : 'asc',
+                ],
+            ]);
+        }
+
+        $needsGiftsJs = $tab === self::TAB_GIFTS || ($tab === self::TAB_EVENTS && $action === 'edit');
+        if ($needsGiftsJs) {
+            if ($tab === self::TAB_GIFTS && in_array($action, ['add', 'edit'], true)) {
+                wp_enqueue_media();
+            }
+
+            wp_enqueue_script('eim-admin-gifts', EIM_PLUGIN_URL . 'assets/js/admin-gifts.js', [], EIM_VERSION, true);
+            wp_localize_script('eim-admin-gifts', 'eimGiftsAdmin', [
+                'searchNonce'        => wp_create_nonce('eim_search_gifts_list_nonce'),
+                'suggestEventsNonce' => wp_create_nonce('eim_suggest_events_nonce'),
+                'suggestGiftsNonce'  => wp_create_nonce('eim_suggest_gifts_nonce'),
+                'table'              => [
+                    'enabled' => $tab === self::TAB_GIFTS && !in_array($action, ['add', 'edit'], true),
+                    'sort'    => sanitize_key($_GET['sort']  ?? 'name'),
+                    'order'   => strtolower((string) ($_GET['order'] ?? 'asc')) === 'desc' ? 'desc' : 'asc',
+                ],
+                'form' => [
+                    'enabled' => $tab === self::TAB_GIFTS && in_array($action, ['add', 'edit'], true),
+                ],
+                'eventRegistry' => [
+                    'enabled'     => $tab === self::TAB_EVENTS && $action === 'edit',
+                    'eventId'     => (int) ($_GET['id'] ?? 0),
+                    'searchNonce' => wp_create_nonce('eim_search_event_gifts_nonce'),
                 ],
             ]);
         }
@@ -455,6 +520,7 @@ final class AdminMenu
                 self::TAB_VENDORS           => $this->vendorsPage->handleAction($action),
                 self::TAB_NEWSLETTERS       => $this->newslettersPage->handleAction($action),
                 self::TAB_CATEGORIES        => $this->categoriesPage->handleAction($action),
+                self::TAB_GIFTS             => $this->giftsPage->handleAction($action),
                 default                     => null,
             };
         }

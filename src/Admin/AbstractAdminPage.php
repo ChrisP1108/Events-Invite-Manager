@@ -212,6 +212,50 @@ abstract class AbstractAdminPage
         return sanitize_key(wp_unslash($_POST['bulk_action'] ?? ''));
     }
 
+    protected function giftImageThumbnailMarkup(int $attachmentId, string $label): string
+    {
+        if ($attachmentId <= 0) {
+            return '<span class="eim-gift-image-empty" aria-hidden="true">—</span>';
+        }
+
+        $thumbUrl = wp_get_attachment_image_url($attachmentId, 'thumbnail');
+        $fullUrl  = wp_get_attachment_image_url($attachmentId, 'full');
+
+        if (!is_string($thumbUrl) || $thumbUrl === '' || !is_string($fullUrl) || $fullUrl === '') {
+            return '<span class="eim-gift-image-empty" aria-hidden="true">—</span>';
+        }
+
+        return sprintf(
+            '<button type="button" class="button-link eim-gift-image-thumb" data-full-src="%s" data-caption="%s" aria-label="%s"><img src="%s" alt="" loading="lazy"></button>',
+            esc_url($fullUrl),
+            esc_attr($label),
+            esc_attr(sprintf(__('View full-size image for %s', 'events-invite-manager'), $label)),
+            esc_url($thumbUrl)
+        );
+    }
+
+    protected function inviteeImageThumbnailMarkup(int $attachmentId, string $label): string
+    {
+        if ($attachmentId <= 0) {
+            return '<span class="eim-invitee-image-empty" aria-hidden="true">—</span>';
+        }
+
+        $thumbUrl = wp_get_attachment_image_url($attachmentId, 'thumbnail');
+        $fullUrl  = wp_get_attachment_image_url($attachmentId, 'full');
+
+        if (!is_string($thumbUrl) || $thumbUrl === '' || !is_string($fullUrl) || $fullUrl === '') {
+            return '<span class="eim-invitee-image-empty" aria-hidden="true">—</span>';
+        }
+
+        return sprintf(
+            '<button type="button" class="button-link eim-invitee-image-thumb" data-full-src="%s" data-caption="%s" aria-label="%s"><img src="%s" alt="" loading="lazy"></button>',
+            esc_url($fullUrl),
+            esc_attr($label),
+            esc_attr(sprintf(__('View full-size image for %s', 'events-invite-manager'), $label)),
+            esc_url($thumbUrl)
+        );
+    }
+
     /**
      * Builds a sortable column header link with AJAX data attributes and GET fallback.
      *
@@ -339,6 +383,12 @@ abstract class AbstractAdminPage
             'vendor_created'             => 'Vendor added to library.',
             'vendor_updated'             => 'Vendor updated.',
             'vendor_deleted'             => 'Vendor deleted.',
+            'gift_created'               => 'Gift added to registry.',
+            'gift_updated'               => 'Gift updated.',
+            'gift_deleted'               => 'Gift deleted.',
+            'gift_added_to_event'        => 'Gift added to event registry.',
+            'gift_removed_from_event'    => 'Gift removed from event registry.',
+            'seat_saved'                 => 'Seat assignment saved.',
             'category_created'           => 'Category created.',
             'category_updated'           => 'Category updated.',
             'category_deleted'           => 'Category deleted.',
@@ -372,6 +422,7 @@ abstract class AbstractAdminPage
             'newsletter_title_required'  => 'A title is required for the newsletter.',
             'nl_tag_name_required'       => 'A tag name is required.',
             'vendor_name_required'       => 'A company name is required to save a vendor.',
+            'gift_name_required'         => 'A gift name is required.',
             'category_name_required'     => 'A category name is required.',
             'bulk_no_selection'          => 'Select at least one item before applying a bulk action.',
             'bulk_invalid_action'        => 'Choose a valid bulk action before applying.',

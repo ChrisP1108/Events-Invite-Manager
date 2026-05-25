@@ -31,6 +31,9 @@ final class InvitationGroup
         public readonly ?string $inviteSentAt,
         public readonly string  $rsvpNotes,
         public readonly ?string $rsvpNotesUpdatedAt,
+        public readonly bool    $lodgingBooked,
+        public readonly ?string $lodgingBookedAt,
+        public readonly string  $lodgingNotes,
         public readonly string  $createdAt,
         public readonly string  $updatedAt,
     ) {}
@@ -62,6 +65,42 @@ final class InvitationGroup
         $table = DatabaseManager::invitationGroupsTable();
         $rows  = $wpdb->get_results(
             $wpdb->prepare("SELECT * FROM {$table} WHERE event_id = %d ORDER BY id ASC", $eventId)
+        );
+
+        if (empty($rows)) {
+            return [];
+        }
+
+        $groups   = array_map(static fn(object $r) => self::fromRow($r), $rows);
+        $groupIds = array_map(static fn(self $g) => $g->id, $groups);
+
+        $membersByGroup = self::loadMembersForGroups($groupIds);
+        foreach ($groups as $group) {
+            $group->members = $membersByGroup[$group->id] ?? [];
+        }
+
+        return $groups;
+    }
+
+    /**
+     * Returns all invitation groups where the given invitee is the primary invitee,
+     * across all events. Members are pre-loaded on each group.
+     *
+     * Used by the invitee dashboard to show cross-event RSVP data.
+     *
+     * @param int $primaryInviteeId
+     * @return self[]
+     */
+    public static function forPrimaryInvitee(int $primaryInviteeId): array
+    {
+        global $wpdb;
+
+        $table = DatabaseManager::invitationGroupsTable();
+        $rows  = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT * FROM {$table} WHERE primary_invitee_id = %d ORDER BY id ASC",
+                $primaryInviteeId
+            )
         );
 
         if (empty($rows)) {
@@ -592,7 +631,8 @@ final class InvitationGroup
                         egm.lodging_id            AS invitation_lodging_id,
                         egm.lodging_is_other      AS invitation_lodging_is_other,
                         egm.lodging_undisclosed   AS invitation_lodging_undisclosed,
-                        egm.lodging_confirmed_at  AS invitation_lodging_confirmed_at
+                        egm.lodging_confirmed_at  AS invitation_lodging_confirmed_at,
+                        egm.seat_assignment       AS invitation_seat_assignment
                  FROM {$membersTable} egm
                  INNER JOIN {$inviteesTable} i   ON i.id   = egm.invitee_id
                  INNER JOIN {$groupsTable}   eig ON eig.id = egm.group_id
@@ -611,6 +651,69 @@ final class InvitationGroup
         return $grouped;
     }
 
+    public static function updateMemberSeatAssignment(int $groupId, int $inviteeId, string $seatAssignment): bool
+    {
+        global $wpdb;
+        $table = DatabaseManager::invitationGroupMembersTable();
+        return $wpdb->update(
+            $table,
+            ['seat_assignment' => $seatAssignment],
+            ['group_id' => $groupId, 'invitee_id' => $inviteeId]
+        ) !== false;
+    }
+
+    public static function updateLodgingNotes(int $groupId, string $notes): bool
+    {
+        return self::updateLodgingDetails($groupId, null, $notes);
+    }
+
+    /**
+     * Saves shared lodging details for an invitation group.
+     *
+     * Pass null for either argument to leave that field unchanged.
+     *
+     * @param int       $groupId
+     * @param bool|null $booked
+     * @param string|null $notes
+     * @return bool
+     */
+    public static function updateLodgingDetails(int $groupId, ?bool $booked = null, ?string $notes = null): bool
+    {
+        global $wpdb;
+
+        $fields = [];
+
+        if ($booked !== null) {
+            $fields['lodging_booked'] = (int) $booked;
+
+            if ($booked) {
+                $existingBookedAt = $wpdb->get_var($wpdb->prepare(
+                    "SELECT lodging_booked_at FROM " . DatabaseManager::invitationGroupsTable() . " WHERE id = %d LIMIT 1", // phpcs:ignore
+                    $groupId
+                ));
+                $fields['lodging_booked_at'] = $existingBookedAt ?: current_time('mysql');
+            } else {
+                $fields['lodging_booked_at'] = null;
+            }
+        }
+
+        if ($notes !== null) {
+            $fields['lodging_notes'] = $notes;
+        }
+
+        if (empty($fields)) {
+            return true;
+        }
+
+        $result = $wpdb->update(
+            DatabaseManager::invitationGroupsTable(),
+            $fields,
+            ['id'            => $groupId]
+        );
+
+        return $result !== false;
+    }
+
     private static function fromRow(object $row): self
     {
         return new self(
@@ -620,6 +723,9 @@ final class InvitationGroup
             inviteSentAt:           $row->invite_sent_at ?? null,
             rsvpNotes:              $row->rsvp_notes ?? '',
             rsvpNotesUpdatedAt:     $row->rsvp_notes_updated_at ?? null,
+            lodgingBooked:       (bool) ($row->lodging_booked ?? false),
+            lodgingBookedAt:        $row->lodging_booked_at ?? null,
+            lodgingNotes:           $row->lodging_notes ?? '',
             createdAt:              $row->created_at     ?? '',
             updatedAt:              $row->updated_at     ?? '',
         );

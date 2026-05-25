@@ -8,6 +8,7 @@ if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Models\Event;
 use EventsInviteManager\Models\EventLodging;
+use EventsInviteManager\Models\Gift;
 use EventsInviteManager\Models\MenuItem;
 use EventsInviteManager\Models\InvitationGroup;
 use EventsInviteManager\Models\Invitee;
@@ -93,6 +94,64 @@ class RestController
                 ],
             ]);
 
+            register_rest_route(self::NAMESPACE, '/dashboard', [
+                'methods'             => 'GET',
+                'callback'            => [$this, 'handleDashboard'],
+                'permission_callback' => '__return_true',
+                'args'                => [
+                    'confirmation_code' => [
+                        'required'          => true,
+                        'type'              => 'string',
+                        'sanitize_callback' => 'sanitize_text_field',
+                    ],
+                ],
+            ]);
+
+            register_rest_route(self::NAMESPACE, '/registry', [
+                'methods'             => 'GET',
+                'callback'            => [$this, 'handleRegistry'],
+                'permission_callback' => '__return_true',
+                'args'                => [
+                    'confirmation_code' => [
+                        'required'          => true,
+                        'type'              => 'string',
+                        'sanitize_callback' => 'sanitize_text_field',
+                    ],
+                    'event_id' => [
+                        'required'          => false,
+                        'type'              => 'integer',
+                        'sanitize_callback' => 'absint',
+                    ],
+                ],
+            ]);
+
+            register_rest_route(self::NAMESPACE, '/registry/purchase', [
+                'methods'             => 'POST',
+                'callback'            => [$this, 'handleRegistryPurchase'],
+                'permission_callback' => '__return_true',
+                'args'                => [
+                    'confirmation_code' => [
+                        'required'          => true,
+                        'type'              => 'string',
+                        'sanitize_callback' => 'sanitize_text_field',
+                    ],
+                    'event_id' => [
+                        'required'          => true,
+                        'type'              => 'integer',
+                        'sanitize_callback' => 'absint',
+                    ],
+                    'gift_id' => [
+                        'required'          => true,
+                        'type'              => 'integer',
+                        'sanitize_callback' => 'absint',
+                    ],
+                    'is_purchased' => [
+                        'required' => false,
+                        'type'     => 'boolean',
+                    ],
+                ],
+            ]);
+
             register_rest_route(self::NAMESPACE, '/register', [
                 'methods'             => 'POST',
                 'callback'            => [$this, 'handleRegister'],
@@ -121,6 +180,14 @@ class RestController
                         ],
                     ],
                     'rsvp_notes' => [
+                        'required' => false,
+                        'type'     => 'string',
+                    ],
+                    'lodging_booked' => [
+                        'required' => false,
+                        'type'     => 'boolean',
+                    ],
+                    'lodging_notes' => [
                         'required' => false,
                         'type'     => 'string',
                     ],
@@ -182,7 +249,7 @@ class RestController
             );
         }
 
-        if ($result->nextAction !== RsvpFlowResult::ACTION_NEWSLETTER_REDIRECT || $result->event === null) {
+        if (!$result->isComplete() || $result->event === null || $result->group === null) {
             return new WP_REST_Response(
                 [
                     'success'     => false,
@@ -193,36 +260,287 @@ class RestController
             );
         }
 
+        // Cross-event: gather upcoming registered events for this primary invitee.
+        // Each event uses its own QR confirmation code so edit links and late-added
+        // RSVP requirements are evaluated against the correct invitation group.
+        $entries = $this->registeredDashboardEntries($result, $code, true);
+
         $newsletterId = (int) ($request->get_param('newsletter_id') ?? 0);
 
         if ($newsletterId > 0) {
-            $newsletter = Newsletter::findPublishedForEvent($result->event->id, $newsletterId);
-
-            if ($newsletter === null) {
-                return new WP_REST_Response([
-                    'success' => false,
-                    'message' => 'Newsletter not found.',
-                ], 404);
+            // Single-newsletter detail: search across all registered events.
+            foreach ($entries as $entry) {
+                $newsletter = Newsletter::findPublishedForEvent($entry['event']->id, $newsletterId);
+                if ($newsletter !== null) {
+                    return new WP_REST_Response([
+                        'success'       => true,
+                        'event_id'      => $entry['event']->id,
+                        'group_id'      => $entry['group']->id,
+                        'edit_rsvp_url' => $this->buildRsvpEditUrl($entry['event'], $entry['code']),
+                        'rsvp_summary'  => $this->rsvpSummaryPayload($entry['flow'], $entry['code']),
+                        'newsletter'    => $this->newsletterDetailPayload($newsletter),
+                    ], 200);
+                }
             }
 
             return new WP_REST_Response([
-                'success'       => true,
-                'event_id'      => $result->event->id,
-                'edit_rsvp_url' => $this->buildRsvpEditUrl($result->event, $code),
-                'rsvp_summary'  => $this->rsvpSummaryPayload($result, $code),
-                'newsletter'    => $this->newsletterDetailPayload($newsletter),
-            ], 200);
+                'success' => false,
+                'message' => 'Newsletter not found.',
+            ], 404);
         }
 
-        $newsletters = Newsletter::publishedForEvent($result->event->id);
+        // All newsletters across every registered event, grouped by event.
+        $allNewsletters = [];
+        $eventGroups     = [];
+        foreach ($entries as $entry) {
+            $newsletters = array_map(
+                fn(Newsletter $nl): array => $this->newsletterSummaryPayload($nl, $entry['event']),
+                Newsletter::publishedForEvent($entry['event']->id)
+            );
+
+            foreach ($newsletters as $newsletter) {
+                $allNewsletters[] = $newsletter;
+            }
+
+            $eventGroups[] = [
+                'event_id'      => $entry['event']->id,
+                'group_id'      => $entry['group']->id,
+                'edit_rsvp_url' => $this->buildRsvpEditUrl($entry['event'], $entry['code']),
+                'event'         => $this->dashboardEventPayload($entry['event']),
+                'count'         => count($newsletters),
+                'newsletters'   => $newsletters,
+            ];
+        }
 
         return new WP_REST_Response([
             'success'       => true,
-            'event_id'      => $result->event->id,
             'edit_rsvp_url' => $this->buildRsvpEditUrl($result->event, $code),
             'rsvp_summary'  => $this->rsvpSummaryPayload($result, $code),
-            'count'         => count($newsletters),
-            'newsletters'   => array_map(fn(Newsletter $nl): array => $this->newsletterSummaryPayload($nl), $newsletters),
+            'count'         => count($allNewsletters),
+            'events'        => $eventGroups,
+            'newsletters'   => $allNewsletters,
+        ], 200);
+    }
+
+    /**
+     * Handles GET /eim/v1/dashboard.
+     *
+     * Returns all upcoming events the invitation group is registered for, along
+     * with RSVP details and published newsletters for each. Requires the RSVP
+     * flow to be fully complete (next_action === dashboard_redirect or declined).
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
+     */
+    public function handleDashboard(WP_REST_Request $request): WP_REST_Response
+    {
+        $code   = trim((string) $request->get_param('confirmation_code'));
+        $result = $this->resolver->resolve($code);
+
+        if (!$result->success) {
+            return new WP_REST_Response(
+                ['success' => false, 'message' => $result->message],
+                404
+            );
+        }
+
+        if (!$result->isComplete() || $result->event === null || $result->group === null) {
+            return new WP_REST_Response(
+                [
+                    'success'     => false,
+                    'message'     => 'Please complete the RSVP flow before accessing the dashboard.',
+                    'next_action' => $result->nextAction,
+                ],
+                403
+            );
+        }
+
+        $entries = $this->registeredDashboardEntries($result, $code);
+
+        $events = [];
+        foreach ($entries as $entry) {
+            $flow        = $entry['flow'];
+            $event       = $entry['event'];
+            $targetCode  = $entry['code'];
+            $newsletters = $flow->nextAction === RsvpFlowResult::ACTION_DASHBOARD_REDIRECT
+                ? Newsletter::publishedForEvent($event->id)
+                : [];
+
+            $events[] = [
+                'event_id'          => $event->id,
+                'group_id'          => $entry['group']->id,
+                'next_action'       => $flow->nextAction,
+                'is_complete'       => $flow->nextAction === RsvpFlowResult::ACTION_DASHBOARD_REDIRECT,
+                'requires_lodging'  => $flow->requiresLodging,
+                'requires_food'     => $flow->requiresFood,
+                'requires_beverage' => $flow->requiresBeverage,
+                'dashboard_url'     => $flow->dashboardUrl,
+                'edit_rsvp_url'     => $this->buildRsvpEditUrl($event, $targetCode),
+                'event'             => $this->dashboardEventPayload($event),
+                'rsvp'              => $this->rsvpSummaryPayload($flow, $targetCode),
+                'registry'          => $flow->nextAction === RsvpFlowResult::ACTION_DASHBOARD_REDIRECT
+                    ? $this->registryPayloadForEvent($event, $entry['group'])
+                    : $this->emptyRegistryPayload(),
+                'newsletters'       => array_map(
+                    fn(Newsletter $nl): array => $this->newsletterSummaryPayload($nl),
+                    $newsletters
+                ),
+            ];
+        }
+
+        return new WP_REST_Response([
+            'success'       => true,
+            'dashboard_url' => $result->dashboardUrl,
+            'events'        => $events,
+        ], 200);
+    }
+
+    /**
+     * Handles GET /eim/v1/registry.
+     *
+     * Returns registry gifts for complete, upcoming events accessible from the
+     * provided QR confirmation code. Pass event_id to fetch one event only.
+     */
+    public function handleRegistry(WP_REST_Request $request): WP_REST_Response
+    {
+        $code   = trim((string) $request->get_param('confirmation_code'));
+        $result = $this->resolver->resolve($code);
+
+        if (!$result->success) {
+            return new WP_REST_Response(
+                ['success' => false, 'message' => $result->message],
+                404
+            );
+        }
+
+        if (!$result->isComplete() || $result->event === null || $result->group === null) {
+            return new WP_REST_Response(
+                [
+                    'success'     => false,
+                    'message'     => 'Please complete the RSVP flow before viewing the registry.',
+                    'next_action' => $result->nextAction,
+                ],
+                403
+            );
+        }
+
+        $targetEventId = (int) ($request->get_param('event_id') ?? 0);
+        $entries       = $this->registeredDashboardEntries($result, $code, true);
+        $events        = [];
+
+        foreach ($entries as $entry) {
+            if ($targetEventId > 0 && $entry['event']->id !== $targetEventId) {
+                continue;
+            }
+
+            $events[] = [
+                'event_id'      => $entry['event']->id,
+                'group_id'      => $entry['group']->id,
+                'edit_rsvp_url' => $this->buildRsvpEditUrl($entry['event'], $entry['code']),
+                'event'         => $this->dashboardEventPayload($entry['event']),
+                'registry'      => $this->registryPayloadForEvent($entry['event'], $entry['group']),
+            ];
+        }
+
+        if ($targetEventId > 0 && empty($events)) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Registry not found for this confirmation code and event.',
+            ], 404);
+        }
+
+        return new WP_REST_Response([
+            'success' => true,
+            'count'   => count($events),
+            'events'  => $events,
+        ], 200);
+    }
+
+    /**
+     * Handles POST /eim/v1/registry/purchase.
+     *
+     * Marks an event registry item as purchased by the invitation group tied to
+     * the QR code. A group can only unmark a gift it previously marked itself.
+     */
+    public function handleRegistryPurchase(WP_REST_Request $request): WP_REST_Response
+    {
+        $code      = trim((string) $request->get_param('confirmation_code'));
+        $eventId   = (int) $request->get_param('event_id');
+        $giftId    = (int) $request->get_param('gift_id');
+        $markBought = $request->get_param('is_purchased') === null
+            ? true
+            : $this->toBool($request->get_param('is_purchased'));
+
+        $result = $this->resolver->resolve($code);
+
+        if (!$result->success) {
+            return new WP_REST_Response(
+                ['success' => false, 'message' => $result->message],
+                404
+            );
+        }
+
+        if (!$result->isComplete() || $result->event === null || $result->group === null) {
+            return new WP_REST_Response(
+                [
+                    'success'     => false,
+                    'message'     => 'Please complete the RSVP flow before updating the registry.',
+                    'next_action' => $result->nextAction,
+                ],
+                403
+            );
+        }
+
+        $entry = $this->dashboardEntryForEvent($this->registeredDashboardEntries($result, $code, true), $eventId);
+        if ($entry === null) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'This event registry is not available for this confirmation code.',
+            ], 403);
+        }
+
+        $gift = Gift::find($giftId);
+        if ($gift === null || !Gift::isLinkedToEvent($giftId, $eventId)) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Gift not found for this event.',
+            ], 404);
+        }
+
+        $existing       = Gift::purchaseDetailsForGiftEvent($giftId, $eventId);
+        $ownerGroupId   = isset($existing['purchased_by_group_id']) ? (int) $existing['purchased_by_group_id'] : null;
+        $alreadyBought  = !empty($existing['is_purchased']);
+        $currentGroupId = $entry['group']->id;
+
+        if ($markBought && $alreadyBought && $ownerGroupId !== $currentGroupId) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'This gift is already marked as purchased.',
+            ], 409);
+        }
+
+        if (!$markBought && $alreadyBought && $ownerGroupId !== $currentGroupId) {
+            return new WP_REST_Response([
+                'success' => false,
+                'message' => 'Only the purchasing invitation group can unmark this gift.',
+            ], 403);
+        }
+
+        Gift::setPurchaseStatus(
+            $giftId,
+            $eventId,
+            $markBought,
+            $markBought ? $currentGroupId : null,
+            $markBought ? $entry['group']->primaryInviteeId : null
+        );
+
+        $purchase = Gift::purchaseDetailsForGiftEvent($giftId, $eventId);
+
+        return new WP_REST_Response([
+            'success' => true,
+            'event_id' => $eventId,
+            'group_id' => $currentGroupId,
+            'gift'    => $this->giftRegistryItemPayload($gift, $eventId, $purchase, $entry['group']),
         ], 200);
     }
 
@@ -281,6 +599,12 @@ class RestController
         $rawRsvpNotes  = $request->get_param('rsvp_notes');
         $hasRsvpNotes  = $rawRsvpNotes !== null;
         $rsvpNotes     = $hasRsvpNotes ? sanitize_textarea_field((string) $rawRsvpNotes) : '';
+        $rawLodgingBooked = $request->get_param('lodging_booked');
+        $hasLodgingBooked = $rawLodgingBooked !== null && $rawLodgingBooked !== '';
+        $lodgingBooked    = $hasLodgingBooked ? $this->toBool($rawLodgingBooked) : null;
+        $rawLodgingNotes  = $request->get_param('lodging_notes');
+        $hasLodgingNotes  = $rawLodgingNotes !== null;
+        $lodgingNotes     = $hasLodgingNotes ? sanitize_textarea_field((string) $rawLodgingNotes) : null;
         $currentFlow   = $this->resolver->resolve($code);
         $event         = $currentFlow->event ?? Event::find($group->eventId);
 
@@ -493,7 +817,11 @@ class RestController
                 }
             }
 
-            $hasGroupLevelUpdate = $hasRsvpNotes || $groupLodgingSelection['provided'] || $memberLevelLodging['provided'];
+            $hasGroupLevelUpdate = $hasRsvpNotes
+                || $hasLodgingBooked
+                || $hasLodgingNotes
+                || $groupLodgingSelection['provided']
+                || $memberLevelLodging['provided'];
             if ($processedCount === 0 && !$hasGroupLevelUpdate) {
                 return new WP_REST_Response([
                     'success' => false,
@@ -503,6 +831,9 @@ class RestController
 
             if ($hasRsvpNotes) {
                 InvitationGroup::updateRsvpNotes($group->id, $rsvpNotes);
+            }
+            if ($hasLodgingBooked || $hasLodgingNotes) {
+                InvitationGroup::updateLodgingDetails($group->id, $lodgingBooked, $lodgingNotes);
             }
 
             // Propagate whichever lodging selection was provided (group-level takes
@@ -534,6 +865,9 @@ class RestController
                 if ($hasRsvpNotes) {
                     InvitationGroup::updateRsvpNotes($group->id, $rsvpNotes);
                 }
+                if ($hasLodgingBooked || $hasLodgingNotes) {
+                    InvitationGroup::updateLodgingDetails($group->id, $lodgingBooked, $lodgingNotes);
+                }
 
                 return $this->flowResponse(
                     $this->resolver->resolve($code),
@@ -548,6 +882,9 @@ class RestController
 
             if ($hasRsvpNotes) {
                 InvitationGroup::updateRsvpNotes($group->id, $rsvpNotes);
+            }
+            if ($hasLodgingBooked || $hasLodgingNotes) {
+                InvitationGroup::updateLodgingDetails($group->id, $lodgingBooked, $lodgingNotes);
             }
 
             if ($groupLodgingSelection['provided']) {
@@ -633,9 +970,12 @@ class RestController
             'requires_lodging'  => $result->requiresLodging,
             'requires_food'     => $result->requiresFood,
             'requires_beverage' => $result->requiresBeverage,
-            'newsletter_url'    => $result->newsletterUrl,
+            'dashboard_url'     => $result->dashboardUrl,
             'rsvp_notes'        => $group->rsvpNotes,
             'rsvp_notes_updated_at' => $group->rsvpNotesUpdatedAt,
+            'lodging_booked'    => $group->lodgingBooked,
+            'lodging_booked_at' => $group->lodgingBookedAt,
+            'lodging_notes'     => $group->lodgingNotes,
             'event'             => [
                 'name'        => $event->name,
                 'description' => $event->description,
@@ -658,8 +998,8 @@ class RestController
                 'last_name'     => $primaryInvitee->lastName,
                 'email'         => $primaryInvitee->email,
                 'registered_at' => $allAttending ? ($primaryMember?->registeredAt ?? null) : null,
-            ],
-            'group_members' => array_map(static fn(Invitee $member): array => [
+            ] + $this->inviteeImagePayload($primaryInvitee),
+            'group_members' => array_map(fn(Invitee $member): array => [
                 'invitee_id'            => $member->id,
                 'first_name'            => $member->firstName,
                 'last_name'             => $member->lastName,
@@ -675,7 +1015,7 @@ class RestController
                 'lodging_is_other'      => $member->lodgingIsOther,
                 'lodging_undisclosed'   => $member->lodgingUndisclosed,
                 'lodging_confirmed_at'  => $member->lodgingConfirmedAt,
-            ], $members),
+            ] + $this->inviteeImagePayload($member), $members),
             'lodging' => array_map(static fn(EventLodging $location): array => [
                 'id'          => $location->id,
                 'name'        => $location->name,
@@ -850,18 +1190,26 @@ class RestController
      * Returns the compact newsletter shape used by the public listing endpoint.
      *
      * @param Newsletter $newsletter
+     * @param Event|null $event
      * @return array<string,mixed>
      */
-    private function newsletterSummaryPayload(Newsletter $newsletter): array
+    private function newsletterSummaryPayload(Newsletter $newsletter, ?Event $event = null): array
     {
         $plainContent = trim(wp_strip_all_tags($newsletter->content));
 
-        return [
+        $payload = [
             'id'           => $newsletter->id,
             'title'        => $newsletter->title,
             'excerpt'      => wp_trim_words($plainContent, 40, '...'),
             'publish_date' => $newsletter->publishDate,
         ];
+
+        if ($event !== null) {
+            $payload['event_id']   = $event->id;
+            $payload['event_name'] = $event->name;
+        }
+
+        return $payload;
     }
 
     /**
@@ -877,6 +1225,273 @@ class RestController
             'title'        => $newsletter->title,
             'content'      => $newsletter->content,
             'publish_date' => $newsletter->publishDate,
+        ];
+    }
+
+    /**
+     * Returns a compact venue payload for the dashboard event listing.
+     *
+     * @param int $venueId
+     * @return array<string,mixed>|null
+     */
+    private function venuePayload(int $venueId): ?array
+    {
+        $venue = Location::find($venueId);
+
+        if ($venue === null) {
+            return null;
+        }
+
+        return [
+            'name'    => $venue->name,
+            'address' => $venue->formattedAddress(),
+        ];
+    }
+
+    /**
+     * Builds the public registry payload for one event.
+     *
+     * @param Event                $event
+     * @param InvitationGroup|null $viewerGroup The current dashboard group, used
+     *                                          only to flag whether it owns a purchase.
+     * @return array<string,mixed>
+     */
+    private function registryPayloadForEvent(Event $event, ?InvitationGroup $viewerGroup = null): array
+    {
+        $gifts       = Gift::forEvent($event->id, '', 'name', 'asc');
+        $purchaseMap = Gift::purchaseDetailsForEvent($event->id);
+        $items       = array_map(
+            fn(Gift $gift): array => $this->giftRegistryItemPayload(
+                $gift,
+                $event->id,
+                $purchaseMap[$gift->id] ?? null,
+                $viewerGroup
+            ),
+            $gifts
+        );
+
+        $purchasedCount = count(array_filter(
+            $items,
+            static fn(array $item): bool => !empty($item['is_purchased'])
+        ));
+
+        return [
+            'count'           => count($items),
+            'purchased_count' => $purchasedCount,
+            'available_count' => count($items) - $purchasedCount,
+            'gifts'           => $items,
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function emptyRegistryPayload(): array
+    {
+        return [
+            'count'           => 0,
+            'purchased_count' => 0,
+            'available_count' => 0,
+            'gifts'           => [],
+        ];
+    }
+
+    /**
+     * Returns a public registry item shape.
+     *
+     * @param Gift                 $gift
+     * @param int                  $eventId
+     * @param array<string,mixed>|null $purchase
+     * @param InvitationGroup|null $viewerGroup
+     * @return array<string,mixed>
+     */
+    private function giftRegistryItemPayload(
+        Gift $gift,
+        int $eventId,
+        ?array $purchase = null,
+        ?InvitationGroup $viewerGroup = null
+    ): array {
+        $isPurchased  = !empty($purchase['is_purchased']);
+        $ownerGroupId = isset($purchase['purchased_by_group_id']) ? (int) $purchase['purchased_by_group_id'] : null;
+        $ownedByViewer = $viewerGroup !== null
+            && $ownerGroupId !== null
+            && $ownerGroupId === $viewerGroup->id;
+        $imageThumbnailUrl = $gift->imageUrl('thumbnail');
+        $imageFullUrl      = $gift->imageUrl('full');
+        $imageUrl          = $gift->imageUrl('medium');
+        if ($imageUrl === '') {
+            $imageUrl = $imageFullUrl !== '' ? $imageFullUrl : $imageThumbnailUrl;
+        }
+
+        return [
+            'id'                         => $gift->id,
+            'event_id'                   => $eventId,
+            'name'                       => $gift->name,
+            'description'                => $gift->description,
+            'price_cents'                => $gift->priceCents,
+            'formatted_price'            => $gift->formattedPrice(),
+            'website_url'                => $gift->websiteUrl,
+            'image_attachment_id'        => $gift->imageAttachmentId,
+            'image_alt'                  => $gift->imageAttachmentId > 0 ? ($gift->imageAltText() ?: $gift->name) : '',
+            'image_thumbnail_url'        => $imageThumbnailUrl,
+            'image_url'                  => $imageUrl,
+            'image_full_url'             => $imageFullUrl,
+            'is_purchased'               => $isPurchased,
+            'purchased_at'               => $isPurchased ? ($purchase['purchased_at'] ?? null) : null,
+            'purchased_by_current_group' => $ownedByViewer,
+            'can_mark_purchased'         => !$isPurchased || $ownedByViewer,
+            'can_unmark_purchased'       => $ownedByViewer,
+        ];
+    }
+
+    /**
+     * Returns all upcoming registered dashboard entries accessible from a QR code.
+     *
+     * Registered means at least one member of the invitation group is attending.
+     * Entries can optionally require the per-event flow to be fully complete,
+     * which is useful for newsletter access.
+     *
+     * @param RsvpFlowResult $result
+     * @param string         $fallbackCode
+     * @param bool           $requireCompleteFlow
+     * @return array<int,array{group:InvitationGroup,event:Event,code:string,flow:RsvpFlowResult}>
+     */
+    private function registeredDashboardEntries(RsvpFlowResult $result, string $fallbackCode, bool $requireCompleteFlow = false): array
+    {
+        if ($result->group === null) {
+            return [];
+        }
+
+        $groups = InvitationGroup::forPrimaryInvitee($result->group->primaryInviteeId);
+        $nowUtc = current_time('mysql', true);
+        $entries = [];
+        $seenGroupIds = [];
+
+        foreach ($groups as $group) {
+            if (isset($seenGroupIds[$group->id])) {
+                continue;
+            }
+            $seenGroupIds[$group->id] = true;
+
+            $code = $this->confirmationCodeForGroup($group, $result->group, $fallbackCode);
+            if ($code === '') {
+                continue;
+            }
+
+            $flow = $group->id === $result->group->id
+                ? $result
+                : $this->resolver->resolve($code);
+
+            if (!$flow->success || $flow->event === null || $flow->group === null) {
+                continue;
+            }
+
+            if (!$this->hasAttendingMembers($flow->members)) {
+                continue;
+            }
+
+            if (!$this->isUpcomingEvent($flow->event, $nowUtc)) {
+                continue;
+            }
+
+            if ($requireCompleteFlow && $flow->nextAction !== RsvpFlowResult::ACTION_DASHBOARD_REDIRECT) {
+                continue;
+            }
+
+            $entries[] = [
+                'group' => $flow->group,
+                'event' => $flow->event,
+                'code'  => $code,
+                'flow'  => $flow,
+            ];
+        }
+
+        return $entries;
+    }
+
+    /**
+     * Finds one dashboard entry by event ID.
+     *
+     * @param array<int,array{group:InvitationGroup,event:Event,code:string,flow:RsvpFlowResult}> $entries
+     * @return array{group:InvitationGroup,event:Event,code:string,flow:RsvpFlowResult}|null
+     */
+    private function dashboardEntryForEvent(array $entries, int $eventId): ?array
+    {
+        foreach ($entries as $entry) {
+            if ($entry['event']->id === $eventId) {
+                return $entry;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Returns the QR confirmation code for a dashboard group.
+     *
+     * @param InvitationGroup $group
+     * @param InvitationGroup $currentGroup
+     * @param string          $fallbackCode
+     * @return string
+     */
+    private function confirmationCodeForGroup(InvitationGroup $group, InvitationGroup $currentGroup, string $fallbackCode): string
+    {
+        if ($group->id === $currentGroup->id && $fallbackCode !== '') {
+            return $fallbackCode;
+        }
+
+        $qrCode = QrCode::findForGroup($group->id);
+
+        return $qrCode?->confirmationCode ?? '';
+    }
+
+    /**
+     * Returns true when an event has not ended yet.
+     *
+     * Event datetimes are stored in UTC, so this compares against UTC WordPress time.
+     *
+     * @param Event  $event
+     * @param string $nowUtc
+     * @return bool
+     */
+    private function isUpcomingEvent(Event $event, string $nowUtc): bool
+    {
+        $endDatetime = $event->endDatetime ?? $event->startDatetime ?? null;
+
+        return $endDatetime === null || $endDatetime >= $nowUtc;
+    }
+
+    /**
+     * Returns true when at least one invitee in the group is attending.
+     *
+     * @param Invitee[] $members
+     * @return bool
+     */
+    private function hasAttendingMembers(array $members): bool
+    {
+        foreach ($members as $member) {
+            if ($member->rsvpStatus === InvitationGroup::RSVP_ATTENDING) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Returns the compact event payload used by public dashboard and newsletter data.
+     *
+     * @param Event $event
+     * @return array<string,mixed>
+     */
+    private function dashboardEventPayload(Event $event): array
+    {
+        return [
+            'name'           => $event->name,
+            'description'    => $event->description,
+            'date'           => $event->formattedDateTimeRange(),
+            'start_datetime' => $event->startDatetime,
+            'end_datetime'   => $event->endDatetime,
+            'timezone'       => $event->timezone,
+            'venue'          => $event->venueId ? $this->venuePayload($event->venueId) : null,
         ];
     }
 
@@ -902,6 +1517,25 @@ class RestController
         $url = add_query_arg('eim_confirmation', rawurlencode($code), $url);
 
         return add_query_arg('eim_edit', '1', $url);
+    }
+
+    /** @return array<string,mixed> */
+    private function inviteeImagePayload(Invitee $invitee): array
+    {
+        $thumbnailUrl = $invitee->imageUrl('thumbnail');
+        $fullUrl      = $invitee->imageUrl('full');
+        $imageUrl     = $invitee->imageUrl('medium');
+        if ($imageUrl === '') {
+            $imageUrl = $fullUrl !== '' ? $fullUrl : $thumbnailUrl;
+        }
+
+        return [
+            'image_attachment_id' => $invitee->imageAttachmentId,
+            'image_alt'           => $invitee->imageAttachmentId > 0 ? ($invitee->imageAltText() ?: $invitee->fullName()) : '',
+            'image_thumbnail_url' => $thumbnailUrl,
+            'image_url'           => $imageUrl,
+            'image_full_url'      => $fullUrl,
+        ];
     }
 
     /**
@@ -949,7 +1583,7 @@ class RestController
                 'dietary_notes'         => $isAttending ? $member->dietaryNotes : '',
                 'lodging'               => $isAttending ? $this->lodgingSelectionPayload($member, $lodgingById) : null,
                 'lodging_confirmed_at'  => $member->lodgingConfirmedAt,
-            ];
+            ] + $this->inviteeImagePayload($member);
         }, $result->members);
 
         $acceptedMembers = array_values(array_filter(
@@ -970,6 +1604,9 @@ class RestController
             'edit_rsvp_url'      => $this->buildRsvpEditUrl($event, $code),
             'rsvp_notes'         => $result->group->rsvpNotes,
             'rsvp_notes_updated_at' => $result->group->rsvpNotesUpdatedAt,
+            'lodging_booked'     => $result->group->lodgingBooked,
+            'lodging_booked_at'  => $result->group->lodgingBookedAt,
+            'lodging_notes'      => $result->group->lodgingNotes,
             'requires_lodging'   => $result->requiresLodging,
             'requires_food'      => $result->requiresFood,
             'requires_beverage'  => $result->requiresBeverage,

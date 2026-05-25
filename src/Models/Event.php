@@ -38,6 +38,7 @@ final class Event
      * @param bool    $foodOptionsEnabled     Whether food menu options are enabled for this event.
      * @param bool    $beverageOptionsEnabled Whether beverage menu options are enabled for this event.
      * @param ?int    $newsletterPageId       WordPress page ID for the post-RSVP newsletter page, or null if not set.
+     * @param ?int    $dashboardPageId        WordPress page ID for the invitee dashboard redirect after RSVP, or null if not set.
      * @param ?int    $maxInvitees            Maximum number of invitees allowed, or null for unlimited.
      * @param string  $createdAt              MySQL datetime string.
      * @param string  $updatedAt              MySQL datetime string.
@@ -59,6 +60,7 @@ final class Event
         public readonly bool    $foodOptionsEnabled,
         public readonly bool    $beverageOptionsEnabled,
         public readonly ?int    $newsletterPageId,
+        public readonly ?int    $dashboardPageId,
         public readonly ?int    $maxInvitees,
         public readonly string  $createdAt,
         public readonly string  $updatedAt,
@@ -185,6 +187,7 @@ final class Event
             'food_options_enabled'     => isset($data['food_options_enabled']) ? (int) $data['food_options_enabled'] : 0,
             'beverage_options_enabled' => isset($data['beverage_options_enabled']) ? (int) $data['beverage_options_enabled'] : 0,
             'newsletter_page_id'       => isset($data['newsletter_page_id']) && (int) $data['newsletter_page_id'] > 0 ? (int) $data['newsletter_page_id'] : null,
+            'dashboard_page_id'        => isset($data['dashboard_page_id']) && (int) $data['dashboard_page_id'] > 0 ? (int) $data['dashboard_page_id'] : null,
             'max_invitees'             => isset($data['max_invitees']) && $data['max_invitees'] > 0 ? (int) $data['max_invitees'] : null,
         ]);
 
@@ -220,6 +223,7 @@ final class Event
                 'food_options_enabled'     => isset($data['food_options_enabled']) ? (int) $data['food_options_enabled'] : 0,
                 'beverage_options_enabled' => isset($data['beverage_options_enabled']) ? (int) $data['beverage_options_enabled'] : 0,
                 'newsletter_page_id'       => isset($data['newsletter_page_id']) && (int) $data['newsletter_page_id'] > 0 ? (int) $data['newsletter_page_id'] : null,
+                'dashboard_page_id'        => isset($data['dashboard_page_id']) && (int) $data['dashboard_page_id'] > 0 ? (int) $data['dashboard_page_id'] : null,
                 'max_invitees'             => isset($data['max_invitees']) && $data['max_invitees'] > 0 ? (int) $data['max_invitees'] : null,
             ],
             ['id' => $id]
@@ -243,6 +247,7 @@ final class Event
         $wpdb->delete(DatabaseManager::eventInviteesTable(),    ['event_id' => $id]);
         EventLodging::deleteForEvent($id);
         MenuItem::deleteForEvent($id);
+        Gift::deleteForEvent($id);
         $wpdb->delete(DatabaseManager::budgetPlanEventsTable(), ['event_id' => $id]);
         $wpdb->delete(DatabaseManager::budgetLineItemsTable(),  ['event_id' => $id]);
         $result = $wpdb->delete(DatabaseManager::eventsTable(), ['id' => $id]);
@@ -504,6 +509,32 @@ final class Event
         return $url;
     }
 
+    /**
+     * Returns the public permalink of the invitee dashboard page assigned to this event,
+     * optionally appending the confirmation code so the dashboard can identify the group.
+     *
+     * @param string $confirmationCode When non-empty, appended as ?eim_confirmation={code}.
+     * @return string|null Null when no dashboard_page_id is configured.
+     */
+    public function dashboardUrl(string $confirmationCode = ''): ?string
+    {
+        if ($this->dashboardPageId === null || $this->dashboardPageId <= 0) {
+            return null;
+        }
+
+        $url = get_permalink($this->dashboardPageId);
+
+        if ($url === false || $url === '') {
+            return null;
+        }
+
+        if ($confirmationCode !== '') {
+            $url = add_query_arg('eim_confirmation', rawurlencode($confirmationCode), $url);
+        }
+
+        return $url;
+    }
+
     private static function fromRow(object $row): self
     {
         return new self(
@@ -523,6 +554,7 @@ final class Event
             foodOptionsEnabled:      (bool) ($row->food_options_enabled      ?? false),
             beverageOptionsEnabled:  (bool) ($row->beverage_options_enabled  ?? false),
             newsletterPageId:    isset($row->newsletter_page_id) && $row->newsletter_page_id !== null ? (int) $row->newsletter_page_id : null,
+            dashboardPageId:     isset($row->dashboard_page_id) && $row->dashboard_page_id !== null ? (int) $row->dashboard_page_id : null,
             maxInvitees:              isset($row->max_invitees) && $row->max_invitees !== null ? (int) $row->max_invitees : null,
             createdAt:                 $row->created_at            ?? '',
             updatedAt:                 $row->updated_at            ?? '',

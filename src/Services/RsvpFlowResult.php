@@ -51,9 +51,9 @@ final class RsvpFlowResult
 
     /**
      * All required steps are complete. The front-end should redirect the invitee
-     * to the newsletter page (see `newsletterUrl`).
+     * to the invitee dashboard page (see `dashboardUrl`).
      */
-    public const ACTION_NEWSLETTER_REDIRECT = 'newsletter_redirect';
+    public const ACTION_DASHBOARD_REDIRECT = 'dashboard_redirect';
 
     /**
      * Every group member has declined. No further action is needed.
@@ -69,7 +69,7 @@ final class RsvpFlowResult
      * @param bool             $requiresLodging  True when the event has lodging enabled with at least one option.
      * @param bool             $requiresFood     True when the event has food options enabled with active items.
      * @param bool             $requiresBeverage True when the event has beverage options enabled with active items.
-     * @param string|null      $newsletterUrl    Public URL of the newsletter page, or null if not configured.
+     * @param string|null      $dashboardUrl     Public URL of the invitee dashboard page, or null if not configured.
      * @param string|null      $message          Human-readable error description, or null on success.
      */
     public function __construct(
@@ -81,7 +81,7 @@ final class RsvpFlowResult
         public readonly bool             $requiresLodging,
         public readonly bool             $requiresFood,
         public readonly bool             $requiresBeverage,
-        public readonly ?string          $newsletterUrl,
+        public readonly ?string          $dashboardUrl,
         public readonly ?string          $message,
     ) {}
 
@@ -110,7 +110,7 @@ final class RsvpFlowResult
      */
     public function isComplete(): bool
     {
-        return $this->nextAction === self::ACTION_NEWSLETTER_REDIRECT
+        return $this->nextAction === self::ACTION_DASHBOARD_REDIRECT
             || $this->nextAction === self::ACTION_DECLINED;
     }
 }

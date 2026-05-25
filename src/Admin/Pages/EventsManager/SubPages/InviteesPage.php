@@ -154,6 +154,7 @@ final class InviteesPage extends AbstractAdminPage
             'city'           => sanitize_text_field(wp_unslash($_POST['city'] ?? '')),
             'state'          => sanitize_text_field(wp_unslash($_POST['state'] ?? '')),
             'zip_code'       => sanitize_text_field(wp_unslash($_POST['zip_code'] ?? '')),
+            'image_attachment_id' => $this->sanitizeInviteeImageAttachmentId((int) ($_POST['image_attachment_id'] ?? 0)),
         ];
 
         if (empty($data['first_name']) || empty($data['last_name']) || empty($data['email'])) {
@@ -403,14 +404,15 @@ final class InviteesPage extends AbstractAdminPage
                 <thead>
                     <tr>
                         <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('invitees'); ?></th>
-                        <th style="width:12%;"><?= $this->sortLink('First Name', 'first_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
-                        <th style="width:12%;"><?= $this->sortLink('Last Name', 'last_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
-                        <th style="width:18%;"><?= $this->sortLink('Email', 'email', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
-                        <th style="width:11%;"><?= $this->sortLink('Phone', 'phone', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
-                        <th style="width:14%"><?= $this->sortLink('Invited Events', 'events', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
-                        <th style="width:14%;">Connection Groups</th>
-                        <th style="width:12%;">Categories</th>
-                        <th style="width:10%;">Actions</th>
+                        <th class="eim-invitee-image-column">Image</th>
+                        <th style="width:11%;"><?= $this->sortLink('First Name', 'first_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
+                        <th style="width:11%;"><?= $this->sortLink('Last Name', 'last_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
+                        <th style="width:17%;"><?= $this->sortLink('Email', 'email', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
+                        <th style="width:10%;"><?= $this->sortLink('Phone', 'phone', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
+                        <th style="width:13%"><?= $this->sortLink('Invited Events', 'events', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
+                        <th style="width:13%;">Connection Groups</th>
+                        <th style="width:11%;">Categories</th>
+                        <th style="width:9%;">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="eim-invitees-table-body">
@@ -430,7 +432,7 @@ final class InviteesPage extends AbstractAdminPage
     {
         if (empty($rows)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No invitees found.';
-            echo '<tr class="eim-no-results"><td colspan="9">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="10">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -456,6 +458,7 @@ final class InviteesPage extends AbstractAdminPage
             ?>
             <tr>
                 <?= $this->renderBulkSelectCell('eim-invitees-bulk-form', 'invitees', $invitee->id, $invitee->fullName()); ?>
+                <td><?= $this->inviteeImageThumbnailMarkup($invitee->imageAttachmentId, $invitee->fullName()); ?></td>
                 <td><a href="<?= esc_url($editUrl); ?>"><?= esc_html($invitee->firstName); ?></a></td>
                 <td><a href="<?= esc_url($editUrl); ?>"><?= esc_html($invitee->lastName); ?></a></td>
                 <td><a href="mailto:<?= esc_attr($invitee->email); ?>"><?= esc_html($invitee->email); ?></a></td>
@@ -525,6 +528,10 @@ final class InviteesPage extends AbstractAdminPage
         $events       = $isNew ? [] : Invitee::eventsForInvitee($invitee->id);
         $connGroups   = $isNew ? [] : ConnectionGroup::forInvitee($invitee->id);
         $cgAddUrl     = AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'add']);
+        $imageAttachmentId = $isNew ? 0 : $invitee->imageAttachmentId;
+        $imageThumbUrl = $imageAttachmentId > 0 ? wp_get_attachment_image_url($imageAttachmentId, 'thumbnail') : '';
+        $imageFullUrl  = $imageAttachmentId > 0 ? wp_get_attachment_image_url($imageAttachmentId, 'full') : '';
+        $hasImage      = is_string($imageThumbUrl) && $imageThumbUrl !== '' && is_string($imageFullUrl) && $imageFullUrl !== '';
         ?>
         <div class="wrap">
             <h1><?= esc_html($title); ?></h1>
@@ -558,6 +565,40 @@ final class InviteesPage extends AbstractAdminPage
                         <th scope="row"><label for="eim_phone">Phone</label></th>
                         <td><input type="tel" id="eim_phone" name="phone" class="regular-text"
                                    value="<?= esc_attr($isNew ? '' : $invitee->phone); ?>"></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Image</th>
+                        <td>
+                            <input type="hidden"
+                                   id="eim_invitee_image_attachment_id"
+                                   name="image_attachment_id"
+                                   value="<?= esc_attr($imageAttachmentId); ?>">
+                            <div class="eim-invitee-image-picker">
+                                <div id="eim_invitee_image_preview" class="eim-invitee-image-preview">
+                                    <?php if ($hasImage): ?>
+                                        <?= $this->inviteeImageThumbnailMarkup($imageAttachmentId, $isNew ? 'Invitee image' : $invitee->fullName()); ?>
+                                    <?php else: ?>
+                                        <span class="description">No image selected.</span>
+                                    <?php endif; ?>
+                                </div>
+                                <p class="eim-invitee-image-actions">
+                                    <button type="button"
+                                            id="eim_invitee_image_select"
+                                            class="button"
+                                            data-select-label="Select Image"
+                                            data-change-label="Change Image">
+                                        <?= $hasImage ? 'Change Image' : 'Select Image'; ?>
+                                    </button>
+                                    <button type="button"
+                                            id="eim_invitee_image_remove"
+                                            class="button"
+                                            <?= $hasImage ? '' : 'hidden'; ?>>
+                                        Remove Image
+                                    </button>
+                                </p>
+                            </div>
+                            <p class="description" style="margin-top:6px;">Optional. Choose an image from the WordPress Media Library.</p>
+                        </td>
                     </tr>
                     <tr>
                         <th scope="row"><label for="eim_street_address">Street Address</label></th>
@@ -691,5 +732,14 @@ final class InviteesPage extends AbstractAdminPage
         return in_array($field, ['first_name', 'last_name', 'email', 'phone', 'events', 'connection_groups'], true)
             ? $field
             : '';
+    }
+
+    private function sanitizeInviteeImageAttachmentId(int $attachmentId): int
+    {
+        if ($attachmentId <= 0 || !wp_attachment_is_image($attachmentId)) {
+            return 0;
+        }
+
+        return $attachmentId;
     }
 }

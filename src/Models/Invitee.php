@@ -29,6 +29,7 @@ final class Invitee
      * @param string  $city             City.
      * @param string  $state            State or region.
      * @param string  $zipCode          Postal/ZIP code.
+     * @param int     $imageAttachmentId WordPress media attachment ID for the invitee image.
      * @param string  $rsvpStatus       RSVP status for event context: 'pending' | 'attending' | 'declined' | '' for global.
      * @param bool    $isRegistered     True when rsvpStatus === 'attending'.
      * @param ?string $registeredAt     MySQL datetime when the invitee confirmed attendance, or null.
@@ -57,6 +58,7 @@ final class Invitee
         public readonly string  $city,
         public readonly string  $state,
         public readonly string  $zipCode,
+        public readonly int     $imageAttachmentId,
         public readonly string  $rsvpStatus,
         public readonly bool    $isRegistered,
         public readonly ?string $registeredAt,
@@ -73,6 +75,7 @@ final class Invitee
         public readonly ?string $lodgingConfirmedAt,
         public readonly string  $createdAt,
         public readonly string  $updatedAt,
+        public readonly string  $seatAssignment,
     ) {}
 
     // -------------------------------------------------------------------------
@@ -485,6 +488,7 @@ final class Invitee
             'city'           => $data['city']           ?? '',
             'state'          => $data['state']          ?? '',
             'zip_code'       => $data['zip_code']       ?? '',
+            'image_attachment_id' => (int) ($data['image_attachment_id'] ?? 0),
         ]);
 
         return $result ? (int) $wpdb->insert_id : false;
@@ -510,6 +514,7 @@ final class Invitee
             'city'           => $data['city']           ?? null,
             'state'          => $data['state']          ?? null,
             'zip_code'       => $data['zip_code']       ?? null,
+            'image_attachment_id' => array_key_exists('image_attachment_id', $data) ? (int) $data['image_attachment_id'] : null,
         ], static fn($v) => $v !== null);
 
         if (empty($fields)) {
@@ -591,6 +596,26 @@ final class Invitee
         ]));
     }
 
+    public function imageUrl(string $size = 'thumbnail'): string
+    {
+        if ($this->imageAttachmentId <= 0) {
+            return '';
+        }
+
+        $url = wp_get_attachment_image_url($this->imageAttachmentId, $size);
+        return is_string($url) ? $url : '';
+    }
+
+    public function imageAltText(): string
+    {
+        if ($this->imageAttachmentId <= 0) {
+            return '';
+        }
+
+        $alt = get_post_meta($this->imageAttachmentId, '_wp_attachment_image_alt', true);
+        return is_string($alt) ? $alt : '';
+    }
+
     // -------------------------------------------------------------------------
     // Row hydration (public so InvitationGroup and ConnectionGroup can use it)
     // -------------------------------------------------------------------------
@@ -618,6 +643,7 @@ final class Invitee
             city:                       $row->city            ?? '',
             state:                      $row->state           ?? '',
             zipCode:                    $row->zip_code        ?? '',
+            imageAttachmentId:    (int) ($row->image_attachment_id ?? 0),
             rsvpStatus:                 $rsvpStatus,
             isRegistered:               $rsvpStatus === InvitationGroup::RSVP_ATTENDING,
             registeredAt:               $row->invitation_registered_at      ?? $row->registered_at  ?? null,
@@ -634,6 +660,7 @@ final class Invitee
             lodgingConfirmedAt:         $row->invitation_lodging_confirmed_at ?? null,
             createdAt:                  $row->created_at ?? '',
             updatedAt:                  $row->updated_at ?? '',
+            seatAssignment:             $row->invitation_seat_assignment ?? '',
         );
     }
 
@@ -733,6 +760,7 @@ final class Invitee
             city:                       $row->city            ?? '',
             state:                      $row->state           ?? '',
             zipCode:                    $row->zip_code        ?? '',
+            imageAttachmentId:    (int) ($row->image_attachment_id ?? 0),
             rsvpStatus:                 $rsvpStatus,
             isRegistered:               $rsvpStatus === InvitationGroup::RSVP_ATTENDING,
             registeredAt:               $row->invitation_registered_at      ?? null,
@@ -749,6 +777,7 @@ final class Invitee
             lodgingConfirmedAt:         $row->invitation_lodging_confirmed_at ?? null,
             createdAt:                  $row->created_at ?? '',
             updatedAt:                  $row->updated_at ?? '',
+            seatAssignment:             $row->invitation_seat_assignment ?? '',
         );
     }
 }

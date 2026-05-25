@@ -48,6 +48,43 @@ final class ConnectionGroup
     }
 
     /**
+     * Returns multiple groups by their IDs, with members pre-loaded.
+     *
+     * @param int[] $ids
+     * @return self[] Indexed by group ID.
+     */
+    public static function findMany(array $ids): array
+    {
+        global $wpdb;
+
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+        if (empty($ids)) {
+            return [];
+        }
+
+        $table        = DatabaseManager::inviteeConnectionGroupsTable();
+        $placeholders = implode(', ', array_fill(0, count($ids), '%d'));
+
+        $rows = $wpdb->get_results(
+            $wpdb->prepare("SELECT * FROM {$table} WHERE id IN ({$placeholders}) ORDER BY name ASC", ...$ids)
+        );
+
+        if (empty($rows)) {
+            return [];
+        }
+
+        $groups   = array_map(static fn(object $r) => self::fromRow($r), $rows);
+        $groupIds = array_map(static fn(self $g) => $g->id, $groups);
+
+        $membersByGroup = self::loadMembersForGroups($groupIds);
+        foreach ($groups as $group) {
+            $group->members = $membersByGroup[$group->id] ?? [];
+        }
+
+        return $groups;
+    }
+
+    /**
      * Returns all groups for the admin list, optionally filtered by search.
      *
      * Each group has its members pre-loaded.

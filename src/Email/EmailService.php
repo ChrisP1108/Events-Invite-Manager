@@ -134,6 +134,40 @@ final class EmailService
     }
 
     /**
+     * Sends a test invite email for an event to a single arbitrary email address.
+     * Template tags are replaced with placeholder values so the layout renders correctly.
+     *
+     * @param Event  $event   The event whose email template and From settings should be used.
+     * @param string $toEmail Recipient address for the test email.
+     * @return bool True if wp_mail() accepted the message.
+     */
+    public function sendGroupInviteTest(Event $event, string $toEmail): bool
+    {
+        if (empty($event->inviteEmailTemplate)) {
+            return false;
+        }
+
+        $variables = [
+            'event_name'    => esc_html($event->name),
+            'first_name'    => 'Test',
+            'last_name'     => 'User',
+            'full_name'     => 'Test User',
+            'email'         => esc_html($toEmail),
+            'qr_code'       => '',
+            'invite_url'    => '',
+            'group_names'   => 'Test User, Guest User',
+            'invitee_names' => 'Test User, Guest User',
+            'invitee_count' => '2',
+        ];
+
+        $subject = '[TEST] ' . ($this->renderer->render($event->inviteEmailSubject, $variables)
+            ?: "You're Invited: {$event->name}");
+        $body    = $this->renderer->render($event->inviteEmailTemplate, $variables);
+
+        return $this->dispatchHtml($toEmail, $subject, $body, $this->buildFromHeader($event));
+    }
+
+    /**
      * Sends an HTML email via wp_mail().
      *
      * @param string $to          Recipient email address.

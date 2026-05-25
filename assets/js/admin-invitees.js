@@ -59,6 +59,162 @@
         return d.innerHTML;
     };
 
+    // -----------------------------------------------------------------------
+    // InviteeImageModal + InviteeImagePicker
+    // -----------------------------------------------------------------------
+
+    class InviteeImageModal {
+        #overlay = null;
+        #image = null;
+        #caption = null;
+
+        constructor() {
+            document.addEventListener('click', (event) => {
+                if (!(event.target instanceof Element)) return;
+
+                const trigger = event.target.closest('.eim-invitee-image-thumb');
+                if (!trigger) return;
+
+                const fullSrc = trigger.dataset.fullSrc || trigger.getAttribute('href') || '';
+                if (!fullSrc) return;
+
+                event.preventDefault();
+                this.#open(fullSrc, trigger.dataset.caption || trigger.getAttribute('aria-label') || 'Invitee image');
+            });
+
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape') this.#close();
+            });
+        }
+
+        #ensureModal() {
+            if (this.#overlay) return;
+
+            this.#overlay = document.createElement('div');
+            this.#overlay.className = 'eim-invitee-image-modal-backdrop';
+            this.#overlay.hidden = true;
+
+            const modal = document.createElement('div');
+            modal.className = 'eim-invitee-image-modal';
+            modal.setAttribute('role', 'dialog');
+            modal.setAttribute('aria-modal', 'true');
+
+            const close = document.createElement('button');
+            close.type = 'button';
+            close.className = 'button-link eim-invitee-image-modal-close';
+            close.setAttribute('aria-label', 'Close image preview');
+            close.textContent = 'x';
+
+            this.#image = document.createElement('img');
+            this.#image.alt = '';
+
+            this.#caption = document.createElement('div');
+            this.#caption.className = 'eim-invitee-image-modal-caption';
+
+            modal.append(close, this.#image, this.#caption);
+            this.#overlay.appendChild(modal);
+            document.body.appendChild(this.#overlay);
+
+            close.addEventListener('click', () => this.#close());
+            this.#overlay.addEventListener('click', (event) => {
+                if (event.target === this.#overlay) this.#close();
+            });
+        }
+
+        #open(src, caption) {
+            this.#ensureModal();
+            if (!this.#overlay || !this.#image || !this.#caption) return;
+
+            this.#image.src = src;
+            this.#caption.textContent = caption;
+            this.#overlay.hidden = false;
+            document.body.classList.add('eim-invitee-image-modal-open');
+        }
+
+        #close() {
+            if (!this.#overlay || this.#overlay.hidden) return;
+            this.#overlay.hidden = true;
+            if (this.#image) this.#image.removeAttribute('src');
+            document.body.classList.remove('eim-invitee-image-modal-open');
+        }
+    }
+
+    class InviteeImagePicker {
+        #field;
+        #preview;
+        #select;
+        #remove;
+        #frame = null;
+
+        constructor() {
+            this.#field   = document.getElementById('eim_invitee_image_attachment_id');
+            this.#preview = document.getElementById('eim_invitee_image_preview');
+            this.#select  = document.getElementById('eim_invitee_image_select');
+            this.#remove  = document.getElementById('eim_invitee_image_remove');
+
+            if (!this.#field || !this.#preview || !this.#select || !window.wp?.media) return;
+
+            this.#select.addEventListener('click', () => this.#openMediaFrame());
+            this.#remove?.addEventListener('click', () => this.#renderSelection(null));
+        }
+
+        #openMediaFrame() {
+            if (!this.#frame) {
+                this.#frame = window.wp.media({
+                    title: 'Select Invitee Image',
+                    button: { text: 'Use This Image' },
+                    library: { type: 'image' },
+                    multiple: false,
+                });
+
+                this.#frame.on('select', () => {
+                    const attachment = this.#frame.state().get('selection').first()?.toJSON();
+                    if (!attachment) return;
+                    this.#renderSelection({
+                        id: attachment.id || 0,
+                        title: attachment.title || attachment.filename || 'Invitee image',
+                        thumbUrl: attachment.sizes?.thumbnail?.url || attachment.sizes?.medium?.url || attachment.url || '',
+                        fullUrl: attachment.sizes?.full?.url || attachment.url || '',
+                    });
+                });
+            }
+
+            this.#frame.open();
+        }
+
+        #renderSelection(image) {
+            const hasImage = image && Number(image.id) > 0 && image.thumbUrl;
+            this.#field.value = hasImage ? String(image.id) : '';
+            this.#preview.replaceChildren();
+
+            if (hasImage) {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'button-link eim-invitee-image-thumb';
+                button.dataset.fullSrc = image.fullUrl || image.thumbUrl;
+                button.dataset.caption = image.title || 'Invitee image';
+                button.setAttribute('aria-label', `View full-size image for ${image.title || 'invitee'}`);
+
+                const img = document.createElement('img');
+                img.src = image.thumbUrl;
+                img.alt = '';
+                img.loading = 'lazy';
+                button.appendChild(img);
+                this.#preview.appendChild(button);
+            } else {
+                const empty = document.createElement('span');
+                empty.className = 'description';
+                empty.textContent = 'No image selected.';
+                this.#preview.appendChild(empty);
+            }
+
+            if (this.#remove) this.#remove.hidden = !hasImage;
+            this.#select.textContent = hasImage
+                ? (this.#select.dataset.changeLabel || 'Change Image')
+                : (this.#select.dataset.selectLabel || 'Select Image');
+        }
+    }
+
     /**
      * Shared RSVP Details modal used by event group member menus and invitee
      * edit screen event-response menus.
@@ -241,6 +397,62 @@
         #close() {
             this.#overlay?.remove();
             this.#overlay = null;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // AccordionSortTable — client-side column sort for group accordion tables
+    // -----------------------------------------------------------------------
+
+    /**
+     * Enables click-to-sort on every <th data-sort="N"> inside an
+     * .eim-accordion-sortable table. Sorts <tbody> rows by each cell's
+     * data-val attribute, toggling asc/desc on repeated clicks.
+     */
+    class AccordionSortTable {
+        constructor() {
+            document.addEventListener('click', (e) => {
+                const th = e.target.closest('th[data-sort]');
+                if (!th) return;
+                const table = th.closest('.eim-accordion-sortable');
+                if (!table) return;
+                this.#sort(table, th);
+            });
+        }
+
+        /**
+         * Sorts the table rows by the column index encoded in th[data-sort].
+         *
+         * @param {HTMLTableElement} table
+         * @param {HTMLElement}      th
+         */
+        #sort(table, th) {
+            const colIndex  = parseInt(th.dataset.sort, 10);
+            const prevOrder = th.dataset.order || '';
+            const newOrder  = prevOrder === 'asc' ? 'desc' : 'asc';
+
+            // Reset all headers in this table, then set the clicked one.
+            table.querySelectorAll('th[data-sort]').forEach((h) => {
+                h.dataset.order = '';
+                const ind = h.querySelector('.eim-sort-indicator');
+                if (ind) ind.textContent = '';
+            });
+            th.dataset.order = newOrder;
+            const ind = th.querySelector('.eim-sort-indicator');
+            if (ind) ind.textContent = newOrder === 'asc' ? ' ▲' : ' ▼';
+
+            const tbody = table.querySelector('tbody');
+            if (!tbody) return;
+
+            const rows = [...tbody.querySelectorAll('tr')];
+            rows.sort((a, b) => {
+                const aVal = a.cells[colIndex]?.dataset.val ?? '';
+                const bVal = b.cells[colIndex]?.dataset.val ?? '';
+                const cmp  = aVal.localeCompare(bVal, undefined, { numeric: true, sensitivity: 'base' });
+                return newOrder === 'asc' ? cmp : -cmp;
+            });
+
+            rows.forEach((row) => tbody.appendChild(row));
         }
     }
 
@@ -1099,65 +1311,67 @@
     class EventGroupsTable {
         /** @type {HTMLTableElement|null} */
         #table;
-
         /** @type {HTMLTableSectionElement|null} */
         #tbody;
-
         /** @type {HTMLInputElement|null} */
         #search;
-
         /** @type {HTMLSelectElement|null} */
         #field;
-
         /** @type {HTMLElement|null} */
         #count;
-
         /** @type {HTMLElement|null} */
         #spinner;
-
+        /** @type {HTMLSelectElement|null} */
+        #perPageSel;
+        /** @type {HTMLElement|null} */
+        #paginationNav;
         /** @type {string} */
         #sort;
-
         /** @type {string} */
         #order;
+        /** @type {number} */
+        #page = 1;
+        /** @type {number} */
+        #perPage = 10;
 
-        /**
-         * Binds the table, search input, field dropdown, and sort links found in
-         * the DOM, then wires up all event listeners.
-         */
         constructor() {
-            this.#table   = document.getElementById('eim-event-groups-table');
-            this.#tbody   = document.getElementById('eim-event-groups-table-body');
-            this.#search  = document.getElementById('eim-event-groups-search');
-            this.#field   = document.getElementById('eim-event-groups-search-field');
-            this.#count   = document.getElementById('eim-event-groups-count');
-            this.#spinner = document.getElementById('eim-event-groups-loading');
+            this.#table        = document.getElementById('eim-event-groups-table');
+            this.#tbody        = document.getElementById('eim-event-groups-table-body');
+            this.#search       = document.getElementById('eim-event-groups-search');
+            this.#field        = document.getElementById('eim-event-groups-search-field');
+            this.#count        = document.getElementById('eim-event-groups-count');
+            this.#spinner      = document.getElementById('eim-event-groups-loading');
+            this.#perPageSel   = document.getElementById('eim-event-groups-search-per-page');
+            this.#paginationNav = document.getElementById('eim-event-groups-search-pagination');
 
             if (!this.#table || !this.#tbody || !config.event?.groupsSortNonce) return;
 
-            this.#sort  = this.#table.dataset.sort  || 'name';
-            this.#order = this.#table.dataset.order || 'asc';
+            this.#sort    = this.#table.dataset.sort  || 'name';
+            this.#order   = this.#table.dataset.order || 'asc';
+            this.#perPage = Number(this.#perPageSel?.value || 10);
 
-            this.#search?.addEventListener('input', debounce(() => this.#refresh()));
-            this.#field?.addEventListener('change', () => this.#refresh());
+            this.#perPageSel?.addEventListener('change', () => {
+                this.#perPage = Number(this.#perPageSel.value);
+                this.#page = 1;
+                this.#refresh();
+            });
+            this.#search?.addEventListener('input', debounce(() => { this.#page = 1; this.#refresh(); }));
+            this.#field?.addEventListener('change', () => { this.#page = 1; this.#refresh(); });
 
             for (const link of this.#table.querySelectorAll('.eim-sort-link')) {
                 link.addEventListener('click', (e) => {
                     e.preventDefault();
                     this.#sort  = link.dataset.sort  || 'name';
                     this.#order = link.dataset.order || 'asc';
+                    this.#page  = 1;
                     this.#updateSortLinks();
                     this.#refresh();
                 });
             }
+
+            this.#renderPagination(Number(this.#table.dataset.total || 0));
         }
 
-        /**
-         * Fetches fresh table rows from the server using the current search query,
-         * field, sort column, and sort direction, then replaces the tbody contents.
-         *
-         * @returns {Promise<void>}
-         */
         async #refresh() {
             if (this.#spinner) this.#spinner.classList.add('is-active');
             try {
@@ -1168,11 +1382,14 @@
                     order:    this.#order,
                     query:    this.#search?.value || '',
                     field:    this.#field?.value  || '',
+                    page:     this.#page,
+                    per_page: this.#perPage,
                 });
                 const { success, data } = await (await fetch(url, { credentials: 'same-origin' })).json();
                 if (!success) return;
                 this.#tbody.innerHTML = data.html || '';
                 if (this.#count) this.#count.textContent = `${data.count} result${data.count === 1 ? '' : 's'}`;
+                this.#renderPagination(Number(data.total || 0));
             } catch (e) {
                 console.error('[EIM] Event groups sort/search failed:', e);
             } finally {
@@ -1180,12 +1397,15 @@
             }
         }
 
-        /**
-         * Refreshes the sort-link indicators and their `data-order` attributes to
-         * reflect the current sort column and direction.
-         *
-         * @returns {void}
-         */
+        #renderPagination(total) {
+            window.eimRenderPagination?.(this.#paginationNav, {
+                total,
+                perPage: this.#perPage,
+                page:    this.#page,
+                onPageChange: (p) => { this.#page = p; this.#refresh(); },
+            });
+        }
+
         #updateSortLinks() {
             if (!this.#table) return;
             this.#table.dataset.sort  = this.#sort;
@@ -1785,10 +2005,742 @@
         }
     }
 
+    // -----------------------------------------------------------------------
+    // GroupAccordion — toggles the seating accordion row per invitation group
+    // -----------------------------------------------------------------------
+
+    class GroupAccordion {
+        constructor() {
+            document.addEventListener('click', (e) => {
+                const btn = e.target.closest('.eim-seat-accordion-toggle');
+                if (!btn) return;
+                const groupId = btn.dataset.groupId;
+                if (!groupId) return;
+
+                const row = document.getElementById(`eim-seat-accordion-row-${groupId}`);
+                if (!row) return;
+
+                const isOpen = btn.getAttribute('aria-expanded') === 'true';
+                if (isOpen) {
+                    row.style.display = 'none';
+                    btn.setAttribute('aria-expanded', 'false');
+                    btn.textContent = '▶';
+                } else {
+                    row.style.display = '';
+                    btn.setAttribute('aria-expanded', 'true');
+                    btn.textContent = '▼';
+                }
+            });
+        }
+
+        /** Opens the accordion for the given group ID, scrolling it into view. */
+        static open(groupId) {
+            const toggleBtn = document.querySelector(`.eim-seat-accordion-toggle[data-group-id="${groupId}"]`);
+            const row = document.getElementById(`eim-seat-accordion-row-${groupId}`);
+            if (!row || !toggleBtn) return;
+
+            row.style.display = '';
+            toggleBtn.setAttribute('aria-expanded', 'true');
+            toggleBtn.textContent = '▼';
+            row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // SeatAssignmentManager — AJAX seat saves + seating table dynamic updates
+    // -----------------------------------------------------------------------
+
+    class SeatAssignmentManager {
+        #nonce;
+
+        constructor(nonce) {
+            this.#nonce = nonce;
+
+            // Save on button click
+            document.addEventListener('click', (e) => {
+                const btn = e.target.closest('.eim-save-seat');
+                if (!btn) return;
+                const groupId   = btn.dataset.groupId;
+                const inviteeId = btn.dataset.inviteeId;
+                const input     = document.querySelector(`.eim-seat-input[data-group-id="${groupId}"][data-invitee-id="${inviteeId}"]`);
+                if (input) this.#save(groupId, inviteeId, input, btn);
+            });
+
+            // Save on Enter key in seat input
+            document.addEventListener('keydown', (e) => {
+                if (e.key !== 'Enter') return;
+                const input = e.target.closest('.eim-seat-input');
+                if (!input) return;
+                e.preventDefault();
+                const groupId   = input.dataset.groupId;
+                const inviteeId = input.dataset.inviteeId;
+                const btn       = document.querySelector(`.eim-save-seat[data-group-id="${groupId}"][data-invitee-id="${inviteeId}"]`);
+                this.#save(groupId, inviteeId, input, btn);
+            });
+        }
+
+        async #save(groupId, inviteeId, input, btn) {
+            const seat       = input.value.trim();
+            const statusEl   = input.closest('div')?.querySelector('.eim-seat-save-status');
+            const origBtn    = btn?.textContent;
+
+            if (btn) { btn.disabled = true; btn.textContent = '…'; }
+            if (statusEl) statusEl.textContent = '';
+
+            try {
+                const body = new FormData();
+                body.append('action',          'eim_save_seat_assignment');
+                body.append('nonce',           this.#nonce);
+                body.append('group_id',        groupId);
+                body.append('invitee_id',      inviteeId);
+                body.append('seat_assignment', seat);
+
+                const resp = await fetch(ajaxurl, { method: 'POST', credentials: 'same-origin', body });
+                const { success } = await resp.json();
+
+                if (success) {
+                    input.dataset.original = seat;
+                    if (statusEl) {
+                        statusEl.textContent = '✓ Saved';
+                        statusEl.style.color = '#00a32a';
+                        setTimeout(() => { statusEl.textContent = ''; }, 2500);
+                    }
+                    this.#updateSeatingTable(groupId, inviteeId, seat, input);
+                } else {
+                    if (statusEl) { statusEl.textContent = 'Error'; statusEl.style.color = '#d63638'; }
+                }
+            } catch (err) {
+                console.error('[EIM] Seat save failed:', err);
+                if (statusEl) { statusEl.textContent = 'Error'; statusEl.style.color = '#d63638'; }
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = origBtn || 'Save'; }
+            }
+        }
+
+        #updateSeatingTable(groupId, inviteeId, seat, accordionInput) {
+            const tbody      = document.getElementById('eim-seating-assignments-tbody');
+            const countEl    = document.getElementById('eim-seating-count');
+            const emptyRow   = document.getElementById('eim-seating-empty-row');
+            if (!tbody) return;
+
+            const existing = tbody.querySelector(`tr[data-invitee-id="${inviteeId}"][data-group-id="${groupId}"]`);
+
+            if (!seat) {
+                // Clear seat — remove row if present
+                existing?.remove();
+            } else if (existing) {
+                // Update existing row
+                existing.dataset.seat = seat.toLowerCase();
+                const cells = existing.querySelectorAll('td');
+                if (cells[5]) cells[5].textContent = seat;
+            } else {
+                // Add new row — collect data from the accordion sub-table
+                const accRow    = document.getElementById(`eim-seat-accordion-row-${groupId}`);
+                const memberRow = accRow?.querySelector(`tr[data-invitee-id="${inviteeId}"]`);
+                if (!memberRow) return;
+
+                const firstName  = memberRow.querySelectorAll('td')[1]?.textContent || '';
+                const lastName   = memberRow.querySelectorAll('td')[2]?.textContent || '';
+                const email      = memberRow.querySelectorAll('td')[3]?.textContent || '';
+                const groupLabel = accRow?.dataset.groupLabel || '';
+
+                const tr = document.createElement('tr');
+                tr.dataset.inviteeId = inviteeId;
+                tr.dataset.groupId   = groupId;
+                tr.dataset.firstName = firstName.toLowerCase();
+                tr.dataset.lastName  = lastName.toLowerCase();
+                tr.dataset.email     = email.toLowerCase();
+                tr.dataset.phone     = '';
+                tr.dataset.groupName = groupLabel.toLowerCase();
+                tr.dataset.seat      = seat.toLowerCase();
+
+                const escHtml = s => { const d = document.createElement('div'); d.appendChild(document.createTextNode(s)); return d.innerHTML; };
+
+                tr.innerHTML = `
+                    <td>${escHtml(firstName)}</td>
+                    <td>${escHtml(lastName)}</td>
+                    <td>${escHtml(email)}</td>
+                    <td>—</td>
+                    <td>${escHtml(groupLabel)}</td>
+                    <td>${escHtml(seat)}</td>
+                `;
+                emptyRow?.remove();
+                tbody.appendChild(tr);
+            }
+
+            seatingTableInstance?.refresh();
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // SeatingAssignmentsTable — client-side filter, sort, and pagination
+    // -----------------------------------------------------------------------
+
+    class SeatingAssignmentsTable {
+        /** @type {HTMLTableElement|null} */
+        #table;
+        /** @type {HTMLTableSectionElement|null} */
+        #tbody;
+        /** @type {HTMLInputElement|null} */
+        #search;
+        /** @type {HTMLSelectElement|null} */
+        #field;
+        /** @type {HTMLElement|null} */
+        #count;
+        /** @type {HTMLSelectElement|null} */
+        #perPageSel;
+        /** @type {HTMLElement|null} */
+        #paginationNav;
+        /** @type {string} */
+        #sort = 'lastName';
+        /** @type {string} */
+        #order = 'asc';
+        /** @type {number} */
+        #page = 1;
+        /** @type {number} */
+        #perPage = 10;
+
+        constructor() {
+            this.#table        = document.getElementById('eim-seating-assignments-table');
+            this.#tbody        = document.getElementById('eim-seating-assignments-tbody');
+            this.#search       = document.getElementById('eim-seating-search');
+            this.#field        = document.getElementById('eim-seating-field');
+            this.#count        = document.getElementById('eim-seating-count');
+            this.#perPageSel   = document.getElementById('eim-seating-search-per-page');
+            this.#paginationNav = document.getElementById('eim-seating-search-pagination');
+
+            if (!this.#tbody) return;
+
+            this.#perPage = Number(this.#perPageSel?.value || 10);
+
+            this.#search?.addEventListener('input', () => { this.#page = 1; this.#update(); });
+            this.#field?.addEventListener('change', () => { this.#page = 1; this.#update(); });
+            this.#perPageSel?.addEventListener('change', () => {
+                this.#perPage = Number(this.#perPageSel.value);
+                this.#page = 1;
+                this.#update();
+            });
+
+            this.#table?.addEventListener('click', (e) => {
+                const link = e.target.closest('.eim-seating-sort');
+                if (!link) return;
+                e.preventDefault();
+                this.#sort  = link.dataset.sort  || 'lastName';
+                this.#order = link.dataset.order || 'asc';
+                this.#page  = 1;
+                this.#sortRows();
+                this.#updateSortLinks();
+                this.#update();
+            });
+
+            this.#update();
+        }
+
+        /** Called after a seat save to refresh the visible rows. */
+        refresh() {
+            this.#update();
+        }
+
+        #update() {
+            const query   = (this.#search?.value || '').toLowerCase().trim();
+            const field   = this.#field?.value || '';
+            const allRows = [...(this.#tbody?.querySelectorAll('tr[data-first-name]') ?? [])];
+
+            if (allRows.length === 0) {
+                if (this.#count) this.#count.textContent = '0 assignments';
+                this.#renderPagination(0);
+                return;
+            }
+
+            const matching = allRows.filter(row => !query || this.#rowMatches(row, query, field));
+
+            for (const row of allRows) row.style.display = 'none';
+
+            const start = (this.#page - 1) * this.#perPage;
+            for (const row of matching.slice(start, start + this.#perPage)) row.style.display = '';
+
+            // No-results placeholder when filtering
+            let noResultsRow = this.#tbody?.querySelector('.eim-filter-empty');
+            if (matching.length === 0 && query !== '') {
+                if (!noResultsRow) {
+                    noResultsRow = document.createElement('tr');
+                    noResultsRow.className = 'eim-filter-empty';
+                    const td = document.createElement('td');
+                    td.colSpan = 6;
+                    td.textContent = 'No results found based upon search criteria.';
+                    noResultsRow.appendChild(td);
+                    this.#tbody?.appendChild(noResultsRow);
+                }
+                noResultsRow.style.display = '';
+            } else if (noResultsRow) {
+                noResultsRow.style.display = 'none';
+            }
+
+            if (this.#count) {
+                this.#count.textContent = `${matching.length} assignment${matching.length === 1 ? '' : 's'}`;
+            }
+
+            this.#renderPagination(matching.length);
+        }
+
+        #renderPagination(total) {
+            window.eimRenderPagination?.(this.#paginationNav, {
+                total,
+                perPage: this.#perPage,
+                page:    this.#page,
+                onPageChange: (p) => { this.#page = p; this.#update(); },
+            });
+        }
+
+        #sortRows() {
+            if (!this.#tbody) return;
+            const rows = [...this.#tbody.querySelectorAll('tr[data-first-name]')];
+            const mul  = this.#order === 'desc' ? -1 : 1;
+            const key  = this.#sort;
+            rows.sort((a, b) => {
+                const aVal = a.dataset[key] || '';
+                const bVal = b.dataset[key] || '';
+                return mul * aVal.localeCompare(bVal, undefined, { sensitivity: 'base' });
+            });
+            for (const row of rows) this.#tbody.appendChild(row);
+        }
+
+        #updateSortLinks() {
+            if (!this.#table) return;
+            this.#table.dataset.sort  = this.#sort;
+            this.#table.dataset.order = this.#order;
+            for (const link of this.#table.querySelectorAll('.eim-seating-sort')) {
+                const isCurrent    = link.dataset.sort === this.#sort;
+                link.dataset.order = isCurrent && this.#order === 'asc' ? 'desc' : 'asc';
+                const ind = link.querySelector('span');
+                if (ind) ind.textContent = isCurrent ? (this.#order === 'asc' ? '^' : 'v') : '';
+            }
+        }
+
+        #rowMatches(row, query, field) {
+            const fieldMap = {
+                first_name: 'firstName',
+                last_name:  'lastName',
+                email:      'email',
+                phone:      'phone',
+                group_name: 'groupName',
+                seat:       'seat',
+            };
+            if (field && fieldMap[field]) {
+                return (row.dataset[fieldMap[field]] || '').includes(query);
+            }
+            return ['firstName', 'lastName', 'email', 'phone', 'groupName', 'seat'].some(
+                key => (row.dataset[key] || '').includes(query)
+            );
+        }
+    }
+
+    // =========================================================================
+    // EventMessagesTab — messages list filter + popup with read/delete controls
+    // =========================================================================
+
+    class EventMessagesTab {
+        /** @type {HTMLInputElement|null} */
+        #filterInput;
+        /** @type {HTMLTableSectionElement|null} */
+        #tbody;
+        /** @type {HTMLElement|null} */
+        #modal;
+        /** @type {HTMLElement|null} */
+        #modalTitle;
+        /** @type {HTMLElement|null} */
+        #modalBody;
+        /** @type {number} */
+        #currentEventId;
+        /** @type {number} */
+        #currentGroupId;
+        /** @type {boolean} */
+        #unreadOnly = false;
+
+        constructor() {
+            this.#filterInput   = document.getElementById('eim-messages-filter');
+            this.#tbody         = document.getElementById('eim-messages-tbody');
+            this.#modal         = document.getElementById('eim-messages-modal');
+            this.#modalTitle    = document.getElementById('eim-messages-modal-title');
+            this.#modalBody     = document.getElementById('eim-messages-modal-body');
+            this.#currentEventId = config.event?.id || 0;
+
+            if (!this.#tbody) return;
+
+            this.#filterInput?.addEventListener('input', () => this.#applyFilter());
+
+            this.#tbody.addEventListener('click', (e) => {
+                const btn = e.target.closest('.eim-messages-open');
+                if (btn) {
+                    this.#openModal(
+                        Number(btn.dataset.groupId),
+                        btn.dataset.groupName || '',
+                        btn.dataset.unreadOnly === '1',
+                    );
+                }
+            });
+
+            document.getElementById('eim-messages-modal-close')
+                    ?.addEventListener('click', () => this.#closeModal());
+            document.getElementById('eim-messages-modal-backdrop')
+                    ?.addEventListener('click', () => this.#closeModal());
+        }
+
+        // ── Filter ────────────────────────────────────────────────────────────
+
+        #applyFilter() {
+            const query = (this.#filterInput?.value || '').toLowerCase().trim();
+            for (const row of this.#tbody?.querySelectorAll('tr') ?? []) {
+                row.style.display = !query || (row.dataset.nameLower || '').includes(query) ? '' : 'none';
+            }
+        }
+
+        // ── Modal ─────────────────────────────────────────────────────────────
+
+        async #openModal(groupId, groupName, unreadOnly) {
+            if (!this.#modal) return;
+            this.#currentGroupId = groupId;
+            this.#unreadOnly     = unreadOnly;
+
+            const label = unreadOnly ? `Unread Messages — ${groupName}` : `Messages — ${groupName}`;
+            if (this.#modalTitle) this.#modalTitle.textContent = label;
+            if (this.#modalBody)  this.#modalBody.innerHTML    = '<p style="color:#999;">Loading…</p>';
+            this.#modal.style.display = 'block';
+            document.body.style.overflow = 'hidden';
+
+            try {
+                const url = new URL(ajaxurl, window.location.href);
+                url.searchParams.set('action',   'eim_get_group_messages');
+                url.searchParams.set('nonce',    config.event?.getMessagesNonce || '');
+                url.searchParams.set('event_id', String(this.#currentEventId));
+                url.searchParams.set('group_id', String(groupId));
+
+                const { success, data } = await fetch(url, { credentials: 'same-origin' }).then(r => r.json());
+
+                if (success) {
+                    this.#renderMessages(data.messages || [], unreadOnly);
+                } else {
+                    if (this.#modalBody) this.#modalBody.innerHTML = '<p style="color:#d63638;">Failed to load messages.</p>';
+                }
+            } catch (err) {
+                console.error('[EIM] Get messages failed:', err);
+                if (this.#modalBody) this.#modalBody.innerHTML = '<p style="color:#d63638;">Unexpected error.</p>';
+            }
+        }
+
+        #closeModal() {
+            if (this.#modal) this.#modal.style.display = 'none';
+            document.body.style.overflow = '';
+        }
+
+        #renderMessages(messages, unreadOnly) {
+            if (!this.#modalBody) return;
+
+            const filtered = unreadOnly ? messages.filter(m => !m.is_read) : messages;
+
+            if (!filtered.length) {
+                this.#modalBody.innerHTML = `<p style="color:#999;">${unreadOnly ? 'No unread messages.' : 'No messages yet.'}</p>`;
+                return;
+            }
+
+            const list = document.createElement('ul');
+            list.style.cssText = 'list-style:none;margin:0;padding:0;';
+
+            for (const msg of filtered) {
+                const li = document.createElement('li');
+                li.dataset.messageId = String(msg.id);
+                li.style.cssText = 'padding:10px 0;border-bottom:1px solid #f0f0f1;display:flex;gap:10px;align-items:flex-start;';
+
+                // Read checkbox
+                const chk = document.createElement('input');
+                chk.type    = 'checkbox';
+                chk.checked = msg.is_read;
+                chk.title   = msg.is_read ? 'Mark as unread' : 'Mark as read';
+                chk.style.cssText = 'margin-top:3px;flex-shrink:0;cursor:pointer;';
+                chk.addEventListener('change', () => this.#toggleRead(msg.id, chk, li));
+
+                // Text block
+                const textWrap = document.createElement('div');
+                textWrap.style.flex = '1';
+
+                const msgText = document.createElement('p');
+                msgText.style.cssText = 'margin:0 0 4px;font-size:13px;white-space:pre-wrap;';
+                msgText.textContent = msg.message;
+
+                const meta = document.createElement('span');
+                meta.style.cssText = 'font-size:11px;color:#999;';
+                meta.textContent   = this.#formatDate(msg.created_at);
+
+                textWrap.appendChild(msgText);
+                textWrap.appendChild(meta);
+
+                // Delete button
+                const del = document.createElement('button');
+                del.type      = 'button';
+                del.textContent = 'Delete';
+                del.className = 'button-link';
+                del.style.cssText = 'color:#d63638;font-size:12px;flex-shrink:0;margin-top:2px;';
+                del.addEventListener('click', () => this.#deleteMessage(msg.id, li));
+
+                li.appendChild(chk);
+                li.appendChild(textWrap);
+                li.appendChild(del);
+                list.appendChild(li);
+            }
+
+            this.#modalBody.replaceChildren(list);
+        }
+
+        // ── Actions ───────────────────────────────────────────────────────────
+
+        async #toggleRead(messageId, chk, li) {
+            const isRead = chk.checked;
+            chk.disabled = true;
+
+            try {
+                const body = new FormData();
+                body.append('action',     'eim_mark_message_read');
+                body.append('nonce',      config.event?.markReadNonce || '');
+                body.append('message_id', String(messageId));
+                body.append('is_read',    isRead ? '1' : '0');
+
+                const { success } = await fetch(ajaxurl, {
+                    method: 'POST', credentials: 'same-origin', body,
+                }).then(r => r.json());
+
+                if (success) {
+                    chk.title = isRead ? 'Mark as unread' : 'Mark as read';
+                    li.style.opacity = isRead ? '0.6' : '1';
+                    // Update the unread count badge in the table row.
+                    this.#refreshRowCounts();
+                } else {
+                    chk.checked = !isRead; // revert
+                }
+            } catch (err) {
+                console.error('[EIM] Mark read failed:', err);
+                chk.checked = !isRead;
+            } finally {
+                chk.disabled = false;
+            }
+        }
+
+        async #deleteMessage(messageId, li) {
+            if (!window.confirm('Delete this message? This cannot be undone.')) return;
+
+            try {
+                const body = new FormData();
+                body.append('action',     'eim_delete_message');
+                body.append('nonce',      config.event?.deleteMessageNonce || '');
+                body.append('message_id', String(messageId));
+
+                const { success } = await fetch(ajaxurl, {
+                    method: 'POST', credentials: 'same-origin', body,
+                }).then(r => r.json());
+
+                if (success) {
+                    li.remove();
+                    if (!this.#modalBody?.querySelector('li')) {
+                        this.#modalBody.innerHTML = '<p style="color:#999;">No messages remaining.</p>';
+                    }
+                    this.#refreshRowCounts();
+                }
+            } catch (err) {
+                console.error('[EIM] Delete message failed:', err);
+            }
+        }
+
+        /** After a read-toggle or delete, re-fetches counts and updates the table row badges. */
+        async #refreshRowCounts() {
+            try {
+                const url = new URL(ajaxurl, window.location.href);
+                url.searchParams.set('action',   'eim_get_group_messages');
+                url.searchParams.set('nonce',    config.event?.getMessagesNonce || '');
+                url.searchParams.set('event_id', String(this.#currentEventId));
+                url.searchParams.set('group_id', String(this.#currentGroupId));
+
+                const { success, data } = await fetch(url, { credentials: 'same-origin' }).then(r => r.json());
+                if (!success) return;
+
+                const msgs   = data.messages || [];
+                const total  = msgs.length;
+                const unread = msgs.filter(m => !m.is_read).length;
+
+                const row = this.#tbody?.querySelector(`tr[data-group-id="${this.#currentGroupId}"]`);
+                if (!row) return;
+
+                const cells = row.querySelectorAll('td');
+                const totalCell  = cells[3];
+                const unreadCell = cells[4];
+
+                if (totalCell) {
+                    const btn = totalCell.querySelector('.eim-messages-open');
+                    if (btn) btn.textContent = String(total);
+                }
+                if (unreadCell) {
+                    if (unread > 0) {
+                        let btn = unreadCell.querySelector('.eim-messages-open');
+                        if (!btn) {
+                            btn = document.createElement('button');
+                            btn.type      = 'button';
+                            btn.className = 'button button-small eim-messages-open';
+                            btn.style.cssText = 'background:#d63638;border-color:#b32d2e;color:#fff;';
+                            btn.dataset.groupId    = String(this.#currentGroupId);
+                            btn.dataset.groupName  = row.dataset.groupName || '';
+                            btn.dataset.unreadOnly = '1';
+                            unreadCell.innerHTML   = '';
+                            unreadCell.appendChild(btn);
+                        }
+                        btn.textContent = String(unread);
+                    } else {
+                        unreadCell.innerHTML = '<span style="color:#999;">0</span>';
+                    }
+                }
+            } catch (err) {
+                console.error('[EIM] Refresh counts failed:', err);
+            }
+        }
+
+        // ── Helpers ───────────────────────────────────────────────────────────
+
+        #formatDate(mysqlDatetime) {
+            if (!mysqlDatetime) return '';
+            const d = new Date(mysqlDatetime.replace(' ', 'T') + 'Z');
+            return isNaN(d) ? mysqlDatetime : d.toLocaleString();
+        }
+    }
+
+    // =========================================================================
+    // InviteEmailSendPanel — test send and send-all for the invite email tab
+    // =========================================================================
+
+    class InviteEmailSendPanel {
+        /** @type {HTMLButtonElement|null} */
+        #sendAllBtn;
+        /** @type {HTMLElement|null} */
+        #sendAllResult;
+        /** @type {HTMLInputElement|null} */
+        #testInput;
+        /** @type {HTMLButtonElement|null} */
+        #testBtn;
+        /** @type {HTMLElement|null} */
+        #testResult;
+
+        constructor() {
+            this.#sendAllBtn    = document.getElementById('eim-invite-send-all');
+            this.#sendAllResult = document.getElementById('eim-invite-send-all-result');
+            this.#testInput     = document.getElementById('eim-invite-test-email');
+            this.#testBtn       = document.getElementById('eim-invite-send-test');
+            this.#testResult    = document.getElementById('eim-invite-send-test-result');
+
+            this.#sendAllBtn?.addEventListener('click', () => this.#handleSendAll());
+            this.#testBtn?.addEventListener('click',    () => this.#handleSendTest());
+        }
+
+        async #handleSendAll() {
+            const eventId = this.#sendAllBtn?.dataset.eventId;
+            if (!eventId) return;
+
+            if (!window.confirm('Send invite emails to all unsent invitation groups for this event? This cannot be undone.')) {
+                return;
+            }
+
+            this.#setLoading(this.#sendAllBtn, true);
+            this.#showResult(this.#sendAllResult, '', '');
+
+            try {
+                const body = new FormData();
+                body.append('action',   'eim_send_all_invites_ajax');
+                body.append('nonce',    config.event?.inviteAllNonce || '');
+                body.append('event_id', eventId);
+
+                const { success, data } = await fetch(ajaxurl, {
+                    method: 'POST', credentials: 'same-origin', body,
+                }).then(r => r.json());
+
+                if (success) {
+                    const { sent, failed, total } = data;
+                    const msg = failed > 0
+                        ? `Sent ${sent} of ${total}. ${failed} failed — check your server mail configuration.`
+                        : `Successfully sent to all ${sent} group${sent === 1 ? '' : 's'}.`;
+                    this.#showResult(this.#sendAllResult, msg, failed > 0 ? 'warning' : 'success');
+                    if (this.#sendAllBtn) {
+                        this.#sendAllBtn.textContent = 'Send to All Unsent (0)';
+                        this.#sendAllBtn.disabled    = true;
+                    }
+                } else {
+                    this.#showResult(this.#sendAllResult, data?.message || 'Failed to send.', 'error');
+                    this.#setLoading(this.#sendAllBtn, false);
+                }
+            } catch (err) {
+                console.error('[EIM] Send all invites failed:', err);
+                this.#showResult(this.#sendAllResult, 'Unexpected error. Check the browser console.', 'error');
+                this.#setLoading(this.#sendAllBtn, false);
+            }
+        }
+
+        async #handleSendTest() {
+            const eventId = this.#testBtn?.dataset.eventId;
+            const email   = this.#testInput?.value.trim() || '';
+
+            if (!email) {
+                this.#showResult(this.#testResult, 'Please enter an email address.', 'error');
+                return;
+            }
+
+            this.#setLoading(this.#testBtn, true);
+            this.#showResult(this.#testResult, '', '');
+
+            try {
+                const body = new FormData();
+                body.append('action',     'eim_send_invite_test');
+                body.append('nonce',      config.event?.inviteTestNonce || '');
+                body.append('event_id',   eventId || '');
+                body.append('test_email', email);
+
+                const { success, data } = await fetch(ajaxurl, {
+                    method: 'POST', credentials: 'same-origin', body,
+                }).then(r => r.json());
+
+                if (success) {
+                    this.#showResult(this.#testResult, `Test email sent to ${data.email}.`, 'success');
+                } else {
+                    this.#showResult(this.#testResult, data?.message || 'Failed to send.', 'error');
+                }
+            } catch (err) {
+                console.error('[EIM] Send invite test failed:', err);
+                this.#showResult(this.#testResult, 'Unexpected error. Check the browser console.', 'error');
+            } finally {
+                this.#setLoading(this.#testBtn, false);
+            }
+        }
+
+        #setLoading(btn, isLoading) {
+            if (!btn) return;
+            btn.disabled         = isLoading;
+            btn.dataset.origText = btn.dataset.origText ?? btn.textContent;
+            btn.textContent      = isLoading ? 'Sending…' : (btn.dataset.origText || '');
+        }
+
+        #showResult(el, message, type) {
+            if (!el) return;
+            if (!message) { el.style.display = 'none'; return; }
+            el.textContent  = message;
+            el.style.color  = type === 'error' ? '#d63638' : type === 'warning' ? '#996800' : '#008000';
+            el.style.display = 'inline';
+        }
+    }
+
     // Boot
     // -----------------------------------------------------------------------
+
+    /** @type {SeatingAssignmentsTable|null} Shared reference so SeatAssignmentManager can trigger refreshes. */
+    let seatingTableInstance = null;
+
     document.addEventListener('DOMContentLoaded', () => {
+        new InviteeImageModal();
+        new InviteeImagePicker();
         new RsvpDetailsModal();
+        new AccordionSortTable();
         if (config.table?.enabled)                new InviteeTable();
         if (config.connectionGroupTable?.enabled) new ConnectionGroupTable();
         if (config.event?.enabled)                new EventInviteePicker();
@@ -1800,6 +2752,11 @@
             new MenuItemPicker();
             new EventMenuItemFilter();
             new EventAssignmentSorter();
+            new GroupAccordion();
+            new SeatAssignmentManager(config.event?.seatNonce || '');
+            seatingTableInstance = new SeatingAssignmentsTable();
+            new InviteEmailSendPanel();
+            new EventMessagesTab();
         }
     });
 })();

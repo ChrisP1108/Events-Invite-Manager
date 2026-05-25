@@ -20,11 +20,12 @@ use EventsInviteManager\Models\QrCode;
  * ordered checks and returns an RsvpFlowResult that tells the caller exactly
  * what the invitee should do next:
  *
- *   1. invalid_code       — Code not found, or related group / event missing.
- *   2. rsvp_required      — One or more members have not yet confirmed or declined.
- *   3. menu_required      — All confirmed, but required food / beverage not selected.
- *   4. newsletter_redirect — All steps done; redirect to the event's newsletter page.
- *   5. declined           — Every member declined; nothing further to do.
+ *   1. invalid_code        — Code not found, or related group / event missing.
+ *   2. rsvp_required       — One or more members have not yet confirmed or declined.
+ *   3. menu_required       — All confirmed, but required food / beverage not selected.
+ *   4. lodging_required    — Menu complete, but lodging selection not yet confirmed.
+ *   5. dashboard_redirect  — All steps done; redirect to the invitee dashboard.
+ *   6. declined            — Every member declined; nothing further to do.
  *
  * This service intentionally has no WordPress admin dependencies and contains
  * no output logic — it is purely a state calculator. It can therefore be
@@ -79,7 +80,7 @@ final class RsvpFlowResolver
                 requiresLodging:  $requiresLodging,
                 requiresFood:     $requiresFood,
                 requiresBeverage: $requiresBeverage,
-                newsletterUrl:    null,
+                dashboardUrl:     null,
                 message:          null,
             );
         }
@@ -95,12 +96,47 @@ final class RsvpFlowResolver
                 requiresLodging:  false,
                 requiresFood:     false,
                 requiresBeverage: false,
-                newsletterUrl:    null,
+                dashboardUrl:     $event->dashboardUrl($code),
                 message:          null,
             );
         }
 
-        // ── Step 5: lodging completion check ─────────────────────────────────
+        // ── Step 5: menu completion check ────────────────────────────────────
+        // Only attending members need to have confirmed their menu selections.
+        if ($requiresFood || $requiresBeverage) {
+            foreach ($attendingMembers as $member) {
+                if ($requiresFood && $member->foodConfirmedAt === null) {
+                    return new RsvpFlowResult(
+                        success:          true,
+                        nextAction:       RsvpFlowResult::ACTION_MENU_REQUIRED,
+                        event:            $event,
+                        group:            $group,
+                        members:          $members,
+                        requiresLodging:  $requiresLodging,
+                        requiresFood:     $requiresFood,
+                        requiresBeverage: $requiresBeverage,
+                        dashboardUrl:     $event->dashboardUrl($code),
+                        message:          null,
+                    );
+                }
+                if ($requiresBeverage && $member->beverageConfirmedAt === null) {
+                    return new RsvpFlowResult(
+                        success:          true,
+                        nextAction:       RsvpFlowResult::ACTION_MENU_REQUIRED,
+                        event:            $event,
+                        group:            $group,
+                        members:          $members,
+                        requiresLodging:  $requiresLodging,
+                        requiresFood:     $requiresFood,
+                        requiresBeverage: $requiresBeverage,
+                        dashboardUrl:     $event->dashboardUrl($code),
+                        message:          null,
+                    );
+                }
+            }
+        }
+
+        // ── Step 6: lodging completion check ─────────────────────────────────
         // Lodging is a single group-level selection, propagated to all attending
         // members when saved. All attending members must have lodging_confirmed_at
         // set before the step is considered complete.
@@ -120,58 +156,23 @@ final class RsvpFlowResolver
                     requiresLodging:  true,
                     requiresFood:     $requiresFood,
                     requiresBeverage: $requiresBeverage,
-                    newsletterUrl:    $event->newsletterUrl($code),
+                    dashboardUrl:     $event->dashboardUrl($code),
                     message:          null,
                 );
-            }
-        }
-
-        // ── Step 6: menu completion check ────────────────────────────────────
-        // Only attending members need to have confirmed their menu selections.
-        if ($requiresFood || $requiresBeverage) {
-            foreach ($attendingMembers as $member) {
-                if ($requiresFood && $member->foodConfirmedAt === null) {
-                    return new RsvpFlowResult(
-                        success:          true,
-                        nextAction:       RsvpFlowResult::ACTION_MENU_REQUIRED,
-                        event:            $event,
-                        group:            $group,
-                        members:          $members,
-                        requiresLodging:  $requiresLodging,
-                        requiresFood:     $requiresFood,
-                        requiresBeverage: $requiresBeverage,
-                        newsletterUrl:    $event->newsletterUrl($code),
-                        message:          null,
-                    );
-                }
-                if ($requiresBeverage && $member->beverageConfirmedAt === null) {
-                    return new RsvpFlowResult(
-                        success:          true,
-                        nextAction:       RsvpFlowResult::ACTION_MENU_REQUIRED,
-                        event:            $event,
-                        group:            $group,
-                        members:          $members,
-                        requiresLodging:  $requiresLodging,
-                        requiresFood:     $requiresFood,
-                        requiresBeverage: $requiresBeverage,
-                        newsletterUrl:    $event->newsletterUrl($code),
-                        message:          null,
-                    );
-                }
             }
         }
 
         // ── Step 7: everything complete ───────────────────────────────────────
         return new RsvpFlowResult(
             success:          true,
-            nextAction:       RsvpFlowResult::ACTION_NEWSLETTER_REDIRECT,
+            nextAction:       RsvpFlowResult::ACTION_DASHBOARD_REDIRECT,
             event:            $event,
             group:            $group,
             members:          $members,
             requiresLodging:  $requiresLodging,
             requiresFood:     $requiresFood,
             requiresBeverage: $requiresBeverage,
-            newsletterUrl:    $event->newsletterUrl($code),
+            dashboardUrl:     $event->dashboardUrl($code),
             message:          null,
         );
     }
@@ -264,7 +265,7 @@ final class RsvpFlowResolver
             requiresLodging:  false,
             requiresFood:     false,
             requiresBeverage: false,
-            newsletterUrl:    null,
+            dashboardUrl:     null,
             message:          $message,
         );
     }

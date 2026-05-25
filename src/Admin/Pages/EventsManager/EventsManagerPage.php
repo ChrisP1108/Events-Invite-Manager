@@ -14,6 +14,7 @@ use EventsInviteManager\Admin\Pages\EventsManager\SubPages\InviteesPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\LocationsPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\MenuItemsPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\CategoriesPage;
+use EventsInviteManager\Admin\Pages\EventsManager\SubPages\GiftsPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\NewslettersPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\VendorsPage;
 
@@ -52,6 +53,9 @@ final class EventsManagerPage
     /** @var CategoriesPage Categories sub-page handler. */
     private CategoriesPage       $categoriesPage;
 
+    /** @var GiftsPage Gifts sub-page handler. */
+    private GiftsPage            $giftsPage;
+
     public function __construct(
         EventsPage           $eventsPage,
         InviteesPage         $inviteesPage,
@@ -61,7 +65,8 @@ final class EventsManagerPage
         BudgetPage           $budgetPage,
         NewslettersPage      $newslettersPage,
         VendorsPage          $vendorsPage,
-        CategoriesPage       $categoriesPage
+        CategoriesPage       $categoriesPage,
+        GiftsPage            $giftsPage
     ) {
         $this->eventsPage           = $eventsPage;
         $this->inviteesPage         = $inviteesPage;
@@ -72,6 +77,7 @@ final class EventsManagerPage
         $this->newslettersPage      = $newslettersPage;
         $this->vendorsPage          = $vendorsPage;
         $this->categoriesPage       = $categoriesPage;
+        $this->giftsPage            = $giftsPage;
     }
 
     /**
@@ -93,6 +99,7 @@ final class EventsManagerPage
             AdminMenu::TAB_VENDORS           => 'Vendors',
             AdminMenu::TAB_NEWSLETTERS       => 'Newsletters',
             AdminMenu::TAB_CATEGORIES        => 'Categories',
+            AdminMenu::TAB_GIFTS             => 'Gifts &amp; Registry',
         ];
 
         if (!array_key_exists($tab, $tabs)) {
@@ -123,6 +130,7 @@ final class EventsManagerPage
             AdminMenu::TAB_VENDORS           => $this->vendorsPage,
             AdminMenu::TAB_NEWSLETTERS       => $this->newslettersPage,
             AdminMenu::TAB_CATEGORIES        => $this->categoriesPage,
+            AdminMenu::TAB_GIFTS             => $this->giftsPage,
             default                          => $this->eventsPage,
         };
 

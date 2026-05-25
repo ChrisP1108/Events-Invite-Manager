@@ -15,8 +15,14 @@ if (!defined('ABSPATH')) exit;
 
 final class DatabaseManager
 {
-    private const SCHEMA_VERSION = '21';
+    /**
+     * The current database schema version.
+     */
+    private const SCHEMA_VERSION = '29';
 
+    /**
+     * The database table names.
+     */
     private const EVENTS_TABLE                           = 'eim_events';
     private const INVITEES_TABLE                         = 'eim_invitees';
     private const EVENT_INVITEES_TABLE                   = 'eim_event_invitees';
@@ -39,7 +45,16 @@ final class DatabaseManager
     private const VENDORS_TABLE                          = 'eim_vendors';
     private const CATEGORIES_TABLE                       = 'eim_categories';
     private const CATEGORY_MAP_TABLE                     = 'eim_category_map';
+    private const GIFTS_TABLE                            = 'eim_gifts';
+    private const GIFT_EVENTS_TABLE                      = 'eim_gift_events';
+    private const GIFT_PURCHASES_TABLE                   = 'eim_gift_purchases';
+    private const EVENT_MESSAGES_TABLE                   = 'eim_event_messages';
 
+    /**
+     * Upgrades the database schema if necessary.
+     *
+     * @return void
+     */
     public static function maybeUpgrade(): void
     {
         if (get_option('eim_db_version') === self::SCHEMA_VERSION) {
@@ -49,27 +64,32 @@ final class DatabaseManager
         update_option('eim_db_version', self::SCHEMA_VERSION, false);
     }
 
+    /**
+     * Creates all database tables.
+     *
+     * @return void
+     */
     public static function createTables(): void
     {
         global $wpdb;
 
         $charset = $wpdb->get_charset_collate();
 
-        $eventsTable        = $wpdb->prefix . self::EVENTS_TABLE;
-        $inviteesTable      = $wpdb->prefix . self::INVITEES_TABLE;
-        $eventInviteesTable = $wpdb->prefix . self::EVENT_INVITEES_TABLE;
-        $locationsTable     = $wpdb->prefix . self::LOCATIONS_TABLE;
-        $eventLodgingTable  = $wpdb->prefix . self::EVENT_LODGING_TABLE;
-        $qrCodesTable       = $wpdb->prefix . self::QR_CODES_TABLE;
-        $cgroupsTable       = $wpdb->prefix . self::INVITEE_CONNECTION_GROUPS_TABLE;
-        $cgMembersTable     = $wpdb->prefix . self::INVITEE_CONNECTION_GROUP_MEMBERS_TABLE;
-        $invGroupsTable     = $wpdb->prefix . self::INVITATION_GROUPS_TABLE;
-        $invMembersTable    = $wpdb->prefix . self::INVITATION_GROUP_MEMBERS_TABLE;
-        $menuItemsTable      = $wpdb->prefix . self::MENU_ITEMS_TABLE;
-        $eventMenuItemsTable = $wpdb->prefix . self::EVENT_MENU_ITEMS_TABLE;
-        $budgetPlansTable    = $wpdb->prefix . self::BUDGET_PLANS_TABLE;
-        $budgetPlanEventsTable = $wpdb->prefix . self::BUDGET_PLAN_EVENTS_TABLE;
-        $budgetLineItemsTable  = $wpdb->prefix . self::BUDGET_LINE_ITEMS_TABLE;
+        $eventsTable                = $wpdb->prefix . self::EVENTS_TABLE;
+        $inviteesTable              = $wpdb->prefix . self::INVITEES_TABLE;
+        $eventInviteesTable         = $wpdb->prefix . self::EVENT_INVITEES_TABLE;
+        $locationsTable             = $wpdb->prefix . self::LOCATIONS_TABLE;
+        $eventLodgingTable          = $wpdb->prefix . self::EVENT_LODGING_TABLE;
+        $qrCodesTable               = $wpdb->prefix . self::QR_CODES_TABLE;
+        $cgroupsTable               = $wpdb->prefix . self::INVITEE_CONNECTION_GROUPS_TABLE;
+        $cgMembersTable             = $wpdb->prefix . self::INVITEE_CONNECTION_GROUP_MEMBERS_TABLE;
+        $invGroupsTable             = $wpdb->prefix . self::INVITATION_GROUPS_TABLE;
+        $invMembersTable            = $wpdb->prefix . self::INVITATION_GROUP_MEMBERS_TABLE;
+        $menuItemsTable             = $wpdb->prefix . self::MENU_ITEMS_TABLE;
+        $eventMenuItemsTable        = $wpdb->prefix . self::EVENT_MENU_ITEMS_TABLE;
+        $budgetPlansTable           = $wpdb->prefix . self::BUDGET_PLANS_TABLE;
+        $budgetPlanEventsTable      = $wpdb->prefix . self::BUDGET_PLAN_EVENTS_TABLE;
+        $budgetLineItemsTable       = $wpdb->prefix . self::BUDGET_LINE_ITEMS_TABLE;
         $newslettersTable           = $wpdb->prefix . self::NEWSLETTERS_TABLE;
         $newsletterEventsTable      = $wpdb->prefix . self::NEWSLETTER_EVENTS_TABLE;
         $newsletterTagsTable        = $wpdb->prefix . self::NEWSLETTER_TAGS_TABLE;
@@ -77,6 +97,10 @@ final class DatabaseManager
         $vendorsTable               = $wpdb->prefix . self::VENDORS_TABLE;
         $categoriesTable            = $wpdb->prefix . self::CATEGORIES_TABLE;
         $categoryMapTable           = $wpdb->prefix . self::CATEGORY_MAP_TABLE;
+        $giftsTable                 = $wpdb->prefix . self::GIFTS_TABLE;
+        $giftEventsTable            = $wpdb->prefix . self::GIFT_EVENTS_TABLE;
+        $giftPurchasesTable         = $wpdb->prefix . self::GIFT_PURCHASES_TABLE;
+        $eventMessagesTable         = $wpdb->prefix . self::EVENT_MESSAGES_TABLE;
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
@@ -97,6 +121,7 @@ final class DatabaseManager
                 food_options_enabled      TINYINT(1)          NOT NULL DEFAULT 0,
                 beverage_options_enabled  TINYINT(1)          NOT NULL DEFAULT 0,
                 newsletter_page_id        BIGINT(20) UNSIGNED NULL DEFAULT NULL,
+                dashboard_page_id         BIGINT(20) UNSIGNED NULL DEFAULT NULL,
                 max_invitees              SMALLINT UNSIGNED   NULL DEFAULT NULL,
                 created_at                DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at                DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -112,10 +137,12 @@ final class DatabaseManager
                 city            VARCHAR(100)        NOT NULL DEFAULT '',
                 state           VARCHAR(50)         NOT NULL DEFAULT '',
                 zip_code        VARCHAR(20)         NOT NULL DEFAULT '',
+                image_attachment_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
                 created_at      DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at      DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (id),
-                KEY email (email)
+                KEY email (email),
+                KEY image_attachment_id (image_attachment_id)
             ) ENGINE=InnoDB {$charset};
             CREATE TABLE {$eventInviteesTable} (
                 id              BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -187,14 +214,17 @@ final class DatabaseManager
                 KEY invitee_id (invitee_id)
             ) ENGINE=InnoDB {$charset};
             CREATE TABLE {$invGroupsTable} (
-                id                  BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-                event_id            BIGINT(20) UNSIGNED NOT NULL,
-                primary_invitee_id  BIGINT(20) UNSIGNED NOT NULL,
-                invite_sent_at      DATETIME,
-                rsvp_notes          TEXT,
-                rsvp_notes_updated_at DATETIME NULL DEFAULT NULL,
-                created_at          DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at          DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                id                    BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                event_id              BIGINT(20) UNSIGNED NOT NULL,
+                primary_invitee_id    BIGINT(20) UNSIGNED NOT NULL,
+                invite_sent_at        DATETIME,
+                rsvp_notes            TEXT,
+                rsvp_notes_updated_at DATETIME            NULL DEFAULT NULL,
+                lodging_booked        TINYINT(1)          NOT NULL DEFAULT 0,
+                lodging_booked_at     DATETIME            NULL DEFAULT NULL,
+                lodging_notes         TEXT,
+                created_at            DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at            DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (id),
                 KEY event_id (event_id),
                 KEY primary_invitee_id (primary_invitee_id)
@@ -214,6 +244,7 @@ final class DatabaseManager
                 lodging_is_other      TINYINT(1)          NOT NULL DEFAULT 0,
                 lodging_undisclosed   TINYINT(1)          NOT NULL DEFAULT 0,
                 lodging_confirmed_at  DATETIME            NULL DEFAULT NULL,
+                seat_assignment       VARCHAR(255)        NOT NULL DEFAULT '',
                 created_at            DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at            DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (id),
@@ -365,6 +396,57 @@ final class DatabaseManager
                 UNIQUE KEY category_entity (category_id, entity_type, entity_id),
                 KEY entity_lookup (entity_type, entity_id),
                 KEY category_id (category_id)
+            ) ENGINE=InnoDB {$charset};
+            CREATE TABLE {$giftsTable} (
+                id          BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                name        VARCHAR(255)        NOT NULL DEFAULT '',
+                description TEXT,
+                price_cents INT UNSIGNED        NOT NULL DEFAULT 0,
+                website_url VARCHAR(500)        NOT NULL DEFAULT '',
+                image_attachment_id BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+                created_at  DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at  DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY image_attachment_id (image_attachment_id)
+            ) ENGINE=InnoDB {$charset};
+            CREATE TABLE {$giftEventsTable} (
+                id         BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                gift_id    BIGINT(20) UNSIGNED NOT NULL,
+                event_id   BIGINT(20) UNSIGNED NOT NULL,
+                created_at DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY gift_event (gift_id, event_id),
+                KEY gift_id (gift_id),
+                KEY event_id (event_id)
+            ) ENGINE=InnoDB {$charset};
+            CREATE TABLE {$giftPurchasesTable} (
+                id                     BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                gift_id                BIGINT(20) UNSIGNED NOT NULL,
+                event_id               BIGINT(20) UNSIGNED NOT NULL,
+                is_purchased           TINYINT(1)          NOT NULL DEFAULT 0,
+                purchased_at           DATETIME            NULL DEFAULT NULL,
+                purchased_by_group_id  BIGINT(20) UNSIGNED NULL DEFAULT NULL,
+                purchased_by_invitee_id BIGINT(20) UNSIGNED NULL DEFAULT NULL,
+                created_at             DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at             DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                UNIQUE KEY gift_event_purchase (gift_id, event_id),
+                KEY gift_id (gift_id),
+                KEY event_id (event_id),
+                KEY purchased_by_group_id (purchased_by_group_id),
+                KEY purchased_by_invitee_id (purchased_by_invitee_id)
+            ) ENGINE=InnoDB {$charset};
+            CREATE TABLE {$eventMessagesTable} (
+                id                  BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                event_id            BIGINT(20) UNSIGNED NOT NULL,
+                connection_group_id BIGINT(20) UNSIGNED NOT NULL,
+                message             TEXT                NOT NULL,
+                is_read             TINYINT(1)          NOT NULL DEFAULT 0,
+                created_at          DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY event_id (event_id),
+                KEY connection_group_id (connection_group_id),
+                KEY event_group (event_id, connection_group_id)
             ) ENGINE=InnoDB {$charset};";
 
         dbDelta($sql);
@@ -522,6 +604,34 @@ final class DatabaseManager
     {
         global $wpdb;
         return $wpdb->prefix . self::CATEGORY_MAP_TABLE;
+    }
+
+    /** @return string Fully-qualified gifts library table name. */
+    public static function giftsTable(): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . self::GIFTS_TABLE;
+    }
+
+    /** @return string Fully-qualified gift–event pivot table name. */
+    public static function giftEventsTable(): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . self::GIFT_EVENTS_TABLE;
+    }
+
+    /** @return string Fully-qualified gift purchase tracking table name. */
+    public static function giftPurchasesTable(): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . self::GIFT_PURCHASES_TABLE;
+    }
+
+    /** @return string Fully-qualified event messages table name. */
+    public static function eventMessagesTable(): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . self::EVENT_MESSAGES_TABLE;
     }
 
 }
