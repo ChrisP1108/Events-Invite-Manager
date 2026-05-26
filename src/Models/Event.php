@@ -8,9 +8,11 @@ if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Database\DatabaseManager;
 use EventsInviteManager\Models\EventLodging;
+use EventsInviteManager\Models\EventMessage;
 use EventsInviteManager\Models\MenuItem;
 use EventsInviteManager\Models\InvitationGroup;
 use EventsInviteManager\Models\QrCode;
+use EventsInviteManager\Models\RequestedInviteeAddOn;
 
 /**
  * Represents a single event and provides static CRUD methods against the database.
@@ -40,6 +42,7 @@ final class Event
      * @param ?int    $newsletterPageId       WordPress page ID for the post-RSVP newsletter page, or null if not set.
      * @param ?int    $dashboardPageId        WordPress page ID for the invitee dashboard redirect after RSVP, or null if not set.
      * @param ?int    $maxInvitees            Maximum number of invitees allowed, or null for unlimited.
+     * @param ?string $rsvpDeadline           MySQL DATETIME string for the RSVP deadline, or null if not set.
      * @param string  $createdAt              MySQL datetime string.
      * @param string  $updatedAt              MySQL datetime string.
      */
@@ -62,6 +65,7 @@ final class Event
         public readonly ?int    $newsletterPageId,
         public readonly ?int    $dashboardPageId,
         public readonly ?int    $maxInvitees,
+        public readonly ?string $rsvpDeadline,
         public readonly string  $createdAt,
         public readonly string  $updatedAt,
     ) {}
@@ -189,6 +193,7 @@ final class Event
             'newsletter_page_id'       => isset($data['newsletter_page_id']) && (int) $data['newsletter_page_id'] > 0 ? (int) $data['newsletter_page_id'] : null,
             'dashboard_page_id'        => isset($data['dashboard_page_id']) && (int) $data['dashboard_page_id'] > 0 ? (int) $data['dashboard_page_id'] : null,
             'max_invitees'             => isset($data['max_invitees']) && $data['max_invitees'] > 0 ? (int) $data['max_invitees'] : null,
+            'rsvp_deadline'            => !empty($data['rsvp_deadline']) ? $data['rsvp_deadline'] : null,
         ]);
 
         return $result ? (int) $wpdb->insert_id : false;
@@ -225,6 +230,7 @@ final class Event
                 'newsletter_page_id'       => isset($data['newsletter_page_id']) && (int) $data['newsletter_page_id'] > 0 ? (int) $data['newsletter_page_id'] : null,
                 'dashboard_page_id'        => isset($data['dashboard_page_id']) && (int) $data['dashboard_page_id'] > 0 ? (int) $data['dashboard_page_id'] : null,
                 'max_invitees'             => isset($data['max_invitees']) && $data['max_invitees'] > 0 ? (int) $data['max_invitees'] : null,
+                'rsvp_deadline'            => !empty($data['rsvp_deadline']) ? $data['rsvp_deadline'] : null,
             ],
             ['id' => $id]
         );
@@ -248,11 +254,23 @@ final class Event
         EventLodging::deleteForEvent($id);
         MenuItem::deleteForEvent($id);
         Gift::deleteForEvent($id);
+        EventMessage::deleteForEvent($id);
+        RequestedInviteeAddOn::deleteForEvent($id);
         $wpdb->delete(DatabaseManager::budgetPlanEventsTable(), ['event_id' => $id]);
         $wpdb->delete(DatabaseManager::budgetLineItemsTable(),  ['event_id' => $id]);
         $result = $wpdb->delete(DatabaseManager::eventsTable(), ['id' => $id]);
 
         return $result !== false;
+    }
+
+    /**
+     * Returns true when an RSVP deadline is set and it has already passed (UTC comparison).
+     *
+     * @return bool
+     */
+    public function isRsvpDeadlinePassed(): bool
+    {
+        return $this->rsvpDeadline !== null && strtotime($this->rsvpDeadline) < time();
     }
 
     /**
@@ -556,6 +574,7 @@ final class Event
             newsletterPageId:    isset($row->newsletter_page_id) && $row->newsletter_page_id !== null ? (int) $row->newsletter_page_id : null,
             dashboardPageId:     isset($row->dashboard_page_id) && $row->dashboard_page_id !== null ? (int) $row->dashboard_page_id : null,
             maxInvitees:              isset($row->max_invitees) && $row->max_invitees !== null ? (int) $row->max_invitees : null,
+            rsvpDeadline:              $row->rsvp_deadline         ?? null,
             createdAt:                 $row->created_at            ?? '',
             updatedAt:                 $row->updated_at            ?? '',
         );

@@ -16,6 +16,8 @@ use EventsInviteManager\Admin\Pages\EventsManager\SubPages\MenuItemsPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\CategoriesPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\GiftsPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\NewslettersPage;
+use EventsInviteManager\Admin\Pages\EventsManager\SubPages\MessagesPage;
+use EventsInviteManager\Admin\Pages\EventsManager\SubPages\RequestedInviteesPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\VendorsPage;
 
 /**
@@ -54,30 +56,40 @@ final class EventsManagerPage
     private CategoriesPage       $categoriesPage;
 
     /** @var GiftsPage Gifts sub-page handler. */
-    private GiftsPage            $giftsPage;
+    private GiftsPage               $giftsPage;
+
+    /** @var RequestedInviteesPage Requested Invitee Add-Ons sub-page handler. */
+    private RequestedInviteesPage   $requestedInviteesPage;
+
+    /** @var MessagesPage Global Messages sub-page handler. */
+    private MessagesPage            $messagesPage;
 
     public function __construct(
-        EventsPage           $eventsPage,
-        InviteesPage         $inviteesPage,
-        ConnectionGroupsPage $connectionGroupsPage,
-        LocationsPage        $locationsPage,
-        MenuItemsPage        $menuItemsPage,
-        BudgetPage           $budgetPage,
-        NewslettersPage      $newslettersPage,
-        VendorsPage          $vendorsPage,
-        CategoriesPage       $categoriesPage,
-        GiftsPage            $giftsPage
+        EventsPage             $eventsPage,
+        InviteesPage           $inviteesPage,
+        ConnectionGroupsPage   $connectionGroupsPage,
+        LocationsPage          $locationsPage,
+        MenuItemsPage          $menuItemsPage,
+        BudgetPage             $budgetPage,
+        NewslettersPage        $newslettersPage,
+        VendorsPage            $vendorsPage,
+        CategoriesPage         $categoriesPage,
+        GiftsPage              $giftsPage,
+        RequestedInviteesPage  $requestedInviteesPage,
+        MessagesPage           $messagesPage
     ) {
-        $this->eventsPage           = $eventsPage;
-        $this->inviteesPage         = $inviteesPage;
-        $this->connectionGroupsPage = $connectionGroupsPage;
-        $this->locationsPage        = $locationsPage;
-        $this->menuItemsPage        = $menuItemsPage;
-        $this->budgetPage           = $budgetPage;
-        $this->newslettersPage      = $newslettersPage;
-        $this->vendorsPage          = $vendorsPage;
-        $this->categoriesPage       = $categoriesPage;
-        $this->giftsPage            = $giftsPage;
+        $this->eventsPage             = $eventsPage;
+        $this->inviteesPage           = $inviteesPage;
+        $this->connectionGroupsPage   = $connectionGroupsPage;
+        $this->locationsPage          = $locationsPage;
+        $this->menuItemsPage          = $menuItemsPage;
+        $this->budgetPage             = $budgetPage;
+        $this->newslettersPage        = $newslettersPage;
+        $this->vendorsPage            = $vendorsPage;
+        $this->categoriesPage         = $categoriesPage;
+        $this->giftsPage              = $giftsPage;
+        $this->requestedInviteesPage  = $requestedInviteesPage;
+        $this->messagesPage           = $messagesPage;
     }
 
     /**
@@ -90,9 +102,11 @@ final class EventsManagerPage
         $tab = sanitize_key($_GET['tab'] ?? AdminMenu::TAB_EVENTS);
 
         $tabs = [
-            AdminMenu::TAB_EVENTS            => 'Events',
-            AdminMenu::TAB_INVITEES          => 'Invitees',
-            AdminMenu::TAB_CONNECTION_GROUPS => 'Connection Groups',
+            AdminMenu::TAB_EVENTS               => 'Events',
+            AdminMenu::TAB_INVITEES             => 'Invitees',
+            AdminMenu::TAB_REQUESTED_INVITEES   => 'Requested Add-Ons',
+            AdminMenu::TAB_MESSAGES             => 'Messages',
+            AdminMenu::TAB_CONNECTION_GROUPS    => 'Connection Groups',
             AdminMenu::TAB_LOCATIONS         => 'Locations',
             AdminMenu::TAB_MENU_ITEMS        => 'Food &amp; Beverages',
             AdminMenu::TAB_BUDGET            => 'Budget',
@@ -122,8 +136,10 @@ final class EventsManagerPage
         <?php
 
         $subPage = match ($tab) {
-            AdminMenu::TAB_INVITEES          => $this->inviteesPage,
-            AdminMenu::TAB_CONNECTION_GROUPS => $this->connectionGroupsPage,
+            AdminMenu::TAB_INVITEES             => $this->inviteesPage,
+            AdminMenu::TAB_REQUESTED_INVITEES   => $this->requestedInviteesPage,
+            AdminMenu::TAB_MESSAGES             => $this->messagesPage,
+            AdminMenu::TAB_CONNECTION_GROUPS    => $this->connectionGroupsPage,
             AdminMenu::TAB_LOCATIONS         => $this->locationsPage,
             AdminMenu::TAB_MENU_ITEMS        => $this->menuItemsPage,
             AdminMenu::TAB_BUDGET            => $this->budgetPage,

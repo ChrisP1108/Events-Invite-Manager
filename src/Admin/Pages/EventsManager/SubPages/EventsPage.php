@@ -19,6 +19,7 @@ use EventsInviteManager\Models\MenuItem;
 use EventsInviteManager\Models\InvitationGroup;
 use EventsInviteManager\Models\Invitee;
 use EventsInviteManager\Models\Location;
+use EventsInviteManager\Models\RequestedInviteeAddOn;
 use EventsInviteManager\Services\QrCodeService;
 
 /**
@@ -117,6 +118,7 @@ final class EventsPage extends AbstractAdminPage
             'newsletter_page_id'       => (int) ($_POST['newsletter_page_id'] ?? 0),
             'dashboard_page_id'        => (int) ($_POST['dashboard_page_id'] ?? 0),
             'max_invitees'             => (int) ($_POST['max_invitees'] ?? 0),
+            'rsvp_deadline'            => $this->sanitizeDatetimeLocal($_POST['rsvp_deadline'] ?? '', $timezone),
         ];
 
         if (empty($data['name'])) {
@@ -1316,9 +1318,58 @@ final class EventsPage extends AbstractAdminPage
         wp_send_json_success(['html' => $html, 'count' => $total, 'total' => $total]);
     }
 
+    /**
+     * Handles wp_ajax_eim_search_event_requested_invitees.
+     *
+     * Returns paginated rows for the per-event Requested Invitee Add-Ons section.
+     *
+     * @return void
+     */
+    public function handleAjaxSearchEventRequests(): void
+    {
+        check_ajax_referer('eim_search_event_requests_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions.', 403);
+        }
+
+        $eventId = (int) ($_GET['event_id'] ?? 0);
+        $query   = sanitize_text_field(wp_unslash($_GET['query'] ?? ''));
+        $sort    = $this->sanitizeRiarSortKey((string) ($_GET['sort']     ?? 'created_at'));
+        $order   = $this->sanitizeSortOrder((string) ($_GET['order']   ?? 'desc'));
+        $field   = $this->sanitizeRiarFieldKey((string) ($_GET['field']   ?? ''));
+        $page    = max(1, (int) ($_GET['page']      ?? 1));
+        $perPage = in_array((int) ($_GET['per_page'] ?? 10), [5, 10, 25, 50, 100], true)
+            ? (int) $_GET['per_page'] : 10;
+
+        $all   = RequestedInviteeAddOn::listForEvent($eventId, $query, $sort, $order, $field);
+        $total = count($all);
+        $paged = array_slice($all, ($page - 1) * $perPage, $perPage);
+
+        ob_start();
+        $this->renderEventRequestRows($paged, $query);
+        $html = (string) ob_get_clean();
+
+        wp_send_json_success(['html' => $html, 'count' => $total, 'total' => $total]);
+    }
+
     private function sanitizeEventSortKey(string $key): string
     {
         return in_array($key, ['name', 'start_datetime', 'date'], true) ? $key : 'start_datetime';
+    }
+
+    private function sanitizeRiarSortKey(string $key): string
+    {
+        $key = sanitize_key($key);
+        return in_array($key, ['first_name', 'last_name', 'email', 'phone', 'connection_group_name', 'status', 'created_at'], true)
+            ? $key : 'created_at';
+    }
+
+    private function sanitizeRiarFieldKey(string $field): string
+    {
+        $field = sanitize_key($field);
+        return in_array($field, ['first_name', 'last_name', 'email', 'phone', 'connection_group', 'status'], true)
+            ? $field : '';
     }
 
     private function sanitizeEventFieldKey(string $key): string
@@ -1839,6 +1890,14 @@ final class EventsPage extends AbstractAdminPage
                                 <p class="description">
                                     Leave blank for no limit. Counts individual people, not invitation groups.
                                 </p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="eim_rsvp_deadline">RSVP Deadline</label></th>
+                            <td>
+                                <?php $rsvpDeadlineVal = (!$isNew && $event->rsvpDeadline) ? $this->utcToDatetimeLocal($event->rsvpDeadline, $event->timezone) : ''; ?>
+                                <input type="datetime-local" id="eim_rsvp_deadline" name="rsvp_deadline" value="<?= esc_attr($rsvpDeadlineVal); ?>">
+                                <p class="description">Invitees must submit their initial RSVP (attending / not attending) by this date and time. Leave blank for no deadline.</p>
                             </td>
                         </tr>
                         <tr>
@@ -3771,7 +3830,294 @@ final class EventsPage extends AbstractAdminPage
         </table>
         <?php $this->renderPaginationBar('eim-event-groups-search'); ?>
 
+        <?php $this->renderEventRequestedInviteesSection($event); ?>
+
         <?php $this->renderSeatingAssignmentsSection($groups); ?>
+        <?php
+    }
+
+    /**
+     * Renders the Requested Invitee Add-Ons section for a specific event.
+     *
+     * Shows only requests whose event_id matches this event. Placed between the
+     * Invited Invitees list and the Seating Assignments section.
+     *
+     * @param Event $event
+     * @return void
+     */
+    private function renderEventRequestedInviteesSection(Event $event): void
+    {
+        RequestedInviteeAddOn::maybeCreateTable();
+
+        $sort     = $this->sanitizeRiarSortKey((string) ($_GET['riar_sort']  ?? 'created_at'));
+        $order    = $this->sanitizeSortOrder((string) ($_GET['riar_order'] ?? 'desc'));
+        $field    = $this->sanitizeRiarFieldKey((string) ($_GET['riar_field'] ?? ''));
+        $all      = RequestedInviteeAddOn::listForEvent($event->id, '', $sort, $order, $field);
+        $total    = count($all);
+        $requests = array_slice($all, 0, 10);
+
+        $sortArgs = ['action' => 'edit', 'id' => $event->id, 'tab' => AdminMenu::TAB_EVENTS];
+        ?>
+        <h2 style="margin-top:32px;">
+            Requested Invitee Add-Ons
+            <span style="font-size:14px;font-weight:normal;color:#3c434a;">(<?= esc_html($total); ?> request<?= $total === 1 ? '' : 's'; ?>)</span>
+        </h2>
+        <p class="description" style="margin-bottom:12px;">
+            Add-on requests submitted by invitees for this event via the front-end RSVP form.
+            Approve to add the person to the connection group and auto-RSVP them, or deny to keep on record.
+        </p>
+
+        <?php $this->renderSearchBar(
+            'eim-event-riar-search',
+            'eim-event-riar-count',
+            'eim-event-riar-loading',
+            'Search requests…',
+            $total,
+            '',
+            [
+                ['value' => 'first_name',       'label' => 'First Name'],
+                ['value' => 'last_name',         'label' => 'Last Name'],
+                ['value' => 'email',             'label' => 'Email'],
+                ['value' => 'phone',             'label' => 'Phone'],
+                ['value' => 'connection_group',  'label' => 'Connection Group'],
+                ['value' => 'status',            'label' => 'Status'],
+            ],
+            $field
+        ); ?>
+
+        <table id="eim-event-riars-table"
+               class="wp-list-table widefat fixed striped"
+               style="margin-top:12px;"
+               data-sort="<?= esc_attr($sort); ?>"
+               data-order="<?= esc_attr($order); ?>"
+               data-total="<?= esc_attr($total); ?>"
+               data-event-id="<?= esc_attr($event->id); ?>">
+            <thead>
+                <tr>
+                    <th style="width:10%;"><?= $this->sortLink('First Name', 'first_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:10%;"><?= $this->sortLink('Last Name', 'last_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:17%;"><?= $this->sortLink('Email', 'email', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:10%;"><?= $this->sortLink('Phone', 'phone', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:18%;"><?= $this->sortLink('Connection Group', 'connection_group_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:8%;">Details</th>
+                    <th style="width:10%;"><?= $this->sortLink('Status', 'status', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:9%;"><?= $this->sortLink('Requested', 'created_at', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:8%;">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="eim-event-riars-table-body">
+                <?php $this->renderEventRequestRows($requests); ?>
+            </tbody>
+        </table>
+        <?php $this->renderPaginationBar('eim-event-riar-search'); ?>
+
+        <?php if (empty($requests)): ?>
+            <p style="margin-top:10px;color:#666;font-size:13px;">No add-on requests for this event yet.</p>
+        <?php endif; ?>
+
+        <?php $this->renderEventRiarModal(); ?>
+        <?php
+    }
+
+    /**
+     * Renders table rows for the per-event requested invitees section.
+     *
+     * Called by both the initial render and the AJAX search handler.
+     *
+     * @param RequestedInviteeAddOn[] $requests
+     * @param string                  $search
+     * @return void
+     */
+    private function renderEventRequestRows(array $requests, string $search = ''): void
+    {
+        if (empty($requests)) {
+            $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No requests found.';
+            echo '<tr class="eim-no-results"><td colspan="9">' . esc_html($msg) . '</td></tr>';
+            return;
+        }
+
+        foreach ($requests as $req) {
+            $cgUrl     = AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'edit', 'id' => $req->connectionGroupId]);
+            $deleteUrl = wp_nonce_url(
+                AdminMenu::tabUrl(AdminMenu::TAB_REQUESTED_INVITEES, ['action' => 'delete_riar', 'id' => $req->id]),
+                'eim_delete_riar_' . $req->id
+            );
+
+            $thumbUrl = $req->imageAttachmentId > 0
+                ? (string) wp_get_attachment_image_url($req->imageAttachmentId, 'thumbnail')
+                : '';
+            $fullUrl = $req->imageAttachmentId > 0
+                ? (string) wp_get_attachment_image_url($req->imageAttachmentId, 'full')
+                : '';
+
+            $inviteeUrl = $req->approvedInviteeId
+                ? AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, ['action' => 'edit', 'id' => $req->approvedInviteeId])
+                : null;
+
+            $requestData = wp_json_encode([
+                'id'                  => $req->id,
+                'firstName'           => $req->firstName,
+                'lastName'            => $req->lastName,
+                'email'               => $req->email,
+                'phone'               => $req->phone,
+                'streetAddress'       => $req->streetAddress,
+                'city'                => $req->city,
+                'state'               => $req->state,
+                'zipCode'             => $req->zipCode,
+                'imageThumbUrl'       => $thumbUrl,
+                'imageFullUrl'        => $fullUrl,
+                'notes'               => $req->notes,
+                'status'              => $req->status,
+                'connectionGroupId'   => $req->connectionGroupId,
+                'connectionGroupName' => $req->connectionGroupName,
+                'connectionGroupUrl'  => $cgUrl,
+                'eventId'             => $req->eventId,
+                'eventName'           => $req->eventName,
+                'eventUrl'            => null,
+                'approvedInviteeId'   => $req->approvedInviteeId,
+                'approvedInviteeUrl'  => $inviteeUrl,
+                'createdAt'           => $req->createdAt,
+            ]);
+
+            [$bg, $color, $label] = match ($req->status) {
+                'approved' => ['#dff0d8', '#3c763d', 'Approved'],
+                'denied'   => ['#f2dede', '#a94442', 'Denied'],
+                default    => ['#fcf8e3', '#8a6d3b', 'Pending'],
+            };
+            ?>
+            <tr data-riar-id="<?= esc_attr($req->id); ?>" data-request="<?= esc_attr($requestData); ?>">
+                <td><?= esc_html($req->firstName); ?></td>
+                <td><?= esc_html($req->lastName); ?></td>
+                <td><?= esc_html($req->email); ?></td>
+                <td><?= esc_html($req->phone ?: '—'); ?></td>
+                <td>
+                    <?php if ($req->connectionGroupName): ?>
+                        <a href="<?= esc_url($cgUrl); ?>"><?= esc_html($req->connectionGroupName); ?></a>
+                    <?php else: ?>
+                        <span style="color:#999;">—</span>
+                    <?php endif; ?>
+                </td>
+                <td>
+                    <button type="button"
+                            class="button button-small eim-riar-details-btn"
+                            aria-label="<?= esc_attr('View details for ' . $req->fullName()); ?>">
+                        Details
+                    </button>
+                </td>
+                <td class="eim-riar-status-cell">
+                    <span style="background:<?= esc_attr($bg); ?>;color:<?= esc_attr($color); ?>;padding:2px 8px;border-radius:3px;font-size:12px;white-space:nowrap;">
+                        <?= esc_html($label); ?>
+                    </span>
+                </td>
+                <td>
+                    <span style="white-space:nowrap;"><?= esc_html(date('M j, Y', strtotime($req->createdAt))); ?></span>
+                </td>
+                <td>
+                    <a href="<?= esc_url($deleteUrl); ?>"
+                       onclick="return confirm('Delete this request from <?= esc_js($req->fullName()); ?>?');">Delete</a>
+                </td>
+            </tr>
+            <?php
+        }
+    }
+
+    /**
+     * Outputs the shared request details/edit/approve/deny modal markup for the event edit page.
+     *
+     * Uses the same IDs as the global Requested Add-Ons tab so the single RiarModal JS
+     * instance works on both pages without any changes.
+     *
+     * @return void
+     */
+    private function renderEventRiarModal(): void
+    {
+        ?>
+        <div id="eim-riar-modal-overlay" class="eim-modal-overlay" hidden aria-hidden="true">
+            <div id="eim-riar-modal"
+                 class="eim-modal-dialog"
+                 role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="eim-riar-modal-title">
+
+                <div class="eim-modal-header">
+                    <h2 id="eim-riar-modal-title" style="margin:0;">Request Details</h2>
+                    <button type="button"
+                            id="eim-riar-modal-close"
+                            class="eim-modal-close button-link"
+                            aria-label="Close">&#x2715;</button>
+                </div>
+
+                <div class="eim-modal-body">
+                    <div id="eim-riar-modal-image" style="margin-bottom:16px;display:none;">
+                        <img id="eim-riar-modal-img" src="" alt="" style="max-width:80px;max-height:80px;border-radius:4px;object-fit:cover;">
+                    </div>
+
+                    <form id="eim-riar-edit-form" novalidate>
+                        <input type="hidden" id="eim-riar-edit-id" name="id" value="">
+
+                        <div class="eim-modal-field-grid">
+                            <div class="eim-modal-field">
+                                <label for="eim-riar-edit-first-name">First Name <span aria-hidden="true" style="color:#d63638;">*</span></label>
+                                <input type="text" id="eim-riar-edit-first-name" name="first_name" class="regular-text" required>
+                            </div>
+                            <div class="eim-modal-field">
+                                <label for="eim-riar-edit-last-name">Last Name <span aria-hidden="true" style="color:#d63638;">*</span></label>
+                                <input type="text" id="eim-riar-edit-last-name" name="last_name" class="regular-text" required>
+                            </div>
+                            <div class="eim-modal-field">
+                                <label for="eim-riar-edit-email">Email <span aria-hidden="true" style="color:#d63638;">*</span></label>
+                                <input type="email" id="eim-riar-edit-email" name="email" class="regular-text" required>
+                            </div>
+                            <div class="eim-modal-field">
+                                <label for="eim-riar-edit-phone">Phone</label>
+                                <input type="text" id="eim-riar-edit-phone" name="phone" class="regular-text">
+                            </div>
+                            <div class="eim-modal-field eim-modal-field--full">
+                                <label for="eim-riar-edit-street">Street Address</label>
+                                <input type="text" id="eim-riar-edit-street" name="street_address" class="regular-text">
+                            </div>
+                            <div class="eim-modal-field">
+                                <label for="eim-riar-edit-city">City</label>
+                                <input type="text" id="eim-riar-edit-city" name="city" class="regular-text">
+                            </div>
+                            <div class="eim-modal-field">
+                                <label for="eim-riar-edit-state">State</label>
+                                <input type="text" id="eim-riar-edit-state" name="state" class="regular-text">
+                            </div>
+                            <div class="eim-modal-field">
+                                <label for="eim-riar-edit-zip">ZIP Code</label>
+                                <input type="text" id="eim-riar-edit-zip" name="zip_code" class="regular-text">
+                            </div>
+                            <div class="eim-modal-field eim-modal-field--full">
+                                <label for="eim-riar-edit-notes">Notes about this person</label>
+                                <textarea id="eim-riar-edit-notes" name="notes" rows="3" class="large-text"></textarea>
+                            </div>
+                        </div>
+
+                        <div id="eim-riar-cg-info" style="margin-top:12px;padding:10px 12px;background:#f6f7f7;border-radius:4px;font-size:13px;">
+                            <strong>Connection Group:</strong>
+                            <a id="eim-riar-cg-link" href="#"></a>
+                        </div>
+
+                        <div id="eim-riar-approved-info" style="margin-top:10px;display:none;padding:10px 12px;background:#edfaef;border-radius:4px;font-size:13px;">
+                            <strong>Approved &mdash; Invitee created:</strong>
+                            <a id="eim-riar-invitee-link" href="#">View Invitee</a>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="eim-modal-footer">
+                    <div class="eim-modal-footer-left">
+                        <button type="button" id="eim-riar-save-btn" class="button button-secondary">Save Changes</button>
+                        <span id="eim-riar-save-notice" style="margin-left:8px;font-size:13px;display:none;"></span>
+                    </div>
+                    <div class="eim-modal-footer-right">
+                        <button type="button" id="eim-riar-deny-btn" class="button" style="margin-right:6px;">Deny</button>
+                        <button type="button" id="eim-riar-approve-btn" class="button button-primary">Approve</button>
+                    </div>
+                </div>
+            </div>
+        </div>
         <?php
     }
 

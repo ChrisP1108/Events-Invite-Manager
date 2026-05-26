@@ -20,6 +20,7 @@ final class Vendor
     public function __construct(
         public readonly int    $id,
         public readonly string $companyName,
+        public readonly string $contactName,
         public readonly string $streetAddress,
         public readonly string $city,
         public readonly string $state,
@@ -85,7 +86,7 @@ final class Vendor
         global $wpdb;
 
         $table    = DatabaseManager::vendorsTable();
-        $allowed  = ['company_name', 'email', 'website_url'];
+        $allowed  = ['company_name', 'contact_name', 'email', 'website_url'];
         $sortCol  = in_array($sort, $allowed, true) ? $sort : 'company_name';
         $orderSql = strtolower($order) === 'desc' ? 'DESC' : 'ASC';
         $orderBy  = "ORDER BY {$sortCol} {$orderSql}, company_name ASC"; // phpcs:ignore
@@ -129,17 +130,23 @@ final class Vendor
                     $like, $like, $like, $like
                 );
                 break;
+            case 'contact_name':
+                $sql = $wpdb->prepare( // phpcs:ignore
+                    "SELECT * FROM {$table} WHERE LOWER(contact_name) LIKE %s {$orderBy}", $like
+                );
+                break;
             default:
                 $sql = $wpdb->prepare( // phpcs:ignore
                     "SELECT * FROM {$table}
                      WHERE LOWER(company_name) LIKE %s
+                        OR LOWER(contact_name) LIKE %s
                         OR LOWER(email) LIKE %s
                         OR LOWER(phone) LIKE %s
                         OR LOWER(website_url) LIKE %s
                         OR LOWER(street_address) LIKE %s
                         OR LOWER(city) LIKE %s
                      {$orderBy}",
-                    $like, $like, $like, $like, $like, $like
+                    $like, $like, $like, $like, $like, $like, $like
                 );
         }
 
@@ -202,6 +209,7 @@ final class Vendor
 
         $result = $wpdb->insert(DatabaseManager::vendorsTable(), [
             'company_name'   => (string) ($data['company_name']   ?? ''),
+            'contact_name'   => (string) ($data['contact_name']   ?? ''),
             'street_address' => (string) ($data['street_address'] ?? ''),
             'city'           => (string) ($data['city']           ?? ''),
             'state'          => (string) ($data['state']          ?? ''),
@@ -222,6 +230,7 @@ final class Vendor
 
         $fields = [];
         if (array_key_exists('company_name',   $data)) $fields['company_name']   = (string) $data['company_name'];
+        if (array_key_exists('contact_name',   $data)) $fields['contact_name']   = (string) $data['contact_name'];
         if (array_key_exists('street_address', $data)) $fields['street_address'] = (string) $data['street_address'];
         if (array_key_exists('city',           $data)) $fields['city']           = (string) $data['city'];
         if (array_key_exists('state',          $data)) $fields['state']          = (string) $data['state'];
@@ -372,6 +381,7 @@ final class Vendor
         return new self(
             id:            (int)  $row->id,
             companyName:          $row->company_name   ?? '',
+            contactName:          $row->contact_name   ?? '',
             streetAddress:        $row->street_address ?? '',
             city:                 $row->city           ?? '',
             state:                $row->state          ?? '',

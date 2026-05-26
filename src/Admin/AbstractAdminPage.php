@@ -389,6 +389,9 @@ abstract class AbstractAdminPage
             'gift_added_to_event'        => 'Gift added to event registry.',
             'gift_removed_from_event'    => 'Gift removed from event registry.',
             'seat_saved'                 => 'Seat assignment saved.',
+            'riar_deleted'               => 'Request deleted.',
+            'riar_approved'              => 'Request approved — invitee added to connection group.',
+            'riar_denied'                => 'Request denied.',
             'category_created'           => 'Category created.',
             'category_updated'           => 'Category updated.',
             'category_deleted'           => 'Category deleted.',
@@ -426,6 +429,8 @@ abstract class AbstractAdminPage
             'category_name_required'     => 'A category name is required.',
             'bulk_no_selection'          => 'Select at least one item before applying a bulk action.',
             'bulk_invalid_action'        => 'Choose a valid bulk action before applying.',
+            'riar_not_found'             => 'Request not found.',
+            'riar_create_failed'         => 'Could not create the invitee. Please try again.',
         ];
 
         if (isset($successes[$messageKey])) {

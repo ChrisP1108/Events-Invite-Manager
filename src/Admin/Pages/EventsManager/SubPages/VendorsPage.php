@@ -122,6 +122,7 @@ final class VendorsPage extends AbstractAdminPage
 
         $data = [
             'company_name'   => $companyName,
+            'contact_name'   => sanitize_text_field(wp_unslash($_POST['contact_name']   ?? '')),
             'street_address' => sanitize_text_field(wp_unslash($_POST['street_address'] ?? '')),
             'city'           => sanitize_text_field(wp_unslash($_POST['city']           ?? '')),
             'state'          => sanitize_text_field(wp_unslash($_POST['state']          ?? '')),
@@ -228,6 +229,7 @@ final class VendorsPage extends AbstractAdminPage
                 $search,
                 [
                     ['value' => 'company_name', 'label' => 'Company Name'],
+                    ['value' => 'contact_name', 'label' => 'Contact Name'],
                     ['value' => 'email',        'label' => 'Email'],
                     ['value' => 'phone',        'label' => 'Phone'],
                     ['value' => 'website_url',  'label' => 'Website'],
@@ -252,12 +254,13 @@ final class VendorsPage extends AbstractAdminPage
                 <thead>
                     <tr>
                         <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('vendors'); ?></th>
-                        <th style="width:22%;"><?= $this->sortLink('Company Name', 'company_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_VENDORS]); ?></th>
-                        <th style="width:16%;">Categories</th>
-                        <th style="width:16%;">Contact</th>
-                        <th style="width:14%;">Budget Plans</th>
-                        <th style="width:14%;">Food &amp; Bev Items</th>
-                        <th style="width:12%;">Actions</th>
+                        <th style="width:20%;"><?= $this->sortLink('Company Name', 'company_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_VENDORS]); ?></th>
+                        <th style="width:13%;"><?= $this->sortLink('Contact Name', 'contact_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_VENDORS]); ?></th>
+                        <th style="width:14%;">Categories</th>
+                        <th style="width:14%;">Contact</th>
+                        <th style="width:13%;">Budget Plans</th>
+                        <th style="width:13%;">Food &amp; Bev Items</th>
+                        <th style="width:11%;">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="eim-vendors-table-body">
@@ -282,7 +285,7 @@ final class VendorsPage extends AbstractAdminPage
     {
         if (empty($vendors)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No vendors found.';
-            echo '<tr class="eim-no-results"><td colspan="7">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="8">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -307,6 +310,13 @@ final class VendorsPage extends AbstractAdminPage
                     <strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($vendor->companyName); ?></a></strong>
                     <?php if ($vendor->formattedAddress()): ?>
                         <br><span style="color:#646970;font-size:12px;"><?= esc_html($vendor->formattedAddress()); ?></span>
+                    <?php endif; ?>
+                </td>
+                <td>
+                    <?php if ($vendor->contactName): ?>
+                        <span style="font-size:13px;"><?= esc_html($vendor->contactName); ?></span>
+                    <?php else: ?>
+                        <span style="color:#999;">—</span>
                     <?php endif; ?>
                 </td>
                 <td>
@@ -404,6 +414,12 @@ final class VendorsPage extends AbstractAdminPage
                                    value="<?= esc_attr($isNew ? '' : $vendor->companyName); ?>" required></td>
                     </tr>
                     <tr>
+                        <th scope="row"><label for="eim_v_contact_name">Contact Name</label></th>
+                        <td><input type="text" id="eim_v_contact_name" name="contact_name" class="regular-text"
+                                   value="<?= esc_attr($isNew ? '' : $vendor->contactName); ?>"
+                                   placeholder="e.g. Jane Smith"></td>
+                    </tr>
+                    <tr>
                         <th scope="row">Categories</th>
                         <td>
                             <?php $this->renderCategoryPicker('eim-vendor-cat-picker', $selCats, $catNonce); ?>
@@ -468,11 +484,11 @@ final class VendorsPage extends AbstractAdminPage
 
     private function sanitizeVendorSortKey(string $key): string
     {
-        return in_array($key, ['company_name', 'email', 'website_url'], true) ? $key : 'company_name';
+        return in_array($key, ['company_name', 'contact_name', 'email', 'website_url'], true) ? $key : 'company_name';
     }
 
     private function sanitizeVendorFieldKey(string $field): string
     {
-        return in_array($field, ['company_name', 'email', 'phone', 'website_url', 'address'], true) ? $field : '';
+        return in_array($field, ['company_name', 'contact_name', 'email', 'phone', 'website_url', 'address'], true) ? $field : '';
     }
 }

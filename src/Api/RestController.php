@@ -6,8 +6,11 @@ namespace EventsInviteManager\Api;
 
 if (!defined('ABSPATH')) exit;
 
+use EventsInviteManager\Database\DatabaseManager;
+use EventsInviteManager\Models\ConnectionGroup;
 use EventsInviteManager\Models\Event;
 use EventsInviteManager\Models\EventLodging;
+use EventsInviteManager\Models\EventMessage;
 use EventsInviteManager\Models\Gift;
 use EventsInviteManager\Models\MenuItem;
 use EventsInviteManager\Models\InvitationGroup;
@@ -15,6 +18,7 @@ use EventsInviteManager\Models\Invitee;
 use EventsInviteManager\Models\Location;
 use EventsInviteManager\Models\Newsletter;
 use EventsInviteManager\Models\QrCode;
+use EventsInviteManager\Models\RequestedInviteeAddOn;
 use EventsInviteManager\Services\RsvpFlowResolver;
 use EventsInviteManager\Services\RsvpFlowResult;
 use WP_REST_Request;
@@ -149,6 +153,45 @@ class RestController
                         'required' => false,
                         'type'     => 'boolean',
                     ],
+                ],
+            ]);
+
+            register_rest_route(self::NAMESPACE, '/request-guest', [
+                'methods'             => 'POST',
+                'callback'            => [$this, 'handleRequestGuest'],
+                'permission_callback' => '__return_true',
+                'args'                => [
+                    'confirmation_code' => ['required' => true,  'type' => 'string',  'sanitize_callback' => 'sanitize_text_field'],
+                    'first_name'        => ['required' => true,  'type' => 'string',  'sanitize_callback' => 'sanitize_text_field'],
+                    'last_name'         => ['required' => true,  'type' => 'string',  'sanitize_callback' => 'sanitize_text_field'],
+                    'email'             => ['required' => true,  'type' => 'string',  'sanitize_callback' => 'sanitize_email'],
+                    'phone'             => ['required' => false, 'type' => 'string',  'sanitize_callback' => 'sanitize_text_field'],
+                    'street_address'    => ['required' => false, 'type' => 'string',  'sanitize_callback' => 'sanitize_text_field'],
+                    'city'              => ['required' => false, 'type' => 'string',  'sanitize_callback' => 'sanitize_text_field'],
+                    'state'             => ['required' => false, 'type' => 'string',  'sanitize_callback' => 'sanitize_text_field'],
+                    'zip_code'          => ['required' => false, 'type' => 'string',  'sanitize_callback' => 'sanitize_text_field'],
+                    'notes'             => ['required' => false, 'type' => 'string',  'sanitize_callback' => 'sanitize_textarea_field'],
+                ],
+            ]);
+
+            register_rest_route(self::NAMESPACE, '/messages', [
+                'methods'             => 'GET',
+                'callback'            => [$this, 'handleGetMessages'],
+                'permission_callback' => '__return_true',
+                'args'                => [
+                    'confirmation_code' => ['required' => true, 'type' => 'string', 'sanitize_callback' => 'sanitize_text_field'],
+                    'event_id'          => ['required' => true, 'type' => 'integer', 'sanitize_callback' => 'absint'],
+                ],
+            ]);
+
+            register_rest_route(self::NAMESPACE, '/messages', [
+                'methods'             => 'POST',
+                'callback'            => [$this, 'handlePostMessage'],
+                'permission_callback' => '__return_true',
+                'args'                => [
+                    'confirmation_code' => ['required' => true, 'type' => 'string',  'sanitize_callback' => 'sanitize_text_field'],
+                    'event_id'          => ['required' => true, 'type' => 'integer', 'sanitize_callback' => 'absint'],
+                    'message'           => ['required' => true, 'type' => 'string',  'sanitize_callback' => 'sanitize_textarea_field'],
                 ],
             ]);
 
@@ -615,6 +658,26 @@ class RestController
             );
         }
 
+        // Block any request that would change a pending member's status after the deadline.
+        // This covers all three bypass paths:
+        //   (a) legacy call with no members payload → markAllMembersAttending()
+        //   (b) member payload including a pending invitee (explicit or defaulting to attending)
+        //   (c) member payload omitting a pending invitee → auto-declined below
+        // Menu/lodging updates for already-responded members are unaffected because they
+        // only reach here when zero pending members remain.
+        if ($currentFlow->rsvpDeadlinePassed) {
+            $pendingMemberIds = array_values(array_map(
+                static fn(Invitee $m): int => $m->id,
+                array_filter($members, static fn(Invitee $m) => $m->rsvpStatus === InvitationGroup::RSVP_PENDING)
+            ));
+            if (!empty($pendingMemberIds)) {
+                return new WP_REST_Response(
+                    ['success' => false, 'message' => 'The RSVP deadline for this event has passed.', 'deadline_passed' => true],
+                    422
+                );
+            }
+        }
+
         $validFoodIds = $event->foodOptionsEnabled
             ? array_column(array_map(
                 static fn(MenuItem $i): array => ['id' => $i->id],
@@ -909,6 +972,213 @@ class RestController
     }
 
     /**
+     * Handles POST /eim/v1/request-guest.
+     *
+     * Allows an authenticated invitee (via QR code) to request that an additional
+     * guest be added to their invitation group. The request is stored as a pending
+     * RequestedInviteeAddOn for admin review and approval.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
+     */
+    public function handleRequestGuest(WP_REST_Request $request): WP_REST_Response
+    {
+        $code = trim((string) $request->get_param('confirmation_code'));
+
+        $qrCode = QrCode::findByCode($code);
+        if ($qrCode === null) {
+            return new WP_REST_Response(
+                ['success' => false, 'message' => 'Invalid or unrecognised confirmation code.'],
+                404
+            );
+        }
+
+        $group = InvitationGroup::find($qrCode->groupId);
+        if ($group === null) {
+            return new WP_REST_Response(
+                ['success' => false, 'message' => 'No invitation group was found for this confirmation code.'],
+                404
+            );
+        }
+
+        $email = strtolower(trim((string) $request->get_param('email')));
+        if ($email === '' || !is_email($email)) {
+            return $this->validationErrorResponse(['email' => 'Enter a valid email address.']);
+        }
+
+        $connectionGroupId = $this->resolveConnectionGroupId($group);
+        if ($connectionGroupId === null) {
+            return new WP_REST_Response(
+                ['success' => false, 'message' => 'No connection group found for this invitation.'],
+                422
+            );
+        }
+
+        // Duplicate-pending check: same email + invitation group.
+        global $wpdb;
+        $riarTable = DatabaseManager::requestedInviteeAddOnsTable();
+        $existing  = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$riarTable} WHERE invitation_group_id = %d AND email = %s AND status = 'pending' LIMIT 1",
+            $group->id,
+            $email
+        ));
+        if ($existing !== null) {
+            return new WP_REST_Response(
+                ['success' => false, 'message' => 'A pending request for this email already exists for your invitation.'],
+                409
+            );
+        }
+
+        $id = RequestedInviteeAddOn::create([
+            'connection_group_id' => $connectionGroupId,
+            'event_id'            => $qrCode->eventId,
+            'invitation_group_id' => $group->id,
+            'first_name'          => (string) $request->get_param('first_name'),
+            'last_name'           => (string) $request->get_param('last_name'),
+            'email'               => $email,
+            'phone'               => (string) ($request->get_param('phone') ?? ''),
+            'street_address'      => (string) ($request->get_param('street_address') ?? ''),
+            'city'                => (string) ($request->get_param('city') ?? ''),
+            'state'               => (string) ($request->get_param('state') ?? ''),
+            'zip_code'            => (string) ($request->get_param('zip_code') ?? ''),
+            'notes'               => (string) ($request->get_param('notes') ?? ''),
+        ]);
+
+        if ($id === false) {
+            return new WP_REST_Response(
+                ['success' => false, 'message' => 'Failed to submit guest request. Please try again.'],
+                500
+            );
+        }
+
+        return new WP_REST_Response(['success' => true, 'request_id' => $id], 201);
+    }
+
+    /**
+     * Handles GET /eim/v1/messages.
+     *
+     * Returns all messages for the invitation group's connection group scoped to
+     * the QR code's event. The event_id must match the QR code's event so an
+     * invitee cannot read messages for events they are not invited to.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
+     */
+    public function handleGetMessages(WP_REST_Request $request): WP_REST_Response
+    {
+        $code    = trim((string) $request->get_param('confirmation_code'));
+        $eventId = (int) $request->get_param('event_id');
+
+        $qrCode = QrCode::findByCode($code);
+        if ($qrCode === null) {
+            return new WP_REST_Response(
+                ['success' => false, 'message' => 'Invalid or unrecognised confirmation code.'],
+                404
+            );
+        }
+
+        if ($qrCode->eventId !== $eventId) {
+            return new WP_REST_Response(
+                ['success' => false, 'message' => 'This event is not accessible via this confirmation code.'],
+                403
+            );
+        }
+
+        $group = InvitationGroup::find($qrCode->groupId);
+        if ($group === null) {
+            return new WP_REST_Response(
+                ['success' => false, 'message' => 'No invitation group was found for this confirmation code.'],
+                404
+            );
+        }
+
+        $connectionGroupId = $this->resolveConnectionGroupId($group);
+        if ($connectionGroupId === null) {
+            return new WP_REST_Response(
+                ['success' => false, 'message' => 'No connection group found for this invitation.'],
+                422
+            );
+        }
+
+        $messages = EventMessage::forEventGroup($eventId, $connectionGroupId);
+
+        return new WP_REST_Response([
+            'success'  => true,
+            'event_id' => $eventId,
+            'group_id' => $connectionGroupId,
+            'count'    => count($messages),
+            'messages' => array_map(static fn(EventMessage $msg): array => [
+                'id'         => $msg->id,
+                'message'    => $msg->message,
+                'is_read'    => (bool) $msg->isRead,
+                'created_at' => $msg->createdAt,
+            ], $messages),
+        ], 200);
+    }
+
+    /**
+     * Handles POST /eim/v1/messages.
+     *
+     * Creates a new message from the invitee's connection group for the QR code's
+     * event. The event_id must match the QR code's event.
+     *
+     * @param WP_REST_Request $request
+     * @return WP_REST_Response
+     */
+    public function handlePostMessage(WP_REST_Request $request): WP_REST_Response
+    {
+        $code    = trim((string) $request->get_param('confirmation_code'));
+        $eventId = (int) $request->get_param('event_id');
+        $message = trim((string) $request->get_param('message'));
+
+        if ($message === '') {
+            return $this->validationErrorResponse(['message' => 'Message cannot be empty.']);
+        }
+
+        $qrCode = QrCode::findByCode($code);
+        if ($qrCode === null) {
+            return new WP_REST_Response(
+                ['success' => false, 'message' => 'Invalid or unrecognised confirmation code.'],
+                404
+            );
+        }
+
+        if ($qrCode->eventId !== $eventId) {
+            return new WP_REST_Response(
+                ['success' => false, 'message' => 'This event is not accessible via this confirmation code.'],
+                403
+            );
+        }
+
+        $group = InvitationGroup::find($qrCode->groupId);
+        if ($group === null) {
+            return new WP_REST_Response(
+                ['success' => false, 'message' => 'No invitation group was found for this confirmation code.'],
+                404
+            );
+        }
+
+        $connectionGroupId = $this->resolveConnectionGroupId($group);
+        if ($connectionGroupId === null) {
+            return new WP_REST_Response(
+                ['success' => false, 'message' => 'No connection group found for this invitation.'],
+                422
+            );
+        }
+
+        $id = EventMessage::create($eventId, $connectionGroupId, $message);
+
+        if ($id === false) {
+            return new WP_REST_Response(
+                ['success' => false, 'message' => 'Failed to send message. Please try again.'],
+                500
+            );
+        }
+
+        return new WP_REST_Response(['success' => true, 'message_id' => $id], 201);
+    }
+
+    /**
      * Builds the shared RSVP payload returned by GET /rsvp and POST /register.
      *
      * @param RsvpFlowResult      $result Flow state from the resolver.
@@ -977,10 +1247,13 @@ class RestController
             'lodging_booked_at' => $group->lodgingBookedAt,
             'lodging_notes'     => $group->lodgingNotes,
             'event'             => [
-                'name'        => $event->name,
-                'description' => $event->description,
-                'date'        => $event->formattedDateTimeRange(),
-                'venue'       => $venue ? [
+                'name'                => $event->name,
+                'description'         => $event->description,
+                'date'                => $event->formattedDateTimeRange(),
+                'rsvp_deadline'       => $event->rsvpDeadline,
+                'rsvp_deadline_passed' => $result->rsvpDeadlinePassed,
+                'can_rsvp'            => !$result->rsvpDeadlinePassed,
+                'venue'               => $venue ? [
                     'name'    => $venue->name,
                     'address' => $venue->formattedAddress(),
                 ] : null,
@@ -1762,6 +2035,48 @@ class RestController
             'is_other'     => false,
             'is_available' => false,
         ];
+    }
+
+    /**
+     * Resolves the most appropriate connection group ID for an invitation group.
+     *
+     * When the primary invitee belongs to a single connection group that group is
+     * returned immediately. When they belong to multiple, the method picks the one
+     * whose member set is a superset of the invitation group members — i.e. the CG
+     * the admin used when building the invitation. Falls back to alphabetically
+     * first if no perfect superset match exists.
+     *
+     * @param InvitationGroup $group
+     * @return int|null Null when the invitee belongs to no connection groups.
+     */
+    private function resolveConnectionGroupId(InvitationGroup $group): ?int
+    {
+        $connectionGroups = ConnectionGroup::forInvitee($group->primaryInviteeId);
+
+        if (empty($connectionGroups)) {
+            return null;
+        }
+
+        if (count($connectionGroups) === 1) {
+            return $connectionGroups[0]->id;
+        }
+
+        $invitationMemberIds = array_map(
+            static fn(Invitee $m): int => $m->id,
+            $group->getMembers()
+        );
+
+        foreach ($connectionGroups as $cg) {
+            $cgMemberIds = array_map(
+                static fn(Invitee $m): int => $m->id,
+                $cg->getMembers()
+            );
+            if (empty(array_diff($invitationMemberIds, $cgMemberIds))) {
+                return $cg->id;
+            }
+        }
+
+        return $connectionGroups[0]->id;
     }
 
     /**

@@ -18,7 +18,7 @@ final class DatabaseManager
     /**
      * The current database schema version.
      */
-    private const SCHEMA_VERSION = '29';
+    private const SCHEMA_VERSION = '32';
 
     /**
      * The database table names.
@@ -49,6 +49,7 @@ final class DatabaseManager
     private const GIFT_EVENTS_TABLE                      = 'eim_gift_events';
     private const GIFT_PURCHASES_TABLE                   = 'eim_gift_purchases';
     private const EVENT_MESSAGES_TABLE                   = 'eim_event_messages';
+    private const REQUESTED_INVITEE_ADD_ONS_TABLE        = 'eim_requested_invitee_add_ons';
 
     /**
      * Upgrades the database schema if necessary.
@@ -100,7 +101,8 @@ final class DatabaseManager
         $giftsTable                 = $wpdb->prefix . self::GIFTS_TABLE;
         $giftEventsTable            = $wpdb->prefix . self::GIFT_EVENTS_TABLE;
         $giftPurchasesTable         = $wpdb->prefix . self::GIFT_PURCHASES_TABLE;
-        $eventMessagesTable         = $wpdb->prefix . self::EVENT_MESSAGES_TABLE;
+        $eventMessagesTable              = $wpdb->prefix . self::EVENT_MESSAGES_TABLE;
+        $requestedInviteeAddOnsTable     = $wpdb->prefix . self::REQUESTED_INVITEE_ADD_ONS_TABLE;
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
@@ -123,6 +125,7 @@ final class DatabaseManager
                 newsletter_page_id        BIGINT(20) UNSIGNED NULL DEFAULT NULL,
                 dashboard_page_id         BIGINT(20) UNSIGNED NULL DEFAULT NULL,
                 max_invitees              SMALLINT UNSIGNED   NULL DEFAULT NULL,
+                rsvp_deadline             DATETIME            NULL DEFAULT NULL,
                 created_at                DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at                DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (id)
@@ -324,6 +327,7 @@ final class DatabaseManager
             CREATE TABLE {$vendorsTable} (
                 id             BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
                 company_name   VARCHAR(255)        NOT NULL DEFAULT '',
+                contact_name   VARCHAR(255)        NOT NULL DEFAULT '',
                 street_address VARCHAR(255)        NOT NULL DEFAULT '',
                 city           VARCHAR(100)        NOT NULL DEFAULT '',
                 state          VARCHAR(50)         NOT NULL DEFAULT '',
@@ -447,6 +451,33 @@ final class DatabaseManager
                 KEY event_id (event_id),
                 KEY connection_group_id (connection_group_id),
                 KEY event_group (event_id, connection_group_id)
+            ) ENGINE=InnoDB {$charset};";
+
+        $sql .= "CREATE TABLE {$requestedInviteeAddOnsTable} (
+                id                   BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                connection_group_id  BIGINT(20) UNSIGNED NOT NULL,
+                event_id             BIGINT(20) UNSIGNED NULL DEFAULT NULL,
+                invitation_group_id  BIGINT(20) UNSIGNED NULL DEFAULT NULL,
+                first_name           VARCHAR(100)        NOT NULL,
+                last_name            VARCHAR(100)        NOT NULL,
+                email                VARCHAR(255)        NOT NULL,
+                phone                VARCHAR(40)         NOT NULL DEFAULT '',
+                street_address       VARCHAR(255)        NOT NULL DEFAULT '',
+                city                 VARCHAR(100)        NOT NULL DEFAULT '',
+                state                VARCHAR(50)         NOT NULL DEFAULT '',
+                zip_code             VARCHAR(20)         NOT NULL DEFAULT '',
+                image_attachment_id  BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+                notes                TEXT,
+                status               VARCHAR(10)         NOT NULL DEFAULT 'pending',
+                approved_invitee_id  BIGINT(20) UNSIGNED NULL DEFAULT NULL,
+                reviewed_at          DATETIME            NULL DEFAULT NULL,
+                created_at           DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at           DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY connection_group_id (connection_group_id),
+                KEY event_id (event_id),
+                KEY invitation_group_id (invitation_group_id),
+                KEY status (status)
             ) ENGINE=InnoDB {$charset};";
 
         dbDelta($sql);
@@ -632,6 +663,13 @@ final class DatabaseManager
     {
         global $wpdb;
         return $wpdb->prefix . self::EVENT_MESSAGES_TABLE;
+    }
+
+    /** @return string Fully-qualified requested invitee add-ons table name. */
+    public static function requestedInviteeAddOnsTable(): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . self::REQUESTED_INVITEE_ADD_ONS_TABLE;
     }
 
 }

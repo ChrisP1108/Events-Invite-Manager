@@ -69,19 +69,21 @@ final class RsvpFlowResolver
 
         $requiresLodging             = $this->resolveLodgingRequirement($event);
         [$requiresFood, $requiresBeverage] = $this->resolveMenuRequirements($event);
+        $deadlinePassed              = $event->isRsvpDeadlinePassed();
 
         if (!empty($pendingMembers)) {
             return new RsvpFlowResult(
-                success:          true,
-                nextAction:       RsvpFlowResult::ACTION_RSVP_REQUIRED,
-                event:            $event,
-                group:            $group,
-                members:          $members,
-                requiresLodging:  $requiresLodging,
-                requiresFood:     $requiresFood,
-                requiresBeverage: $requiresBeverage,
-                dashboardUrl:     null,
-                message:          null,
+                success:            true,
+                nextAction:         RsvpFlowResult::ACTION_RSVP_REQUIRED,
+                event:              $event,
+                group:              $group,
+                members:            $members,
+                requiresLodging:    $requiresLodging,
+                requiresFood:       $requiresFood,
+                requiresBeverage:   $requiresBeverage,
+                dashboardUrl:       null,
+                message:            null,
+                rsvpDeadlinePassed: $deadlinePassed,
             );
         }
 
@@ -164,16 +166,17 @@ final class RsvpFlowResolver
 
         // ── Step 7: everything complete ───────────────────────────────────────
         return new RsvpFlowResult(
-            success:          true,
-            nextAction:       RsvpFlowResult::ACTION_DASHBOARD_REDIRECT,
-            event:            $event,
-            group:            $group,
-            members:          $members,
-            requiresLodging:  $requiresLodging,
-            requiresFood:     $requiresFood,
-            requiresBeverage: $requiresBeverage,
-            dashboardUrl:     $event->dashboardUrl($code),
-            message:          null,
+            success:            true,
+            nextAction:         RsvpFlowResult::ACTION_DASHBOARD_REDIRECT,
+            event:              $event,
+            group:              $group,
+            members:            $members,
+            requiresLodging:    $requiresLodging,
+            requiresFood:       $requiresFood,
+            requiresBeverage:   $requiresBeverage,
+            dashboardUrl:       $event->dashboardUrl($code),
+            message:            null,
+            rsvpDeadlinePassed: $deadlinePassed,
         );
     }
 

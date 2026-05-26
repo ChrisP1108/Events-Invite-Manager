@@ -61,16 +61,17 @@ final class RsvpFlowResult
     public const ACTION_DECLINED = 'declined';
 
     /**
-     * @param bool             $success          False only for hard errors (invalid code, missing data).
-     * @param string           $nextAction       One of the ACTION_* constants indicating the next step.
-     * @param Event|null       $event            Resolved event, or null on error.
-     * @param InvitationGroup|null $group        Resolved invitation group, or null on error.
-     * @param Invitee[]        $members          All members of the group (empty on error).
-     * @param bool             $requiresLodging  True when the event has lodging enabled with at least one option.
-     * @param bool             $requiresFood     True when the event has food options enabled with active items.
-     * @param bool             $requiresBeverage True when the event has beverage options enabled with active items.
-     * @param string|null      $dashboardUrl     Public URL of the invitee dashboard page, or null if not configured.
-     * @param string|null      $message          Human-readable error description, or null on success.
+     * @param bool             $success             False only for hard errors (invalid code, missing data).
+     * @param string           $nextAction          One of the ACTION_* constants indicating the next step.
+     * @param Event|null       $event               Resolved event, or null on error.
+     * @param InvitationGroup|null $group           Resolved invitation group, or null on error.
+     * @param Invitee[]        $members             All members of the group (empty on error).
+     * @param bool             $requiresLodging     True when the event has lodging enabled with at least one option.
+     * @param bool             $requiresFood        True when the event has food options enabled with active items.
+     * @param bool             $requiresBeverage    True when the event has beverage options enabled with active items.
+     * @param string|null      $dashboardUrl        Public URL of the invitee dashboard page, or null if not configured.
+     * @param string|null      $message             Human-readable error description, or null on success.
+     * @param bool             $rsvpDeadlinePassed  True when rsvp_deadline is set and has already elapsed.
      */
     public function __construct(
         public readonly bool             $success,
@@ -83,6 +84,7 @@ final class RsvpFlowResult
         public readonly bool             $requiresBeverage,
         public readonly ?string          $dashboardUrl,
         public readonly ?string          $message,
+        public readonly bool             $rsvpDeadlinePassed = false,
     ) {}
 
     /**
