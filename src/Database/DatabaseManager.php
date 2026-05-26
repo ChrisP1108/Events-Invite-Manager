@@ -18,7 +18,7 @@ final class DatabaseManager
     /**
      * The current database schema version.
      */
-    private const SCHEMA_VERSION = '32';
+    private const SCHEMA_VERSION = '36';
 
     /**
      * The database table names.
@@ -315,7 +315,10 @@ final class DatabaseManager
                 unit_cost_cents      INT UNSIGNED        NOT NULL DEFAULT 0,
                 total_override_cents INT UNSIGNED        NULL DEFAULT NULL,
                 paid_amount_cents    INT UNSIGNED        NOT NULL DEFAULT 0,
+                website_url          VARCHAR(2000)       NOT NULL DEFAULT '',
+                payment_deadline     DATETIME            NULL DEFAULT NULL,
                 notes                TEXT,
+                image_attachment_id  BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
                 sort_order           INT                 NOT NULL DEFAULT 0,
                 created_at           DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at           DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

@@ -234,6 +234,28 @@ abstract class AbstractAdminPage
         );
     }
 
+    protected function lineItemImageThumbnailMarkup(int $attachmentId, string $label): string
+    {
+        if ($attachmentId <= 0) {
+            return '<span class="eim-li-image-empty" aria-hidden="true">—</span>';
+        }
+
+        $thumbUrl = wp_get_attachment_image_url($attachmentId, 'thumbnail');
+        $fullUrl  = wp_get_attachment_image_url($attachmentId, 'full');
+
+        if (!is_string($thumbUrl) || $thumbUrl === '' || !is_string($fullUrl) || $fullUrl === '') {
+            return '<span class="eim-li-image-empty" aria-hidden="true">—</span>';
+        }
+
+        return sprintf(
+            '<button type="button" class="button-link eim-li-image-thumb" data-full-src="%s" data-caption="%s" aria-label="%s"><img src="%s" alt="" loading="lazy"></button>',
+            esc_url($fullUrl),
+            esc_attr($label),
+            esc_attr(sprintf(__('View full-size image for %s', 'events-invite-manager'), $label)),
+            esc_url($thumbUrl)
+        );
+    }
+
     protected function inviteeImageThumbnailMarkup(int $attachmentId, string $label): string
     {
         if ($attachmentId <= 0) {

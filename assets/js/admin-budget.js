@@ -377,6 +377,161 @@
     }
 
     // =========================================================================
+    // LineItemImageModal — full-size lightbox for line item images
+    // =========================================================================
+
+    class LineItemImageModal {
+        #overlay = null;
+        #image = null;
+        #caption = null;
+
+        constructor() {
+            document.addEventListener('click', (event) => {
+                if (!(event.target instanceof Element)) return;
+                const trigger = event.target.closest('.eim-li-image-thumb');
+                if (!trigger) return;
+                const fullSrc = trigger.dataset.fullSrc || '';
+                if (!fullSrc) return;
+                event.preventDefault();
+                this.#open(fullSrc, trigger.dataset.caption || 'Line item image');
+            });
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape') this.#close();
+            });
+        }
+
+        #ensureModal() {
+            if (this.#overlay) return;
+            this.#overlay = document.createElement('div');
+            this.#overlay.className = 'eim-li-image-modal-backdrop';
+            this.#overlay.hidden = true;
+            const modal = document.createElement('div');
+            modal.className = 'eim-li-image-modal';
+            modal.setAttribute('role', 'dialog');
+            modal.setAttribute('aria-modal', 'true');
+            const close = document.createElement('button');
+            close.type = 'button';
+            close.className = 'button-link eim-li-image-modal-close';
+            close.setAttribute('aria-label', 'Close image preview');
+            close.textContent = 'x';
+            this.#image = document.createElement('img');
+            this.#image.alt = '';
+            this.#caption = document.createElement('div');
+            this.#caption.className = 'eim-li-image-modal-caption';
+            modal.append(close, this.#image, this.#caption);
+            this.#overlay.appendChild(modal);
+            document.body.appendChild(this.#overlay);
+            close.addEventListener('click', () => this.#close());
+            this.#overlay.addEventListener('click', (event) => {
+                if (event.target === this.#overlay) this.#close();
+            });
+        }
+
+        #open(src, caption) {
+            this.#ensureModal();
+            if (!this.#overlay || !this.#image || !this.#caption) return;
+            this.#image.src = src;
+            this.#caption.textContent = caption;
+            this.#overlay.hidden = false;
+            document.body.classList.add('eim-li-image-modal-open');
+        }
+
+        #close() {
+            if (!this.#overlay || this.#overlay.hidden) return;
+            this.#overlay.hidden = true;
+            if (this.#image) this.#image.removeAttribute('src');
+            document.body.classList.remove('eim-li-image-modal-open');
+        }
+    }
+
+    // =========================================================================
+    // LineItemImagePicker — WordPress media picker for line item images
+    // =========================================================================
+
+    class LineItemImagePicker {
+        #field;
+        #preview;
+        #select;
+        #remove;
+        #frame = null;
+
+        constructor() {
+            this.#field   = document.getElementById('eim_li_image_attachment_id');
+            this.#preview = document.getElementById('eim_li_image_preview');
+            this.#select  = document.getElementById('eim_li_image_select');
+            this.#remove  = document.getElementById('eim_li_image_remove');
+
+            if (!this.#field || !this.#preview || !this.#select || !window.wp?.media) return;
+
+            window.eimLineItemImagePicker = this;
+
+            this.#select.addEventListener('click', () => this.#openMediaFrame());
+            this.#remove?.addEventListener('click', () => this.#renderSelection(null));
+        }
+
+        setSelection(image) {
+            this.#renderSelection(image && Number(image.id) > 0 ? image : null);
+        }
+
+        clearSelection() {
+            this.#renderSelection(null);
+        }
+
+        #openMediaFrame() {
+            if (!this.#frame) {
+                this.#frame = window.wp.media({
+                    title: 'Select Line Item Image',
+                    button: { text: 'Use This Image' },
+                    library: { type: 'image' },
+                    multiple: false,
+                });
+                this.#frame.on('select', () => {
+                    const attachment = this.#frame.state().get('selection').first()?.toJSON();
+                    if (!attachment) return;
+                    this.#renderSelection({
+                        id: attachment.id || 0,
+                        title: attachment.title || attachment.filename || 'Line item image',
+                        thumbUrl: attachment.sizes?.thumbnail?.url || attachment.sizes?.medium?.url || attachment.url || '',
+                        fullUrl: attachment.sizes?.full?.url || attachment.url || '',
+                    });
+                });
+            }
+            this.#frame.open();
+        }
+
+        #renderSelection(image) {
+            const hasImage = image && Number(image.id) > 0 && image.thumbUrl;
+            this.#field.value = hasImage ? String(image.id) : '0';
+            this.#preview.replaceChildren();
+
+            if (hasImage) {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'button-link eim-li-image-thumb';
+                button.dataset.fullSrc = image.fullUrl || image.thumbUrl;
+                button.dataset.caption = image.title || 'Line item image';
+                button.setAttribute('aria-label', `View full-size image for ${image.title || 'line item'}`);
+                const img = document.createElement('img');
+                img.src = image.thumbUrl;
+                img.alt = '';
+                img.loading = 'lazy';
+                button.appendChild(img);
+                this.#preview.appendChild(button);
+            } else {
+                const empty = document.createElement('span');
+                empty.className = 'description';
+                empty.textContent = 'No image selected.';
+                this.#preview.appendChild(empty);
+            }
+
+            if (this.#remove) this.#remove.hidden = !hasImage;
+            this.#select.textContent = hasImage
+                ? (this.#select.dataset.changeLabel || 'Change Image')
+                : (this.#select.dataset.selectLabel || 'Select Image');
+        }
+    }
+
+    // =========================================================================
     // LineItemEditForm — pre-fill add form when Edit is clicked on a row
     // =========================================================================
 
@@ -444,12 +599,14 @@
          * @returns {void}
          */
         #populate(d) {
-            this.#setField('line_item_id', d.id || '0');
-            this.#setField('label',        d.label || '');
-            this.#setField('event_id',     d.eventId || '0');
-            this.#setField('unit_cost',    d.unitCost || '');
-            this.#setField('paid_amount',  d.paid || '0.00');
-            this.#setField('notes',        d.notes || '');
+            this.#setField('line_item_id',      d.id || '0');
+            this.#setField('label',             d.label || '');
+            this.#setField('event_id',          d.eventId || '0');
+            this.#setField('unit_cost',         d.unitCost || '');
+            this.#setField('paid_amount',       d.paid || '0.00');
+            this.#setField('website_url',       d.websiteUrl || '');
+            this.#setField('payment_deadline',  d.paymentDeadline || '');
+            this.#setField('notes',             d.notes || '');
 
             const qtyMode = this.#form.querySelector('[name="quantity_mode"]');
             if (qtyMode) {
@@ -460,6 +617,29 @@
 
             const vendorPicker = window.eimVendorPickers?.['eim-li-vendor-picker'];
             vendorPicker?.setValue(Number(d.vendorId || 0), d.vendorName || '');
+
+            const catPicker = window.eimCategoryPickers?.['eim-li-cat-picker'];
+            if (catPicker) {
+                try {
+                    const cats = JSON.parse(d.categories || '[]');
+                    catPicker.setSelected(cats);
+                } catch { catPicker.clear(); }
+            }
+
+            const imagePicker = window.eimLineItemImagePicker;
+            if (imagePicker) {
+                const attachId = Number(d.imageAttachmentId || 0);
+                if (attachId > 0 && d.imageThumbUrl) {
+                    imagePicker.setSelection({
+                        id: attachId,
+                        title: d.imageTitle || d.label || 'Line item image',
+                        thumbUrl: d.imageThumbUrl,
+                        fullUrl: d.imageFullUrl || d.imageThumbUrl,
+                    });
+                } else {
+                    imagePicker.clearSelection();
+                }
+            }
 
             if (this.#formTitle)  this.#formTitle.textContent = 'Edit Line Item';
             if (this.#submitBtn)  this.#submitBtn.value = 'Update Line Item';
@@ -472,13 +652,15 @@
          * @returns {void}
          */
         #reset() {
-            this.#setField('line_item_id', '0');
-            this.#setField('label',        '');
-            this.#setField('event_id',     '0');
-            this.#setField('unit_cost',    '');
-            this.#setField('paid_amount',  '0.00');
-            this.#setField('notes',        '');
-            this.#setField('quantity',     '1');
+            this.#setField('line_item_id',     '0');
+            this.#setField('label',            '');
+            this.#setField('event_id',         '0');
+            this.#setField('unit_cost',        '');
+            this.#setField('paid_amount',      '0.00');
+            this.#setField('website_url',      '');
+            this.#setField('payment_deadline', '');
+            this.#setField('notes',            '');
+            this.#setField('quantity',         '1');
 
             const qtyMode = this.#form.querySelector('[name="quantity_mode"]');
             if (qtyMode) {
@@ -487,6 +669,8 @@
             }
 
             window.eimVendorPickers?.['eim-li-vendor-picker']?.clear();
+            window.eimCategoryPickers?.['eim-li-cat-picker']?.clear();
+            window.eimLineItemImagePicker?.clearSelection();
 
             if (this.#formTitle)  this.#formTitle.textContent = 'Add Line Item';
             if (this.#submitBtn)  this.#submitBtn.value = 'Add Line Item';
@@ -839,8 +1023,10 @@
     document.addEventListener('DOMContentLoaded', () => {
         if (config.table?.enabled)     new BudgetPlansTable();
         if (config.lineItems?.enabled) new LineItemsTable();
-        new CategoryTable();     // always attempt — renders nothing if table absent
-        new LineItemEditForm();  // always attempt — renders nothing if form absent
+        new CategoryTable();
+        new LineItemImageModal();
+        new LineItemImagePicker();
+        new LineItemEditForm();
         new EventPicker('eim-budget-event-picker', { nonce: config.suggestEventsNonce || '' });
     });
 })();

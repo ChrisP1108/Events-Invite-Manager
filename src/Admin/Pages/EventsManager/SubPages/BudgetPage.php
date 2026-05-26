@@ -159,7 +159,9 @@ final class BudgetPage extends AbstractAdminPage
 
         if ($id > 0) {
             BudgetPlan::update($id, $data);
-            BudgetPlan::setEvents($id, $eventIds);
+            if (array_key_exists('event_ids', $_POST)) {
+                BudgetPlan::setEvents($id, $eventIds);
+            }
             if (array_key_exists('category_ids', $_POST)) {
                 Category::syncToEntity('budget_plan', $id, array_map('intval', (array) $_POST['category_ids']));
             }
@@ -297,6 +299,12 @@ final class BudgetPage extends AbstractAdminPage
         $overrideRaw   = str_replace(['$', ',', ' '], '', wp_unslash($_POST['total_override'] ?? ''));
         $overrideCents = $overrideRaw !== '' ? max(0, (int) round((float) $overrideRaw * 100)) : 0;
 
+        $rawDeadline      = sanitize_text_field(wp_unslash($_POST['payment_deadline'] ?? ''));
+        $deadlineLocal    = str_replace('T', ' ', $rawDeadline);
+        if (strlen($deadlineLocal) === 16) { $deadlineLocal .= ':00'; }
+        $paymentDeadline  = ($deadlineLocal !== '' && strtotime($deadlineLocal)) ? $deadlineLocal : '';
+        $categoryIds      = array_map('intval', (array) ($_POST['category_ids'] ?? []));
+
         $data = [
             'plan_id'              => $planId,
             'event_id'             => $eventId,
@@ -307,13 +315,20 @@ final class BudgetPage extends AbstractAdminPage
             'unit_cost_cents'      => $unitCents,
             'total_override_cents' => $overrideCents,
             'paid_amount_cents'    => $paidCents,
-            'notes'                => sanitize_textarea_field(wp_unslash($_POST['notes']   ?? '')),
+            'website_url'          => esc_url_raw(wp_unslash($_POST['website_url'] ?? '')),
+            'payment_deadline'     => $paymentDeadline,
+            'notes'                => sanitize_textarea_field(wp_unslash($_POST['notes'] ?? '')),
+            'image_attachment_id'  => $this->sanitizeLineItemImageAttachmentId((int) ($_POST['image_attachment_id'] ?? 0)),
         ];
 
         if ($itemId > 0) {
             BudgetLineItem::update($itemId, $data);
+            Category::syncToEntity('budget_line_item', $itemId, $categoryIds);
         } else {
-            BudgetLineItem::create($data);
+            $newItem = BudgetLineItem::create($data);
+            if ($newItem) {
+                Category::syncToEntity('budget_line_item', $newItem->id, $categoryIds);
+            }
         }
 
         wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_BUDGET, [
@@ -345,6 +360,7 @@ final class BudgetPage extends AbstractAdminPage
             exit;
         }
 
+        Category::syncToEntity('budget_line_item', $itemId, []);
         BudgetLineItem::delete($itemId);
         wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_BUDGET, [
             'action'      => 'edit',
@@ -383,6 +399,7 @@ final class BudgetPage extends AbstractAdminPage
         foreach ($ids as $id) {
             $item = BudgetLineItem::find($id);
             if ($item !== null && $item->planId === $planId) {
+                Category::syncToEntity('budget_line_item', $id, []);
                 BudgetLineItem::delete($id);
             }
         }
@@ -684,6 +701,21 @@ final class BudgetPage extends AbstractAdminPage
 
             <?php $this->renderNotice($message, $error); ?>
 
+            <?php /* Plan name edit bar */ ?>
+            <div style="display:flex;align-items:center;gap:12px;margin:12px 0;padding:14px 16px;background:#fff;border:1px solid #dcdcde;border-radius:4px;flex-wrap:wrap;">
+                <form method="post" action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_BUDGET)); ?>" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                    <?php wp_nonce_field('eim_save_budget_plan'); ?>
+                    <input type="hidden" name="eim_action"    value="save_budget_plan">
+                    <input type="hidden" name="plan_id"       value="<?= esc_attr($plan->id); ?>">
+                    <input type="hidden" name="description"   value="<?= esc_attr($plan->description); ?>">
+                    <input type="hidden" name="target_amount" value="<?= esc_attr($plan->targetAmountCents > 0 ? number_format($plan->targetAmountCents / 100, 2) : ''); ?>">
+                    <label for="eim_bp_name_inline" style="font-weight:600;white-space:nowrap;">Plan Name:</label>
+                    <input type="text" id="eim_bp_name_inline" name="name" class="regular-text"
+                           value="<?= esc_attr($plan->name); ?>" required style="min-width:260px;">
+                    <?php submit_button('Rename', 'secondary small', 'submit', false); ?>
+                </form>
+            </div>
+
             <?php /* Plan summary bar */ ?>
             <div style="display:flex;gap:24px;flex-wrap:wrap;margin:16px 0;padding:16px;background:#fff;border:1px solid #dcdcde;border-radius:4px;">
                 <?php if ($plan->targetAmountCents > 0): ?>
@@ -750,13 +782,17 @@ final class BudgetPage extends AbstractAdminPage
                 <thead>
                     <tr>
                         <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('budget-line-items-' . $plan->id); ?></th>
-                        <th style="width:24%;"><?= $this->lineItemSortLink('Label',   'label',    $liSort, $liOrder); ?></th>
-                        <th style="width:15%;"><?= $this->lineItemSortLink('Event',   'event',    $liSort, $liOrder); ?></th>
-                        <th style="width:9%;"><?= $this->lineItemSortLink('Qty',        'quantity',   $liSort, $liOrder); ?></th>
-                        <th style="width:10%;"><?= $this->lineItemSortLink('Unit Cost', 'unit_cost',  $liSort, $liOrder); ?></th>
-                        <th style="width:10%;"><?= $this->lineItemSortLink('Estimated', 'estimated',  $liSort, $liOrder); ?></th>
-                        <th style="width:10%;"><?= $this->lineItemSortLink('Paid',      'paid',       $liSort, $liOrder); ?></th>
-                        <th style="width:8%;">Actions</th>
+                        <th class="eim-li-image-column" style="width:52px;">Image</th>
+                        <th style="width:14%;"><?= $this->lineItemSortLink('Label',      'label',      $liSort, $liOrder); ?></th>
+                        <th style="width:9%;">Categories</th>
+                        <th style="width:9%;"><?= $this->lineItemSortLink('Event',       'event',      $liSort, $liOrder); ?></th>
+                        <th style="width:6%;"><?=  $this->lineItemSortLink('Qty',        'quantity',   $liSort, $liOrder); ?></th>
+                        <th style="width:8%;"><?=  $this->lineItemSortLink('Unit Cost',  'unit_cost',  $liSort, $liOrder); ?></th>
+                        <th style="width:8%;"><?=  $this->lineItemSortLink('Estimated',  'estimated',  $liSort, $liOrder); ?></th>
+                        <th style="width:6%;"><?=  $this->lineItemSortLink('Paid',       'paid',       $liSort, $liOrder); ?></th>
+                        <th style="width:5%;"><?=  $this->lineItemSortLink('Website',    'website_url',$liSort, $liOrder); ?></th>
+                        <th style="width:9%;"><?=  $this->lineItemSortLink('Deadline',   'deadline',   $liSort, $liOrder); ?></th>
+                        <th style="width:7%;">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="eim-line-items-table-body">
@@ -872,7 +908,12 @@ final class BudgetPage extends AbstractAdminPage
                                 </div>
                                 <div class="eim-vendor-dropdown" id="eim-li-vendor-dropdown" style="display:none;position:absolute;background:#fff;border:1px solid #dcdcde;border-radius:4px;z-index:9999;min-width:300px;max-height:220px;overflow-y:auto;box-shadow:0 2px 8px rgba(0,0,0,.12);"></div>
                             </div>
-                            <p class="description">Category is derived from the linked vendor.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label>Categories</label></th>
+                        <td>
+                            <?php $this->renderCategoryPicker('eim-li-cat-picker', [], wp_create_nonce('eim_suggest_categories_nonce')); ?>
                         </td>
                     </tr>
                     <tr>
@@ -927,8 +968,36 @@ final class BudgetPage extends AbstractAdminPage
                         <td><input type="text" id="eim_li_paid" name="paid_amount" class="regular-text" value="0.00" placeholder="0.00"></td>
                     </tr>
                     <tr>
+                        <th scope="row"><label for="eim_li_website_url">Website URL</label></th>
+                        <td><input type="url" id="eim_li_website_url" name="website_url" class="regular-text" placeholder="https://"></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="eim_li_payment_deadline">Payment Deadline</label></th>
+                        <td>
+                            <input type="datetime-local" id="eim_li_payment_deadline" name="payment_deadline" class="regular-text">
+                            <p class="description">Optional reminder deadline for this payment.</p>
+                        </td>
+                    </tr>
+                    <tr>
                         <th scope="row"><label for="eim_li_notes">Notes</label></th>
                         <td><textarea id="eim_li_notes" name="notes" class="large-text" rows="2" placeholder="Optional notes"></textarea></td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Image</th>
+                        <td>
+                            <input type="hidden" id="eim_li_image_attachment_id" name="image_attachment_id" value="0">
+                            <div class="eim-li-image-picker">
+                                <div id="eim_li_image_preview" class="eim-li-image-preview">
+                                    <span class="description">No image selected.</span>
+                                </div>
+                                <p class="eim-li-image-actions">
+                                    <button type="button" id="eim_li_image_select" class="button"
+                                            data-select-label="Select Image" data-change-label="Change Image">Select Image</button>
+                                    <button type="button" id="eim_li_image_remove" class="button" hidden>Remove Image</button>
+                                </p>
+                            </div>
+                            <p class="description" style="margin-top:6px;">Optional. Choose an image from the WordPress Media Library.</p>
+                        </td>
                     </tr>
                 </table>
 
@@ -963,6 +1032,13 @@ final class BudgetPage extends AbstractAdminPage
         <?php
     }
 
+    private function sanitizeLineItemImageAttachmentId(int $attachmentId): int
+    {
+        if ($attachmentId <= 0) return 0;
+        $post = get_post($attachmentId);
+        return ($post && $post->post_type === 'attachment') ? $attachmentId : 0;
+    }
+
     /**
      * Sanitizes a budget plan table sort key against the allowed column list.
      *
@@ -984,7 +1060,7 @@ final class BudgetPage extends AbstractAdminPage
      */
     private function sanitizeLineItemSortKey(string $key): string
     {
-        return in_array($key, ['sort_order', 'label', 'vendor', 'event', 'quantity', 'unit_cost', 'estimated', 'paid'], true)
+        return in_array($key, ['sort_order', 'label', 'vendor', 'event', 'quantity', 'unit_cost', 'estimated', 'paid', 'website_url', 'deadline'], true)
             ? $key
             : 'sort_order';
     }
@@ -1019,15 +1095,18 @@ final class BudgetPage extends AbstractAdminPage
     {
         if (empty($items)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No line items yet. Use the form below to add your first cost.';
-            echo '<tr class="eim-no-results"><td colspan="8">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="12">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
-        $vendorIds  = array_values(array_filter(array_map(static fn(BudgetLineItem $i) => $i->vendorId, $items)));
-        $vendorsMap = Vendor::findMany($vendorIds);
+        $vendorIds   = array_values(array_filter(array_map(static fn(BudgetLineItem $i) => $i->vendorId, $items)));
+        $vendorsMap  = Vendor::findMany($vendorIds);
+        $itemIds     = array_map(static fn(BudgetLineItem $i): int => $i->id, $items);
+        $catsByItem  = Category::forEntities('budget_line_item', $itemIds);
 
         foreach ($items as $item) {
             $vendor        = $item->vendorId ? ($vendorsMap[$item->vendorId] ?? null) : null;
+            $itemCats      = $catsByItem[$item->id] ?? [];
             $deleteItemUrl = wp_nonce_url(
                 AdminMenu::tabUrl(AdminMenu::TAB_BUDGET, [
                     'action'  => 'delete_budget_line_item',
@@ -1036,13 +1115,36 @@ final class BudgetPage extends AbstractAdminPage
                 ]),
                 'eim_delete_budget_line_item_' . $item->id
             );
-            $linkedEvent = $item->eventId ? Event::find($item->eventId) : null;
-            $qtyDisplay  = $item->quantityMode === BudgetLineItem::QUANTITY_MODE_PER_ATTENDING
+            $linkedEvent   = $item->eventId ? Event::find($item->eventId) : null;
+            $qtyDisplay    = $item->quantityMode === BudgetLineItem::QUANTITY_MODE_PER_ATTENDING
                 ? ($linkedEvent ? $linkedEvent->registeredCount() . ' (attending)' : '— (attending)')
                 : number_format($item->quantity, $item->quantity == (int) $item->quantity ? 0 : 2);
+            $deadlineLabel = '';
+            if ($item->paymentDeadline) {
+                try {
+                    $dt = new \DateTime($item->paymentDeadline);
+                    $deadlineLabel = $dt->format('M j, Y g:i a');
+                } catch (\Throwable) {
+                    $deadlineLabel = $item->paymentDeadline;
+                }
+            }
+            $deadlinePast  = $item->paymentDeadline && strtotime($item->paymentDeadline) < time();
+            $catsJson      = wp_json_encode(array_values(array_map(static fn(Category $c): array => [
+                'id'          => $c->id,
+                'name'        => $c->name,
+                'parent_name' => $c->parentName,
+                'label'       => $c->parentName ? $c->parentName . ' › ' . $c->name : $c->name,
+            ], $itemCats)));
+            // datetime-local value for the edit form: convert stored "Y-m-d H:i:s" to "Y-m-d\TH:i"
+            $deadlineInput = $item->paymentDeadline
+                ? substr(str_replace(' ', 'T', $item->paymentDeadline), 0, 16)
+                : '';
+            $imageThumbUrl = $item->imageAttachmentId > 0 ? (wp_get_attachment_image_url($item->imageAttachmentId, 'thumbnail') ?: '') : '';
+            $imageFullUrl  = $item->imageAttachmentId > 0 ? (wp_get_attachment_image_url($item->imageAttachmentId, 'full') ?: '') : '';
             ?>
             <tr>
                 <?= $this->renderBulkSelectCell('eim-line-items-bulk-form', 'budget-line-items-' . $plan->id, $item->id, $item->label); ?>
+                <td><?= $this->lineItemImageThumbnailMarkup($item->imageAttachmentId, $item->label); ?></td>
                 <td>
                     <strong><?= esc_html($item->label); ?></strong>
                     <?php if ($vendor): ?>
@@ -1052,12 +1154,29 @@ final class BudgetPage extends AbstractAdminPage
                         <br><span style="color:#999;font-size:11px;font-style:italic;"><?= esc_html(wp_trim_words($item->notes, 8, '…')); ?></span>
                     <?php endif; ?>
                 </td>
+                <td>
+                    <?php foreach ($itemCats as $cat): ?>
+                        <?php $catEditUrl = AdminMenu::tabUrl(AdminMenu::TAB_CATEGORIES, ['action' => 'edit', 'id' => $cat->id]); ?>
+                        <a href="<?= esc_url($catEditUrl); ?>" class="eim-cat-chip" style="font-size:11px;display:inline-block;margin-bottom:2px;"><?= esc_html($cat->parentName ? $cat->parentName . ' › ' . $cat->name : $cat->name); ?></a>
+                    <?php endforeach; ?>
+                    <?php if (empty($itemCats)): ?><span style="color:#999;">—</span><?php endif; ?>
+                </td>
                 <td><?= esc_html($linkedEvent ? $linkedEvent->name : '—'); ?></td>
                 <td><?= esc_html($qtyDisplay); ?></td>
                 <td><?= esc_html($item->formattedUnitCost()); ?></td>
                 <td><strong><?= esc_html($item->formattedEstimated()); ?></strong></td>
                 <td style="color:<?= $item->paidAmountCents > 0 ? '#00a32a' : '#999'; ?>">
                     <?= esc_html($item->paidAmountCents > 0 ? $item->formattedPaid() : '—'); ?>
+                </td>
+                <td>
+                    <?php if ($item->websiteUrl): ?>
+                        <a href="<?= esc_url($item->websiteUrl); ?>" target="_blank" rel="noopener" style="font-size:12px;">Visit</a>
+                    <?php else: ?>
+                        <span style="color:#999;">—</span>
+                    <?php endif; ?>
+                </td>
+                <td style="<?= $deadlinePast ? 'color:#d63638;' : ''; ?>font-size:12px;">
+                    <?= $deadlineLabel ? esc_html($deadlineLabel) : '<span style="color:#999;">—</span>'; ?>
                 </td>
                 <td>
                     <a href="#eim-budget-line-item-form"
@@ -1071,7 +1190,14 @@ final class BudgetPage extends AbstractAdminPage
                        data-quantity="<?= esc_attr((string) $item->quantity); ?>"
                        data-unit-cost="<?= esc_attr($item->unitCostCents > 0 ? number_format($item->unitCostCents / 100, 2) : ''); ?>"
                        data-paid="<?= esc_attr($item->paidAmountCents > 0 ? number_format($item->paidAmountCents / 100, 2) : '0.00'); ?>"
-                       data-notes="<?= esc_attr($item->notes); ?>">Edit</a> |
+                       data-website-url="<?= esc_attr($item->websiteUrl); ?>"
+                       data-payment-deadline="<?= esc_attr($deadlineInput); ?>"
+                       data-categories="<?= esc_attr($catsJson); ?>"
+                       data-notes="<?= esc_attr($item->notes); ?>"
+                       data-image-attachment-id="<?= esc_attr((string) $item->imageAttachmentId); ?>"
+                       data-image-thumb-url="<?= esc_attr($imageThumbUrl); ?>"
+                       data-image-full-url="<?= esc_attr($imageFullUrl); ?>"
+                       data-image-title="<?= esc_attr($item->label); ?>">Edit</a> |
                     <a href="<?= esc_url($deleteItemUrl); ?>"
                        onclick="return confirm('Delete line item &ldquo;<?= esc_js($item->label); ?>&rdquo;?');">Delete</a>
                 </td>

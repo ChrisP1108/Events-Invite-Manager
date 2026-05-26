@@ -38,7 +38,10 @@ final class BudgetLineItem
         public readonly int     $unitCostCents,
         public readonly ?int    $totalOverrideCents,
         public readonly int     $paidAmountCents,
+        public readonly string  $websiteUrl,
+        public readonly ?string $paymentDeadline,
         public readonly string  $notes,
+        public readonly int     $imageAttachmentId,
         public readonly int     $sortOrder,
         public readonly string  $createdAt,
         public readonly string  $updatedAt,
@@ -91,11 +94,13 @@ final class BudgetLineItem
         $orderSql = strtolower($order) === 'desc' ? 'DESC' : 'ASC';
 
         $dbSortMap = [
-            'label'      => 'label',
-            'quantity'   => 'quantity',
-            'unit_cost'  => 'unit_cost_cents',
-            'paid'       => 'paid_amount_cents',
-            'sort_order' => 'sort_order',
+            'label'       => 'label',
+            'quantity'    => 'quantity',
+            'unit_cost'   => 'unit_cost_cents',
+            'paid'        => 'paid_amount_cents',
+            'website_url' => 'website_url',
+            'deadline'    => 'payment_deadline',
+            'sort_order'  => 'sort_order',
         ];
         $sortCol = $dbSortMap[$sort] ?? 'sort_order';
 
@@ -228,7 +233,10 @@ final class BudgetLineItem
             'unit_cost_cents'      => (int)    ($data['unit_cost_cents']      ?? 0),
             'total_override_cents' => isset($data['total_override_cents']) && (int) $data['total_override_cents'] > 0 ? (int) $data['total_override_cents'] : null,
             'paid_amount_cents'    => (int)    ($data['paid_amount_cents']    ?? 0),
+            'website_url'          => (string) ($data['website_url']          ?? ''),
+            'payment_deadline'     => !empty($data['payment_deadline']) ? (string) $data['payment_deadline'] : null,
             'notes'                => (string) ($data['notes']                ?? ''),
+            'image_attachment_id'  => (int)    ($data['image_attachment_id']  ?? 0),
             'sort_order'           => $maxOrder + 1,
         ]);
 
@@ -250,7 +258,10 @@ final class BudgetLineItem
         if (array_key_exists('unit_cost_cents', $data))      $fields['unit_cost_cents']      = (int)    $data['unit_cost_cents'];
         if (array_key_exists('total_override_cents', $data)) $fields['total_override_cents'] = $data['total_override_cents'] > 0 ? (int) $data['total_override_cents'] : null;
         if (array_key_exists('paid_amount_cents', $data))    $fields['paid_amount_cents']    = (int)    $data['paid_amount_cents'];
+        if (array_key_exists('website_url', $data))          $fields['website_url']          = (string) $data['website_url'];
+        if (array_key_exists('payment_deadline', $data))     $fields['payment_deadline']     = !empty($data['payment_deadline']) ? (string) $data['payment_deadline'] : null;
         if (array_key_exists('notes', $data))                $fields['notes']                = (string) $data['notes'];
+        if (array_key_exists('image_attachment_id', $data)) $fields['image_attachment_id']  = (int)    $data['image_attachment_id'];
         if (empty($fields)) return true;
         return $wpdb->update(DatabaseManager::budgetLineItemsTable(), $fields, ['id' => $id]) !== false;
     }
@@ -331,7 +342,10 @@ final class BudgetLineItem
             unitCostCents:       (int)   ($row->unit_cost_cents  ?? 0),
             totalOverrideCents:  isset($row->total_override_cents) && $row->total_override_cents !== null ? (int) $row->total_override_cents : null,
             paidAmountCents:     (int)   ($row->paid_amount_cents ?? 0),
+            websiteUrl:                  $row->website_url        ?? '',
+            paymentDeadline:     isset($row->payment_deadline) && $row->payment_deadline !== null ? (string) $row->payment_deadline : null,
             notes:                       $row->notes              ?? '',
+            imageAttachmentId:   (int)   ($row->image_attachment_id ?? 0),
             sortOrder:           (int)   ($row->sort_order        ?? 0),
             createdAt:                   $row->created_at         ?? '',
             updatedAt:                   $row->updated_at         ?? '',

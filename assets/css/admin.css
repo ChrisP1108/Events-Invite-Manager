@@ -276,6 +276,125 @@ h1 {
     text-align: center;
 }
 
+/* ---- Line item images ---- */
+
+.wp-list-table .eim-li-image-column {
+    width: 52px;
+}
+
+.eim-li-image-thumb {
+    align-items: center;
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    cursor: zoom-in;
+    display: inline-flex;
+    height: 44px;
+    justify-content: center;
+    overflow: hidden;
+    padding: 0;
+    width: 44px;
+}
+
+.eim-li-image-thumb:hover,
+.eim-li-image-thumb:focus {
+    border-color: #2271b1;
+    box-shadow: 0 0 0 1px #2271b1;
+    outline: none;
+}
+
+.eim-li-image-thumb img {
+    display: block;
+    height: 100%;
+    object-fit: cover;
+    width: 100%;
+}
+
+.eim-li-image-empty {
+    color: #999;
+}
+
+.eim-li-image-picker {
+    align-items: flex-start;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.eim-li-image-preview {
+    align-items: center;
+    display: flex;
+    min-height: 44px;
+}
+
+.eim-li-image-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0;
+}
+
+.eim-li-image-modal-open {
+    overflow: hidden;
+}
+
+.eim-li-image-modal-backdrop {
+    align-items: center;
+    background: rgba(0, 0, 0, 0.72);
+    display: flex;
+    inset: 0;
+    justify-content: center;
+    padding: 24px;
+    position: fixed;
+    z-index: 100000;
+}
+
+.eim-li-image-modal-backdrop[hidden] {
+    display: none;
+}
+
+.eim-li-image-modal {
+    max-height: calc(100vh - 48px);
+    max-width: calc(100vw - 48px);
+    position: relative;
+}
+
+.eim-li-image-modal img {
+    background: #fff;
+    border-radius: 4px;
+    display: block;
+    max-height: calc(100vh - 96px);
+    max-width: calc(100vw - 48px);
+    object-fit: contain;
+}
+
+.eim-li-image-modal-close {
+    align-items: center;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+    color: #1d2327;
+    cursor: pointer;
+    display: inline-flex;
+    font-size: 16px;
+    font-weight: 600;
+    height: 32px;
+    justify-content: center;
+    line-height: 1;
+    position: absolute;
+    right: -12px;
+    text-decoration: none;
+    top: -12px;
+    width: 32px;
+}
+
+.eim-li-image-modal-caption {
+    color: #fff;
+    font-size: 13px;
+    margin-top: 8px;
+    text-align: center;
+}
+
 /* ---- Pagination bar ---- */
 
 .eim-pagination-nav {

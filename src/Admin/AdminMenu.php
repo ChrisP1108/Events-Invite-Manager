@@ -324,6 +324,7 @@ final class AdminMenu
                 ],
             ]);
             if ($action === 'edit') {
+                wp_enqueue_media();
                 wp_enqueue_script('eim-admin-vendors', EIM_PLUGIN_URL . 'assets/js/admin-vendors.js', [], EIM_VERSION, true);
                 wp_localize_script('eim-admin-vendors', 'eimVendorsAdmin', [
                     'suggestNonce' => wp_create_nonce('eim_suggest_vendors_nonce'),

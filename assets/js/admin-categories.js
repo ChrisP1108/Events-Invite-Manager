@@ -64,6 +64,23 @@
 
             this.#build();
             this.#renderChips();
+
+            // Register in global registry so other scripts can call setSelected/clear.
+            window.eimCategoryPickers = window.eimCategoryPickers ?? {};
+            window.eimCategoryPickers[container.id] = this;
+        }
+
+        setSelected(items) {
+            this.#selected.clear();
+            for (const item of items) {
+                this.#selected.set(item.id, item);
+            }
+            this.#renderChips();
+        }
+
+        clear() {
+            this.#selected.clear();
+            this.#renderChips();
         }
 
         #build() {
