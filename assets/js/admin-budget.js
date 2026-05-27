@@ -585,6 +585,23 @@
                 this.#formWrapper?.scrollIntoView({ behavior: 'smooth', block: 'start' });
             });
 
+            // Handle Edit clicks from the Payments tab — switch to Line Items tab first,
+            // then populate and scroll once the panel is visible.
+            document.addEventListener('click', (e) => {
+                const link = e.target.closest('.eim-edit-line-item');
+                if (!link) return;
+                if (!link.closest('#eim-btab-payments')) return;
+                e.preventDefault();
+                window.eimBudgetPlanActivateTab?.('line-items');
+                this.#populate(link.dataset);
+                // requestAnimationFrame ensures scrollIntoView runs after the tab panel's
+                // display:block is applied (the class toggle is synchronous; rAF fires
+                // after the next layout pass).
+                requestAnimationFrame(() => {
+                    this.#formWrapper?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                });
+            });
+
             document.getElementById('eim-li-cancel')?.addEventListener('click', (e) => {
                 e.preventDefault();
                 this.#reset();
@@ -600,6 +617,7 @@
          */
         #populate(d) {
             this.#setField('line_item_id',      d.id || '0');
+            this.#setField('global_item_id',    d.globalItemId || '0');
             this.#setField('label',             d.label || '');
             this.#setField('event_id',          d.eventId || '0');
             this.#setField('unit_cost',         d.unitCost || '');
@@ -653,6 +671,7 @@
          */
         #reset() {
             this.#setField('line_item_id',     '0');
+            this.#setField('global_item_id',   '0');
             this.#setField('label',            '');
             this.#setField('event_id',         '0');
             this.#setField('unit_cost',        '');
@@ -687,6 +706,155 @@
         #setField(name, value) {
             const el = this.#form?.querySelector(`[name="${name}"]`);
             if (el) el.value = value;
+        }
+    }
+
+    // =========================================================================
+    // LineItemLibraryPicker — suggest autocomplete to pick an existing global item
+    // =========================================================================
+
+    /**
+     * Typeahead picker that lets the user choose an existing global budget item
+     * on the "Add Line Item" form inside a budget plan detail page.
+     *
+     * When an item is selected, the global fields (label, vendor, unit cost,
+     * website URL, notes, image) are pre-filled from the library record and
+     * global_item_id is set so the save handler knows to link (not create).
+     * Clearing the selection resets global_item_id to 0 and leaves the form
+     * fields editable for creating a brand-new item.
+     */
+    class LineItemLibraryPicker {
+        #searchInput;
+        #dropdown;
+        #selectedBar;
+        #selectedLabel;
+        #clearBtn;
+        #globalItemIdField;
+        #debounceTimer = null;
+
+        constructor() {
+            this.#searchInput      = document.getElementById('eim_li_library_search');
+            this.#dropdown         = document.getElementById('eim-li-library-dropdown');
+            this.#selectedBar      = document.getElementById('eim-li-library-selected');
+            this.#selectedLabel    = document.getElementById('eim-li-library-selected-label');
+            this.#clearBtn         = document.getElementById('eim-li-library-clear');
+            this.#globalItemIdField = document.getElementById('eim_li_global_item_id');
+
+            if (!this.#searchInput || !this.#dropdown || !config.suggestItemsNonce) return;
+
+            this.#searchInput.addEventListener('input', () => {
+                clearTimeout(this.#debounceTimer);
+                this.#debounceTimer = setTimeout(() => this.#doSearch(), 250);
+            });
+            this.#searchInput.addEventListener('blur', () => {
+                setTimeout(() => { this.#dropdown.style.display = 'none'; }, 160);
+            });
+            this.#clearBtn?.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.#clearSelection();
+            });
+        }
+
+        async #doSearch() {
+            const query = this.#searchInput?.value.trim() || '';
+            if (query.length < 1) { this.#dropdown.style.display = 'none'; return; }
+
+            try {
+                const url = new URL(ajaxurl, window.location.href);
+                url.searchParams.set('action', 'eim_suggest_budget_items');
+                url.searchParams.set('nonce',   config.suggestItemsNonce);
+                url.searchParams.set('query',   query);
+                const { success, data } = await (await fetch(url, { credentials: 'same-origin' })).json();
+                this.#renderDropdown(success ? data : []);
+            } catch (err) {
+                console.error('[EIM] Budget item suggest failed:', err);
+                this.#dropdown.style.display = 'none';
+            }
+        }
+
+        #renderDropdown(items) {
+            this.#dropdown.replaceChildren();
+            if (!items.length) {
+                const empty = document.createElement('div');
+                empty.style.cssText = 'padding:10px 14px;color:#646970;font-size:13px;';
+                empty.textContent = 'No matching items found.';
+                this.#dropdown.appendChild(empty);
+            } else {
+                for (const item of items) {
+                    const row = document.createElement('div');
+                    row.style.cssText = 'padding:8px 14px;cursor:pointer;border-bottom:1px solid #f0f0f0;';
+                    row.addEventListener('mouseover', () => { row.style.background = '#f0f6ff'; });
+                    row.addEventListener('mouseout',  () => { row.style.background = ''; });
+                    const name = document.createElement('strong');
+                    name.textContent = item.label;
+                    row.appendChild(name);
+                    if (item.vendor_name) {
+                        const vendor = document.createElement('span');
+                        vendor.style.cssText = 'color:#646970;font-size:12px;margin-left:8px;';
+                        vendor.textContent = item.vendor_name;
+                        row.appendChild(vendor);
+                    }
+                    const cost = document.createElement('span');
+                    cost.style.cssText = 'float:right;color:#2271b1;font-size:12px;';
+                    cost.textContent = item.unit_cost_fmt;
+                    row.appendChild(cost);
+                    row.addEventListener('mousedown', (e) => {
+                        e.preventDefault();
+                        this.#selectItem(item);
+                    });
+                    this.#dropdown.appendChild(row);
+                }
+            }
+            this.#dropdown.style.display = 'block';
+        }
+
+        #selectItem(item) {
+            // Set global_item_id so the save handler links this existing item.
+            if (this.#globalItemIdField) this.#globalItemIdField.value = String(item.id);
+
+            // Pre-fill global form fields.
+            const form = document.getElementById('eim-budget-line-item-form')?.querySelector('form');
+            if (form) {
+                const setField = (name, value) => {
+                    const el = form.querySelector(`[name="${name}"]`);
+                    if (el) el.value = value;
+                };
+                setField('label',       item.label        || '');
+                setField('vendor_id',   String(item.vendor_id || 0));
+                setField('unit_cost',   item.unit_cost_cents > 0 ? (item.unit_cost_cents / 100).toFixed(2) : '');
+                setField('website_url', item.website_url   || '');
+                setField('notes',       item.notes         || '');
+            }
+
+            // Set vendor picker display.
+            window.eimVendorPickers?.['eim-li-vendor-picker']?.setValue(
+                Number(item.vendor_id || 0),
+                item.vendor_name || ''
+            );
+
+            // Set image picker if there is one.
+            if (item.image_id > 0 && item.image_thumb_url) {
+                window.eimLineItemImagePicker?.setSelection({
+                    id:       item.image_id,
+                    title:    item.label,
+                    thumbUrl: item.image_thumb_url,
+                    fullUrl:  item.image_thumb_url,
+                });
+            } else {
+                window.eimLineItemImagePicker?.clearSelection();
+            }
+
+            // Update UI.
+            if (this.#searchInput)   this.#searchInput.value = '';
+            if (this.#dropdown)      this.#dropdown.style.display = 'none';
+            if (this.#selectedLabel) this.#selectedLabel.textContent = item.label;
+            if (this.#selectedBar)   this.#selectedBar.style.display = '';
+        }
+
+        #clearSelection() {
+            if (this.#globalItemIdField) this.#globalItemIdField.value = '0';
+            if (this.#selectedBar)       this.#selectedBar.style.display = 'none';
+            if (this.#selectedLabel)     this.#selectedLabel.textContent = '';
         }
     }
 
@@ -1017,6 +1185,155 @@
     }
 
     // =========================================================================
+    // PaymentSection — accordion + AJAX search/sort/pagination for Payments tab
+    // =========================================================================
+
+    class PaymentSection {
+        #container;
+        #status;
+        #planId;
+        #toggle;
+        #arrow;
+        #body;
+        #search;
+        #field;
+        #perPageSel;
+        #tbody;
+        #countEl;
+        #spinner;
+        #paginationNav;
+        #sort    = 'deadline';
+        #order   = 'asc';
+        #page    = 1;
+        #perPage = 10;
+        #loaded  = false;
+
+        constructor(container) {
+            this.#container    = container;
+            this.#status       = container.dataset.status  || 'needs_payment';
+            this.#planId       = container.dataset.planId  || '0';
+            this.#toggle       = container.querySelector('.eim-payment-accordion-toggle');
+            this.#arrow        = container.querySelector('.eim-payment-accordion-arrow');
+            this.#body         = container.querySelector('.eim-payment-section-body');
+            this.#search       = container.querySelector('.eim-payment-search-input');
+            this.#field        = container.querySelector('.eim-payment-search-field');
+            this.#perPageSel   = container.querySelector('.eim-payment-per-page');
+            this.#tbody        = container.querySelector('.eim-payment-tbody');
+            this.#countEl      = container.querySelector('.eim-payment-section-count');
+            this.#spinner      = container.querySelector('.eim-payment-spinner');
+            this.#paginationNav = container.querySelector('.eim-payment-pagination');
+
+            if (!this.#toggle || !this.#body) return;
+
+            this.#toggle.addEventListener('click', () => this.#toggleAccordion());
+
+            this.#search?.addEventListener('input', debounce(() => { this.#page = 1; this.#refresh(); }, 250));
+            this.#field?.addEventListener('change', () => { this.#page = 1; this.#refresh(); });
+            this.#perPageSel?.addEventListener('change', () => {
+                this.#perPage = Number(this.#perPageSel.value);
+                this.#page = 1;
+                this.#refresh();
+            });
+
+            // Sort link clicks (within this section only — class eim-pay-sort-link).
+            this.#body.addEventListener('click', (e) => {
+                const link = e.target.closest('.eim-pay-sort-link');
+                if (!link) return;
+                e.preventDefault();
+                this.#sort  = link.dataset.sort  || 'deadline';
+                this.#order = link.dataset.order || 'asc';
+                this.#page  = 1;
+                this.#refresh();
+            });
+
+            // Restore accordion state from localStorage.
+            const storageKey = 'eim_pay_section_' + this.#planId + '_' + this.#status;
+            let isOpen = false;
+            try { isOpen = localStorage.getItem(storageKey) === 'open'; } catch (e) {}
+            if (isOpen) this.#openAccordion(/* load */ true);
+        }
+
+        #toggleAccordion() {
+            if (this.#toggle.getAttribute('aria-expanded') === 'true') {
+                this.#closeAccordion();
+            } else {
+                this.#openAccordion(true);
+            }
+        }
+
+        #openAccordion(load = true) {
+            this.#body.hidden = false;
+            this.#toggle.setAttribute('aria-expanded', 'true');
+            if (this.#arrow) this.#arrow.textContent = '▼';
+            try { localStorage.setItem('eim_pay_section_' + this.#planId + '_' + this.#status, 'open'); } catch (e) {}
+            if (load && !this.#loaded) this.#refresh();
+        }
+
+        #closeAccordion() {
+            this.#body.hidden = true;
+            this.#toggle.setAttribute('aria-expanded', 'false');
+            if (this.#arrow) this.#arrow.textContent = '▶';
+            try { localStorage.setItem('eim_pay_section_' + this.#planId + '_' + this.#status, 'closed'); } catch (e) {}
+        }
+
+        async #refresh() {
+            if (!this.#tbody) return;
+            this.#spinner?.classList.add('is-active');
+            try {
+                const url = ajaxUrl('eim_search_budget_payment_items', {
+                    nonce:    config.paymentSearchNonce || '',
+                    plan_id:  this.#planId,
+                    status:   this.#status,
+                    query:    this.#search?.value || '',
+                    sort:     this.#sort,
+                    order:    this.#order,
+                    field:    this.#field?.value || '',
+                    page:     this.#page,
+                    per_page: this.#perPage,
+                });
+                const { success, data } = await (await fetch(url, { credentials: 'same-origin' })).json();
+                if (!success) return;
+                this.#tbody.innerHTML = data.html || '';
+                if (this.#countEl) this.#countEl.textContent = `${data.total} item${data.total === 1 ? '' : 's'}`;
+                // Update the due-soon warning badge (needs_payment accordion only).
+                if (this.#status === 'needs_payment') {
+                    const dueSoonEl = this.#container.querySelector('.eim-payment-due-soon-count');
+                    if (dueSoonEl) {
+                        const n = Number(data.due_soon_count || 0);
+                        dueSoonEl.textContent = `⚠ ${n} due within a month`;
+                        dueSoonEl.style.display = n > 0 ? '' : 'none';
+                    }
+                }
+                this.#updateSortLinks();
+                this.#renderPagination(Number(data.total || 0));
+                this.#loaded = true;
+            } catch (err) {
+                console.error('[EIM] Payment section refresh failed:', err);
+            } finally {
+                this.#spinner?.classList.remove('is-active');
+            }
+        }
+
+        #updateSortLinks() {
+            for (const link of this.#body?.querySelectorAll('.eim-pay-sort-link') ?? []) {
+                const isCurrent = link.dataset.sort === this.#sort;
+                link.dataset.order = isCurrent && this.#order === 'asc' ? 'desc' : 'asc';
+                const ind = link.querySelector('span');
+                if (ind) ind.textContent = isCurrent ? (this.#order === 'asc' ? '↑' : '↓') : '';
+            }
+        }
+
+        #renderPagination(total) {
+            window.eimRenderPagination?.(this.#paginationNav, {
+                total,
+                perPage: this.#perPage,
+                page:    this.#page,
+                onPageChange: (p) => { this.#page = p; this.#refresh(); },
+            });
+        }
+    }
+
+    // =========================================================================
     // Bootstrap
     // =========================================================================
 
@@ -1027,6 +1344,14 @@
         new LineItemImageModal();
         new LineItemImagePicker();
         new LineItemEditForm();
+        new LineItemLibraryPicker();
         new EventPicker('eim-budget-event-picker', { nonce: config.suggestEventsNonce || '' });
+
+        // Payments tab accordion sections (only present on plan detail/edit view).
+        if (config.paymentSearchNonce) {
+            for (const el of document.querySelectorAll('.eim-payment-section')) {
+                new PaymentSection(el);
+            }
+        }
     });
 })();

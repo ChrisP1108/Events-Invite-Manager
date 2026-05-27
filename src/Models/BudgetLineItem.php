@@ -9,13 +9,16 @@ if (!defined('ABSPATH')) exit;
 use EventsInviteManager\Database\DatabaseManager;
 
 /**
- * Represents a single cost line item within a budget plan.
+ * Represents a plan-specific usage of a global BudgetItem.
+ *
+ * The global/reusable fields (label, vendor, cost, image, notes, website URL)
+ * are stored in eim_budget_items and exposed here via a JOIN.
+ * Plan-specific fields (event, quantity, quantity_mode, paid, deadline) live
+ * only in this row.
  *
  * quantity_mode:
- *   'fixed'        — estimated total = quantity × unit_cost_cents
+ *   'fixed'         — estimated total = quantity × unit_cost_cents
  *   'per_attending' — estimated total = attending RSVP count × unit_cost_cents
- *
- * vendor_id references eim_vendors.
  */
 final class BudgetLineItem
 {
@@ -28,6 +31,7 @@ final class BudgetLineItem
     public function __construct(
         public readonly int     $id,
         public readonly int     $planId,
+        public readonly int     $globalItemId,
         public readonly ?int    $eventId,
         public readonly ?int    $vendorId,
         public readonly string  $label,
@@ -48,14 +52,48 @@ final class BudgetLineItem
     ) {}
 
     // -------------------------------------------------------------------------
+    // SQL helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Returns the SELECT + FROM + LEFT JOIN clause used by all read queries.
+     *
+     * Global fields are aliased with a `gi_` prefix to avoid collision with
+     * the plan-usage columns that share the same names (label, vendor_id, etc.)
+     * in the legacy pre-migration rows. COALESCE falls back to the old inline
+     * columns if global_item_id has not been set yet (pre-migration rows).
+     */
+    private static function baseSelect(): string
+    {
+        $li = DatabaseManager::budgetLineItemsTable();
+        $bi = DatabaseManager::budgetItemsTable();
+
+        return "SELECT li.id, li.plan_id, li.global_item_id, li.event_id,
+                       li.quantity, li.quantity_mode, li.total_override_cents,
+                       li.paid_amount_cents, li.payment_deadline, li.sort_order,
+                       li.created_at, li.updated_at,
+                       COALESCE(bi.label,               li.label)               AS gi_label,
+                       COALESCE(bi.vendor_id,           li.vendor_id)           AS gi_vendor_id,
+                       COALESCE(bi.website_url,         li.website_url)         AS gi_website_url,
+                       COALESCE(bi.notes,               li.notes)               AS gi_notes,
+                       COALESCE(bi.image_attachment_id, li.image_attachment_id) AS gi_image_attachment_id,
+                       COALESCE(bi.unit_cost_cents,     li.unit_cost_cents)     AS gi_unit_cost_cents,
+                       bi.source_type AS gi_source_type,
+                       bi.source_id   AS gi_source_id
+                FROM {$li} li
+                LEFT JOIN {$bi} bi ON bi.id = li.global_item_id";
+    }
+
+    // -------------------------------------------------------------------------
     // CRUD
     // -------------------------------------------------------------------------
 
     public static function find(int $id): ?self
     {
         global $wpdb;
-        $table = DatabaseManager::budgetLineItemsTable();
-        $row   = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id = %d LIMIT 1", $id));
+        $base = self::baseSelect();
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $row  = $wpdb->get_row($wpdb->prepare("{$base} WHERE li.id = %d LIMIT 1", $id));
         return $row ? self::fromRow($row) : null;
     }
 
@@ -63,12 +101,10 @@ final class BudgetLineItem
     public static function forPlan(int $planId): array
     {
         global $wpdb;
-        $table = DatabaseManager::budgetLineItemsTable();
-        $rows  = $wpdb->get_results(
-            $wpdb->prepare(
-                "SELECT * FROM {$table} WHERE plan_id = %d ORDER BY sort_order ASC, id ASC",
-                $planId
-            )
+        $base = self::baseSelect();
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $rows = $wpdb->get_results(
+            $wpdb->prepare("{$base} WHERE li.plan_id = %d ORDER BY li.sort_order ASC, li.id ASC", $planId)
         );
         return array_map(static fn(object $r) => self::fromRow($r), $rows ?? []);
     }
@@ -76,7 +112,7 @@ final class BudgetLineItem
     /**
      * Returns line items for a plan with optional search and sort.
      *
-     * DB-sortable: label, vendor (company_name join), quantity, unit_cost, paid, sort_order.
+     * DB-sortable: label, vendor (join), quantity, unit_cost, paid, sort_order.
      * PHP-sorted:  event (relational), estimated (computed).
      *
      * @return self[]
@@ -90,46 +126,57 @@ final class BudgetLineItem
     ): array {
         global $wpdb;
 
-        $table    = DatabaseManager::budgetLineItemsTable();
+        $li       = DatabaseManager::budgetLineItemsTable();
+        $bi       = DatabaseManager::budgetItemsTable();
+        $vt       = DatabaseManager::vendorsTable();
+        $et       = DatabaseManager::eventsTable();
+        $base     = self::baseSelect();
         $orderSql = strtolower($order) === 'desc' ? 'DESC' : 'ASC';
 
+        // Columns that can be sorted directly in SQL.
         $dbSortMap = [
-            'label'       => 'label',
-            'quantity'    => 'quantity',
-            'unit_cost'   => 'unit_cost_cents',
-            'paid'        => 'paid_amount_cents',
-            'website_url' => 'website_url',
-            'deadline'    => 'payment_deadline',
-            'sort_order'  => 'sort_order',
+            'label'      => 'gi_label',
+            'quantity'   => 'li.quantity',
+            'unit_cost'  => 'gi_unit_cost_cents',
+            'paid'       => 'li.paid_amount_cents',
+            'website_url'=> 'gi_website_url',
+            'deadline'   => 'li.payment_deadline',
+            'sort_order' => 'li.sort_order',
         ];
-        $sortCol = $dbSortMap[$sort] ?? 'sort_order';
+
+        // For computed/relational sorts we still fetch with a default DB order,
+        // then apply usort afterwards via maybePhpSort().
+        $sortCol = $dbSortMap[$sort] ?? 'li.sort_order';
 
         if ($search === '') {
             // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
             $rows  = $wpdb->get_results(
-                $wpdb->prepare("SELECT * FROM {$table} WHERE plan_id = %d ORDER BY {$sortCol} {$orderSql}, id ASC", $planId)
+                $wpdb->prepare("{$base} WHERE li.plan_id = %d ORDER BY {$sortCol} {$orderSql}, li.id ASC", $planId)
             );
             $items = array_map(static fn(object $r) => self::fromRow($r), $rows ?? []);
             return self::maybePhpSort($items, $sort, $order);
         }
 
-        $like        = '%' . $wpdb->esc_like(strtolower($search)) . '%';
-        $eventsTable = DatabaseManager::eventsTable();
-        $vendorsTable = DatabaseManager::vendorsTable();
+        $like = '%' . $wpdb->esc_like(strtolower($search)) . '%';
 
         if ($field === 'label') {
             // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
             $rows = $wpdb->get_results(
-                $wpdb->prepare("SELECT * FROM {$table} WHERE plan_id = %d AND LOWER(label) LIKE %s ORDER BY {$sortCol} {$orderSql}, id ASC", $planId, $like)
+                $wpdb->prepare(
+                    "{$base}
+                     WHERE li.plan_id = %d AND LOWER(COALESCE(bi.label, li.label)) LIKE %s
+                     ORDER BY {$sortCol} {$orderSql}, li.id ASC",
+                    $planId, $like
+                )
             );
         } elseif ($field === 'vendor') {
             // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
             $rows = $wpdb->get_results(
                 $wpdb->prepare(
-                    "SELECT li.* FROM {$table} li
-                     LEFT JOIN {$vendorsTable} v ON v.id = li.vendor_id
-                     WHERE li.plan_id = %d AND LOWER(v.company_name) LIKE %s
-                     ORDER BY li.{$sortCol} {$orderSql}, li.id ASC",
+                    "{$base}
+                     LEFT JOIN {$vt} v ON v.id = COALESCE(bi.vendor_id, li.vendor_id)
+                     WHERE li.plan_id = %d AND LOWER(COALESCE(v.company_name,'')) LIKE %s
+                     ORDER BY {$sortCol} {$orderSql}, li.id ASC",
                     $planId, $like
                 )
             );
@@ -137,25 +184,25 @@ final class BudgetLineItem
             // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
             $rows = $wpdb->get_results(
                 $wpdb->prepare(
-                    "SELECT li.* FROM {$table} li
-                     INNER JOIN {$eventsTable} e ON e.id = li.event_id
+                    "{$base}
+                     INNER JOIN {$et} e ON e.id = li.event_id
                      WHERE li.plan_id = %d AND LOWER(e.name) LIKE %s
-                     ORDER BY li.{$sortCol} {$orderSql}, li.id ASC",
+                     ORDER BY {$sortCol} {$orderSql}, li.id ASC",
                     $planId, $like
                 )
             );
         } else {
-            // Any — label, vendor company name, notes
+            // Any — label, vendor company name, notes.
             // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
             $rows = $wpdb->get_results(
                 $wpdb->prepare(
-                    "SELECT li.* FROM {$table} li
-                     LEFT JOIN {$vendorsTable} v ON v.id = li.vendor_id
+                    "{$base}
+                     LEFT JOIN {$vt} v ON v.id = COALESCE(bi.vendor_id, li.vendor_id)
                      WHERE li.plan_id = %d
-                       AND (LOWER(li.label) LIKE %s
-                            OR LOWER(COALESCE(v.company_name,'')) LIKE %s
-                            OR LOWER(COALESCE(li.notes,'')) LIKE %s)
-                     ORDER BY li.{$sortCol} {$orderSql}, li.id ASC",
+                       AND (LOWER(COALESCE(bi.label,               li.label))   LIKE %s
+                            OR LOWER(COALESCE(v.company_name,''))                LIKE %s
+                            OR LOWER(COALESCE(bi.notes, li.notes, ''))          LIKE %s)
+                     ORDER BY {$sortCol} {$orderSql}, li.id ASC",
                     $planId, $like, $like, $like
                 )
             );
@@ -209,11 +256,36 @@ final class BudgetLineItem
     }
 
     /**
+     * Creates a new plan usage row.
+     *
+     * When $data['global_item_id'] > 0 the existing global item is reused (no
+     * modification). When it is 0 (or absent) a new BudgetItem is created from
+     * the global fields in $data.
+     *
      * @param array<string,mixed> $data
      */
     public static function create(array $data): ?self
     {
         global $wpdb;
+
+        $globalItemId = (int) ($data['global_item_id'] ?? 0);
+
+        if ($globalItemId <= 0) {
+            // Create a new global library item.
+            $globalItem = BudgetItem::create([
+                'label'               => $data['label']               ?? '',
+                'vendor_id'           => $data['vendor_id']           ?? 0,
+                'website_url'         => $data['website_url']         ?? '',
+                'notes'               => $data['notes']               ?? '',
+                'image_attachment_id' => $data['image_attachment_id'] ?? 0,
+                'unit_cost_cents'     => $data['unit_cost_cents']     ?? 0,
+                'source_type'         => $data['source_type']         ?? null,
+                'source_id'           => $data['source_id']           ?? null,
+            ]);
+            if ($globalItem === null) return null;
+            $globalItemId = $globalItem->id;
+        }
+
         $table    = DatabaseManager::budgetLineItemsTable();
         $maxOrder = (int) $wpdb->get_var(
             $wpdb->prepare("SELECT COALESCE(MAX(sort_order), 0) FROM {$table} WHERE plan_id = %d", (int) ($data['plan_id'] ?? 0))
@@ -221,22 +293,15 @@ final class BudgetLineItem
 
         $result = $wpdb->insert($table, [
             'plan_id'              => (int)    ($data['plan_id']              ?? 0),
+            'global_item_id'       => $globalItemId,
             'event_id'             => isset($data['event_id']) && (int) $data['event_id'] > 0 ? (int) $data['event_id'] : null,
-            'vendor_id'            => isset($data['vendor_id']) && (int) $data['vendor_id'] > 0 ? (int) $data['vendor_id'] : null,
-            'label'                => (string) ($data['label']                ?? ''),
-            'source_type'          => isset($data['source_type']) ? (string) $data['source_type'] : null,
-            'source_id'            => isset($data['source_id']) && (int) $data['source_id'] > 0 ? (int) $data['source_id'] : null,
             'quantity'             => (float)  ($data['quantity']             ?? 1),
             'quantity_mode'        => isset($data['quantity_mode']) && $data['quantity_mode'] === self::QUANTITY_MODE_PER_ATTENDING
                 ? self::QUANTITY_MODE_PER_ATTENDING
                 : self::QUANTITY_MODE_FIXED,
-            'unit_cost_cents'      => (int)    ($data['unit_cost_cents']      ?? 0),
             'total_override_cents' => isset($data['total_override_cents']) && (int) $data['total_override_cents'] > 0 ? (int) $data['total_override_cents'] : null,
             'paid_amount_cents'    => (int)    ($data['paid_amount_cents']    ?? 0),
-            'website_url'          => (string) ($data['website_url']          ?? ''),
             'payment_deadline'     => !empty($data['payment_deadline']) ? (string) $data['payment_deadline'] : null,
-            'notes'                => (string) ($data['notes']                ?? ''),
-            'image_attachment_id'  => (int)    ($data['image_attachment_id']  ?? 0),
             'sort_order'           => $maxOrder + 1,
         ]);
 
@@ -244,28 +309,51 @@ final class BudgetLineItem
     }
 
     /**
+     * Updates a plan usage row AND the linked global item's shared fields.
+     *
+     * Global fields:      label, vendor_id, website_url, notes, image_attachment_id, unit_cost_cents.
+     * Plan-only fields:   event_id, quantity, quantity_mode, total_override_cents,
+     *                     paid_amount_cents, payment_deadline.
+     *
      * @param array<string,mixed> $data
      */
     public static function update(int $id, array $data): bool
     {
         global $wpdb;
-        $fields = [];
-        if (array_key_exists('event_id', $data))             $fields['event_id']             = $data['event_id'] > 0 ? (int) $data['event_id'] : null;
-        if (array_key_exists('vendor_id', $data))            $fields['vendor_id']            = $data['vendor_id'] > 0 ? (int) $data['vendor_id'] : null;
-        if (array_key_exists('label', $data))                $fields['label']                = (string) $data['label'];
-        if (array_key_exists('quantity', $data))             $fields['quantity']             = (float)  $data['quantity'];
-        if (array_key_exists('quantity_mode', $data))        $fields['quantity_mode']        = $data['quantity_mode'] === self::QUANTITY_MODE_PER_ATTENDING ? self::QUANTITY_MODE_PER_ATTENDING : self::QUANTITY_MODE_FIXED;
-        if (array_key_exists('unit_cost_cents', $data))      $fields['unit_cost_cents']      = (int)    $data['unit_cost_cents'];
-        if (array_key_exists('total_override_cents', $data)) $fields['total_override_cents'] = $data['total_override_cents'] > 0 ? (int) $data['total_override_cents'] : null;
-        if (array_key_exists('paid_amount_cents', $data))    $fields['paid_amount_cents']    = (int)    $data['paid_amount_cents'];
-        if (array_key_exists('website_url', $data))          $fields['website_url']          = (string) $data['website_url'];
-        if (array_key_exists('payment_deadline', $data))     $fields['payment_deadline']     = !empty($data['payment_deadline']) ? (string) $data['payment_deadline'] : null;
-        if (array_key_exists('notes', $data))                $fields['notes']                = (string) $data['notes'];
-        if (array_key_exists('image_attachment_id', $data)) $fields['image_attachment_id']  = (int)    $data['image_attachment_id'];
-        if (empty($fields)) return true;
-        return $wpdb->update(DatabaseManager::budgetLineItemsTable(), $fields, ['id' => $id]) !== false;
+
+        $item = self::find($id);
+        if ($item === null) return false;
+
+        // --- Update global item fields ---
+        if ($item->globalItemId > 0) {
+            $globalFields = [];
+            if (array_key_exists('label', $data))               $globalFields['label']               = (string) $data['label'];
+            if (array_key_exists('vendor_id', $data))           $globalFields['vendor_id']           = (int) $data['vendor_id'];
+            if (array_key_exists('website_url', $data))         $globalFields['website_url']         = (string) $data['website_url'];
+            if (array_key_exists('notes', $data))               $globalFields['notes']               = (string) $data['notes'];
+            if (array_key_exists('image_attachment_id', $data)) $globalFields['image_attachment_id'] = (int) $data['image_attachment_id'];
+            if (array_key_exists('unit_cost_cents', $data))     $globalFields['unit_cost_cents']     = (int) $data['unit_cost_cents'];
+            if (!empty($globalFields)) {
+                BudgetItem::update($item->globalItemId, $globalFields);
+            }
+        }
+
+        // --- Update plan-specific fields ---
+        $planFields = [];
+        if (array_key_exists('event_id', $data))             $planFields['event_id']             = (int) $data['event_id'] > 0 ? (int) $data['event_id'] : null;
+        if (array_key_exists('quantity', $data))             $planFields['quantity']             = (float) $data['quantity'];
+        if (array_key_exists('quantity_mode', $data))        $planFields['quantity_mode']        = $data['quantity_mode'] === self::QUANTITY_MODE_PER_ATTENDING ? self::QUANTITY_MODE_PER_ATTENDING : self::QUANTITY_MODE_FIXED;
+        if (array_key_exists('total_override_cents', $data)) $planFields['total_override_cents'] = (int) $data['total_override_cents'] > 0 ? (int) $data['total_override_cents'] : null;
+        if (array_key_exists('paid_amount_cents', $data))    $planFields['paid_amount_cents']    = (int) $data['paid_amount_cents'];
+        if (array_key_exists('payment_deadline', $data))     $planFields['payment_deadline']     = !empty($data['payment_deadline']) ? (string) $data['payment_deadline'] : null;
+
+        if (empty($planFields)) return true;
+        return $wpdb->update(DatabaseManager::budgetLineItemsTable(), $planFields, ['id' => $id]) !== false;
     }
 
+    /**
+     * Deletes the plan usage row only — the global item is preserved.
+     */
     public static function delete(int $id): bool
     {
         global $wpdb;
@@ -332,23 +420,24 @@ final class BudgetLineItem
         return new self(
             id:                  (int)   $row->id,
             planId:              (int)   $row->plan_id,
+            globalItemId:        isset($row->global_item_id) && $row->global_item_id !== null ? (int) $row->global_item_id : 0,
             eventId:             isset($row->event_id) && $row->event_id !== null ? (int) $row->event_id : null,
-            vendorId:            isset($row->vendor_id) && $row->vendor_id !== null ? (int) $row->vendor_id : null,
-            label:                       $row->label             ?? '',
-            sourceType:          isset($row->source_type) ? (string) $row->source_type : null,
-            sourceId:            isset($row->source_id) && $row->source_id !== null ? (int) $row->source_id : null,
-            quantity:            (float) ($row->quantity         ?? 1),
-            quantityMode:                $row->quantity_mode     ?? self::QUANTITY_MODE_FIXED,
-            unitCostCents:       (int)   ($row->unit_cost_cents  ?? 0),
+            vendorId:            isset($row->gi_vendor_id) && $row->gi_vendor_id !== null ? (int) $row->gi_vendor_id : null,
+            label:                       $row->gi_label             ?? '',
+            sourceType:          isset($row->gi_source_type) && $row->gi_source_type !== null ? (string) $row->gi_source_type : null,
+            sourceId:            isset($row->gi_source_id) && $row->gi_source_id !== null ? (int) $row->gi_source_id : null,
+            quantity:            (float) ($row->quantity             ?? 1),
+            quantityMode:                $row->quantity_mode         ?? self::QUANTITY_MODE_FIXED,
+            unitCostCents:       (int)   ($row->gi_unit_cost_cents   ?? 0),
             totalOverrideCents:  isset($row->total_override_cents) && $row->total_override_cents !== null ? (int) $row->total_override_cents : null,
-            paidAmountCents:     (int)   ($row->paid_amount_cents ?? 0),
-            websiteUrl:                  $row->website_url        ?? '',
+            paidAmountCents:     (int)   ($row->paid_amount_cents    ?? 0),
+            websiteUrl:                  $row->gi_website_url        ?? '',
             paymentDeadline:     isset($row->payment_deadline) && $row->payment_deadline !== null ? (string) $row->payment_deadline : null,
-            notes:                       $row->notes              ?? '',
-            imageAttachmentId:   (int)   ($row->image_attachment_id ?? 0),
-            sortOrder:           (int)   ($row->sort_order        ?? 0),
-            createdAt:                   $row->created_at         ?? '',
-            updatedAt:                   $row->updated_at         ?? '',
+            notes:                       $row->gi_notes              ?? '',
+            imageAttachmentId:   (int)   ($row->gi_image_attachment_id ?? 0),
+            sortOrder:           (int)   ($row->sort_order            ?? 0),
+            createdAt:                   $row->created_at             ?? '',
+            updatedAt:                   $row->updated_at             ?? '',
         );
     }
 }

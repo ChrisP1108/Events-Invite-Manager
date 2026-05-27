@@ -7,6 +7,7 @@ namespace EventsInviteManager\Admin\Pages\EventsManager;
 if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Admin\AdminMenu;
+use EventsInviteManager\Admin\Pages\EventsManager\SubPages\BudgetItemsPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\BudgetPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\ConnectionGroupsPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\EventsPage;
@@ -46,6 +47,9 @@ final class EventsManagerPage
     /** @var BudgetPage Budget sub-page handler. */
     private BudgetPage           $budgetPage;
 
+    /** @var BudgetItemsPage Budget Line Items library sub-page handler. */
+    private BudgetItemsPage      $budgetItemsPage;
+
     /** @var NewslettersPage Newsletters sub-page handler. */
     private NewslettersPage      $newslettersPage;
 
@@ -71,6 +75,7 @@ final class EventsManagerPage
         LocationsPage          $locationsPage,
         MenuItemsPage          $menuItemsPage,
         BudgetPage             $budgetPage,
+        BudgetItemsPage        $budgetItemsPage,
         NewslettersPage        $newslettersPage,
         VendorsPage            $vendorsPage,
         CategoriesPage         $categoriesPage,
@@ -84,6 +89,7 @@ final class EventsManagerPage
         $this->locationsPage          = $locationsPage;
         $this->menuItemsPage          = $menuItemsPage;
         $this->budgetPage             = $budgetPage;
+        $this->budgetItemsPage        = $budgetItemsPage;
         $this->newslettersPage        = $newslettersPage;
         $this->vendorsPage            = $vendorsPage;
         $this->categoriesPage         = $categoriesPage;
@@ -109,7 +115,8 @@ final class EventsManagerPage
             AdminMenu::TAB_CONNECTION_GROUPS    => 'Connection Groups',
             AdminMenu::TAB_LOCATIONS         => 'Locations',
             AdminMenu::TAB_MENU_ITEMS        => 'Food &amp; Beverages',
-            AdminMenu::TAB_BUDGET            => 'Budget',
+            AdminMenu::TAB_BUDGET            => 'Budget Plans',
+            AdminMenu::TAB_BUDGET_LINE_ITEMS => 'Budget Line Items',
             AdminMenu::TAB_VENDORS           => 'Vendors',
             AdminMenu::TAB_NEWSLETTERS       => 'Newsletters',
             AdminMenu::TAB_CATEGORIES        => 'Categories',
@@ -143,6 +150,7 @@ final class EventsManagerPage
             AdminMenu::TAB_LOCATIONS         => $this->locationsPage,
             AdminMenu::TAB_MENU_ITEMS        => $this->menuItemsPage,
             AdminMenu::TAB_BUDGET            => $this->budgetPage,
+            AdminMenu::TAB_BUDGET_LINE_ITEMS => $this->budgetItemsPage,
             AdminMenu::TAB_VENDORS           => $this->vendorsPage,
             AdminMenu::TAB_NEWSLETTERS       => $this->newslettersPage,
             AdminMenu::TAB_CATEGORIES        => $this->categoriesPage,

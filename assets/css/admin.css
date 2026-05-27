@@ -39,6 +39,15 @@ h1 {
     min-width: 90px;
 }
 
+@keyframes fade-in-1 {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
 /* ---- Gift registry images ---- */
 
 .wp-list-table .eim-gift-image-column {
@@ -450,15 +459,6 @@ h1 {
     animation-fill-mode: forwards;
 }
 
-@keyframes fade-in-1 {
-    from {
-        opacity: 0;
-    }
-    to {
-        opacity: 1;
-    }
-}
-
 /* ---- Event Manager page ---- */
 
 .nav-tab-wrapper .nav-tab:first-child {
@@ -614,6 +614,25 @@ h1 {
 .eim-cat-chip:focus {
     background: #cef0e8;
     color: #095040;
+}
+
+/* Budget plan chips (blue-indigo) */
+.eim-plan-chip {
+    background: #eef2fb;
+    border: 1px solid #b5c8f0;
+    border-radius: 999px;
+    color: #2253a8;
+    display: inline-block;
+    font-size: 12px;
+    line-height: 1.4;
+    padding: 2px 8px;
+    text-decoration: none;
+}
+
+.eim-plan-chip:hover,
+.eim-plan-chip:focus {
+    background: #d9e4f8;
+    color: #1a3d80;
 }
 
 /* Event tags (blue) */
@@ -1204,4 +1223,23 @@ h1 {
 
 .eim-status-badge {
     display: inline-block;
+}
+
+
+/* ---- Budget Plans Page ---- */
+
+.eim-btab-active {
+    opacity: 0;
+    animation: fade-in-1 0.35s ease-in-out;
+    animation-fill-mode: forwards;
+}
+
+.eim-payment-accordion-toggle {
+    color: #2c3338 !important;
+    text-decoration: none !important;
+}
+
+/* Payment rows with a deadline due within 30 days (Needs Payment accordion) */
+tr.eim-pay-due-soon td {
+    background-color: rgba(214, 54, 56, 0.07) !important;
 }

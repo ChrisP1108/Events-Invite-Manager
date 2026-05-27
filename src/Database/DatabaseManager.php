@@ -18,7 +18,7 @@ final class DatabaseManager
     /**
      * The current database schema version.
      */
-    private const SCHEMA_VERSION = '36';
+    private const SCHEMA_VERSION = '38';
 
     /**
      * The database table names.
@@ -37,6 +37,7 @@ final class DatabaseManager
     private const EVENT_MENU_ITEMS_TABLE                 = 'eim_event_menu_items';
     private const BUDGET_PLANS_TABLE                     = 'eim_budget_plans';
     private const BUDGET_PLAN_EVENTS_TABLE               = 'eim_budget_plan_events';
+    private const BUDGET_ITEMS_TABLE                     = 'eim_budget_items';
     private const BUDGET_LINE_ITEMS_TABLE                = 'eim_budget_line_items';
     private const NEWSLETTERS_TABLE                      = 'eim_newsletters';
     private const NEWSLETTER_EVENTS_TABLE                = 'eim_newsletter_events';
@@ -62,6 +63,7 @@ final class DatabaseManager
             return;
         }
         self::createTables();
+        self::maybeMigrateBudgetLineItems();
         update_option('eim_db_version', self::SCHEMA_VERSION, false);
     }
 
@@ -90,6 +92,7 @@ final class DatabaseManager
         $eventMenuItemsTable        = $wpdb->prefix . self::EVENT_MENU_ITEMS_TABLE;
         $budgetPlansTable           = $wpdb->prefix . self::BUDGET_PLANS_TABLE;
         $budgetPlanEventsTable      = $wpdb->prefix . self::BUDGET_PLAN_EVENTS_TABLE;
+        $budgetItemsTable           = $wpdb->prefix . self::BUDGET_ITEMS_TABLE;
         $budgetLineItemsTable       = $wpdb->prefix . self::BUDGET_LINE_ITEMS_TABLE;
         $newslettersTable           = $wpdb->prefix . self::NEWSLETTERS_TABLE;
         $newsletterEventsTable      = $wpdb->prefix . self::NEWSLETTER_EVENTS_TABLE;
@@ -302,9 +305,25 @@ final class DatabaseManager
                 KEY plan_id (plan_id),
                 KEY event_id (event_id)
             ) ENGINE=InnoDB {$charset};
+            CREATE TABLE {$budgetItemsTable} (
+                id                   BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                label                VARCHAR(255)        NOT NULL DEFAULT '',
+                vendor_id            BIGINT(20) UNSIGNED NULL DEFAULT NULL,
+                website_url          VARCHAR(2000)       NOT NULL DEFAULT '',
+                notes                TEXT,
+                image_attachment_id  BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+                unit_cost_cents      INT UNSIGNED        NOT NULL DEFAULT 0,
+                source_type          VARCHAR(20)         NULL DEFAULT NULL,
+                source_id            BIGINT(20) UNSIGNED NULL DEFAULT NULL,
+                created_at           DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at           DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY vendor_id (vendor_id)
+            ) ENGINE=InnoDB {$charset};
             CREATE TABLE {$budgetLineItemsTable} (
                 id                   BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
                 plan_id              BIGINT(20) UNSIGNED NOT NULL,
+                global_item_id       BIGINT(20) UNSIGNED NULL DEFAULT NULL,
                 event_id             BIGINT(20) UNSIGNED NULL DEFAULT NULL,
                 vendor_id            BIGINT(20) UNSIGNED NULL DEFAULT NULL,
                 label                VARCHAR(255)        NOT NULL DEFAULT '',
@@ -324,6 +343,7 @@ final class DatabaseManager
                 updated_at           DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (id),
                 KEY plan_id (plan_id),
+                KEY global_item_id (global_item_id),
                 KEY event_id (event_id),
                 KEY vendor_id (vendor_id)
             ) ENGINE=InnoDB {$charset};
@@ -584,11 +604,63 @@ final class DatabaseManager
         return $wpdb->prefix . self::BUDGET_PLAN_EVENTS_TABLE;
     }
 
-    /** @return string Fully-qualified budget line items table name. */
+    /** @return string Fully-qualified global budget items library table name. */
+    public static function budgetItemsTable(): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . self::BUDGET_ITEMS_TABLE;
+    }
+
+    /** @return string Fully-qualified budget line items (plan-usage) table name. */
     public static function budgetLineItemsTable(): string
     {
         global $wpdb;
         return $wpdb->prefix . self::BUDGET_LINE_ITEMS_TABLE;
+    }
+
+    /**
+     * One-time migration: promotes the inline label/vendor/cost columns on
+     * eim_budget_line_items into the new eim_budget_items global library table,
+     * then back-fills global_item_id on every existing row.
+     *
+     * Safe to call multiple times — rows that already have global_item_id set
+     * are skipped.
+     */
+    public static function maybeMigrateBudgetLineItems(): void
+    {
+        global $wpdb;
+
+        $lineTable   = $wpdb->prefix . self::BUDGET_LINE_ITEMS_TABLE;
+        $globalTable = $wpdb->prefix . self::BUDGET_ITEMS_TABLE;
+
+        // Only migrate rows that don't yet have a global_item_id.
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $rows = $wpdb->get_results("SELECT * FROM {$lineTable} WHERE global_item_id IS NULL ORDER BY id ASC");
+
+        if (empty($rows)) {
+            return;
+        }
+
+        foreach ($rows as $row) {
+            $wpdb->insert($globalTable, [
+                'label'               => $row->label               ?? '',
+                'vendor_id'           => isset($row->vendor_id) && $row->vendor_id ? (int) $row->vendor_id : null,
+                'website_url'         => $row->website_url         ?? '',
+                'notes'               => $row->notes               ?? '',
+                'image_attachment_id' => (int) ($row->image_attachment_id ?? 0),
+                'unit_cost_cents'     => (int) ($row->unit_cost_cents     ?? 0),
+                'source_type'         => $row->source_type         ?? null,
+                'source_id'           => isset($row->source_id) && $row->source_id ? (int) $row->source_id : null,
+                'created_at'          => $row->created_at          ?? current_time('mysql'),
+                'updated_at'          => $row->updated_at          ?? current_time('mysql'),
+            ]);
+
+            $globalItemId = (int) $wpdb->insert_id;
+            if ($globalItemId > 0) {
+                // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+                $wpdb->update($lineTable, ['global_item_id' => $globalItemId], ['id' => (int) $row->id]);
+            }
+        }
     }
 
     /** @return string Fully-qualified newsletters table name. */

@@ -12,6 +12,7 @@ use EventsInviteManager\Admin\Pages\EventsManager\SubPages\ConnectionGroupsPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\EventsPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\InviteesPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\LocationsPage;
+use EventsInviteManager\Admin\Pages\EventsManager\SubPages\BudgetItemsPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\BudgetPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\MenuItemsPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\CategoriesPage;
@@ -72,6 +73,9 @@ final class AdminMenu
     /** @var string Tab slug for the global Messages sub-page. */
     public const TAB_MESSAGES           = 'messages';
 
+    /** @var string Tab slug for the Budget Line Items global library sub-page. */
+    public const TAB_BUDGET_LINE_ITEMS  = 'budget-items';
+
     /** @var AboutPage About / plugin-info page. */
     private AboutPage            $aboutPage;
 
@@ -95,6 +99,9 @@ final class AdminMenu
 
     /** @var BudgetPage Budget sub-page handler. */
     private BudgetPage           $budgetPage;
+
+    /** @var BudgetItemsPage Budget Line Items global library sub-page handler. */
+    private BudgetItemsPage      $budgetItemsPage;
 
     /** @var NewslettersPage Newsletters sub-page handler. */
     private NewslettersPage      $newslettersPage;
@@ -128,6 +135,7 @@ final class AdminMenu
         $this->locationsPage          = new LocationsPage();
         $this->menuItemsPage          = new MenuItemsPage();
         $this->budgetPage             = new BudgetPage();
+        $this->budgetItemsPage        = new BudgetItemsPage();
         $this->newslettersPage        = new NewslettersPage($emailService);
         $this->vendorsPage            = new VendorsPage();
         $this->categoriesPage         = new CategoriesPage();
@@ -143,6 +151,7 @@ final class AdminMenu
             $this->locationsPage,
             $this->menuItemsPage,
             $this->budgetPage,
+            $this->budgetItemsPage,
             $this->newslettersPage,
             $this->vendorsPage,
             $this->categoriesPage,
@@ -199,8 +208,11 @@ final class AdminMenu
         add_action('wp_ajax_eim_suggest_cg_members',    [$this->connectionGroupsPage, 'handleAjaxSuggestMembers']);
         add_action('wp_ajax_eim_suggest_events',           [$this->eventsPage, 'handleAjaxSuggestEvents']);
         add_action('wp_ajax_eim_search_events',            [$this->eventsPage, 'handleAjaxSearchEvents']);
-        add_action('wp_ajax_eim_search_budget_plans',      [$this->budgetPage, 'handleAjaxSearchPlans']);
-        add_action('wp_ajax_eim_search_budget_line_items', [$this->budgetPage, 'handleAjaxSearchLineItems']);
+        add_action('wp_ajax_eim_search_budget_plans',         [$this->budgetPage,      'handleAjaxSearchPlans']);
+        add_action('wp_ajax_eim_search_budget_line_items',   [$this->budgetPage,      'handleAjaxSearchLineItems']);
+        add_action('wp_ajax_eim_search_budget_payment_items',[$this->budgetPage,      'handleAjaxSearchPaymentItems']);
+        add_action('wp_ajax_eim_search_budget_items',        [$this->budgetItemsPage, 'handleAjaxSearch']);
+        add_action('wp_ajax_eim_suggest_budget_items',       [$this->budgetItemsPage, 'handleAjaxSuggest']);
         add_action('wp_ajax_eim_search_newsletters',       [$this->newslettersPage, 'handleAjaxSearchNewsletters']);
         add_action('wp_ajax_eim_send_newsletter',          [$this->newslettersPage, 'handleAjaxSendNewsletter']);
         add_action('wp_ajax_eim_send_newsletter_test',     [$this->newslettersPage, 'handleAjaxSendNewsletterTest']);
@@ -308,22 +320,45 @@ final class AdminMenu
         if ($tab === self::TAB_BUDGET) {
             wp_enqueue_script('eim-admin-budget', EIM_PLUGIN_URL . 'assets/js/admin-budget.js', [], EIM_VERSION, true);
             wp_localize_script('eim-admin-budget', 'eimBudgetAdmin', [
-                'searchNonce'        => wp_create_nonce('eim_search_budget_plans_nonce'),
-                'lineItemNonce'      => wp_create_nonce('eim_search_budget_line_items_nonce'),
-                'suggestEventsNonce' => wp_create_nonce('eim_suggest_events_nonce'),
-                'planId'             => $action === 'edit' ? (int) ($_GET['id'] ?? 0) : 0,
-                'table'              => [
+                'searchNonce'          => wp_create_nonce('eim_search_budget_plans_nonce'),
+                'lineItemNonce'        => wp_create_nonce('eim_search_budget_line_items_nonce'),
+                'paymentSearchNonce'   => wp_create_nonce('eim_search_budget_payment_items_nonce'),
+                'suggestEventsNonce'   => wp_create_nonce('eim_suggest_events_nonce'),
+                'suggestItemsNonce'    => wp_create_nonce('eim_suggest_budget_items_nonce'),
+                'planId'               => $action === 'edit' ? (int) ($_GET['id'] ?? 0) : 0,
+                'table'                => [
                     'enabled' => $action !== 'edit',
                     'sort'    => sanitize_key($_GET['sort']  ?? 'name'),
                     'order'   => strtolower((string) ($_GET['order'] ?? 'asc')) === 'desc' ? 'desc' : 'asc',
                 ],
-                'lineItems'          => [
+                'lineItems'            => [
                     'enabled' => $action === 'edit',
                     'sort'    => sanitize_key($_GET['li_sort']  ?? 'sort_order'),
                     'order'   => strtolower((string) ($_GET['li_order'] ?? 'asc')) === 'desc' ? 'desc' : 'asc',
                 ],
             ]);
             if ($action === 'edit') {
+                wp_enqueue_media();
+                wp_enqueue_script('eim-admin-vendors', EIM_PLUGIN_URL . 'assets/js/admin-vendors.js', [], EIM_VERSION, true);
+                wp_localize_script('eim-admin-vendors', 'eimVendorsAdmin', [
+                    'suggestNonce' => wp_create_nonce('eim_suggest_vendors_nonce'),
+                    'table'        => ['enabled' => false],
+                    'autocomplete' => ['enabled' => true],
+                ]);
+            }
+        }
+
+        if ($tab === self::TAB_BUDGET_LINE_ITEMS) {
+            wp_enqueue_script('eim-admin-budget-items', EIM_PLUGIN_URL . 'assets/js/admin-budget-items.js', [], EIM_VERSION, true);
+            wp_localize_script('eim-admin-budget-items', 'eimBudgetItemsAdmin', [
+                'searchNonce' => wp_create_nonce('eim_search_budget_items_nonce'),
+                'table'       => [
+                    'enabled' => !in_array($action, ['add', 'edit'], true),
+                    'sort'    => sanitize_key($_GET['sort']  ?? 'label'),
+                    'order'   => strtolower((string) ($_GET['order'] ?? 'asc')) === 'desc' ? 'desc' : 'asc',
+                ],
+            ]);
+            if (in_array($action, ['add', 'edit'], true)) {
                 wp_enqueue_media();
                 wp_enqueue_script('eim-admin-vendors', EIM_PLUGIN_URL . 'assets/js/admin-vendors.js', [], EIM_VERSION, true);
                 wp_localize_script('eim-admin-vendors', 'eimVendorsAdmin', [
@@ -594,6 +629,7 @@ final class AdminMenu
                 self::TAB_LOCATIONS            => $this->locationsPage->handleAction($action),
                 self::TAB_MENU_ITEMS           => $this->menuItemsPage->handleAction($action),
                 self::TAB_BUDGET               => $this->budgetPage->handleAction($action),
+                self::TAB_BUDGET_LINE_ITEMS    => $this->budgetItemsPage->handleAction($action),
                 self::TAB_VENDORS              => $this->vendorsPage->handleAction($action),
                 self::TAB_NEWSLETTERS          => $this->newslettersPage->handleAction($action),
                 self::TAB_CATEGORIES           => $this->categoriesPage->handleAction($action),
