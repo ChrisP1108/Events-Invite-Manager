@@ -9,10 +9,12 @@ if (!defined('ABSPATH')) exit;
 use EventsInviteManager\Database\DatabaseManager;
 
 /**
- * Represents a message sent by an invitation group's connection group about a specific event.
+ * Represents a message or admin reply in a conversation thread between an
+ * invitation group's connection group and the admin for a specific event.
  *
- * Messages are submitted by invitees via the Invitee Dashboard and visible to admins
- * on the event edit page under the Messages tab.
+ * Invitee messages are submitted via the frontend REST API; admin replies are
+ * created via the admin dashboard. Both live in the same table so they can be
+ * rendered as a chronological thread.
  */
 final class EventMessage
 {
@@ -22,6 +24,7 @@ final class EventMessage
      * @param int     $connectionGroupId   FK to eim_invitee_connection_groups.
      * @param string  $message             Message body text.
      * @param bool    $isRead              Whether an admin has marked this message as read.
+     * @param bool    $isAdminReply        True for admin-sent replies; false for invitee messages.
      * @param string  $createdAt           MySQL DATETIME when the message was submitted.
      * @param ?string $connectionGroupName Connection group name (populated by listForAdmin JOIN).
      * @param ?string $eventName           Event name (populated by listForAdmin JOIN).
@@ -32,6 +35,7 @@ final class EventMessage
         public readonly int     $connectionGroupId,
         public readonly string  $message,
         public readonly bool    $isRead,
+        public readonly bool    $isAdminReply,
         public readonly string  $createdAt,
         public readonly ?string $connectionGroupName = null,
         public readonly ?string $eventName           = null,
@@ -40,10 +44,10 @@ final class EventMessage
     // ─── Queries ─────────────────────────────────────────────────────────────
 
     /**
-     * Returns all messages across all events for the global admin list.
+     * Returns invitee messages across all events for the global admin list.
      *
+     * Admin replies are excluded — they appear only in the thread panel.
      * JOINs events and connection_groups to include their names for display and sorting.
-     * Supports searching by event name, connection group name, or message body.
      *
      * @param string $search Search string (empty = no filter).
      * @param string $sort   Column key: event_name | connection_group_name | message | is_read | created_at.
@@ -69,7 +73,8 @@ final class EventMessage
             default                 => "m.{$sort} {$order}, m.id DESC",
         };
 
-        $where = '1=1';
+        // Show only invitee messages in the global list; admin replies appear in threads.
+        $where = 'm.is_admin_reply = 0';
         $args  = [];
 
         if ($search !== '') {
@@ -95,7 +100,10 @@ final class EventMessage
     }
 
     /**
-     * Returns all messages for an event and connection group, newest first.
+     * Returns the full conversation thread for an event and connection group,
+     * oldest first so it renders naturally top-to-bottom.
+     *
+     * Includes both invitee messages and admin replies.
      *
      * @return self[]
      */
@@ -108,7 +116,7 @@ final class EventMessage
             $wpdb->prepare(
                 "SELECT * FROM {$table}
                  WHERE event_id = %d AND connection_group_id = %d
-                 ORDER BY created_at DESC",
+                 ORDER BY created_at ASC, id ASC",
                 $eventId,
                 $groupId
             )
@@ -118,7 +126,10 @@ final class EventMessage
     }
 
     /**
-     * Returns per-group message counts for an event.
+     * Returns per-group invitee-message counts for an event.
+     *
+     * Admin replies are excluded from both the total and unread counts since
+     * they are the admin's own messages and need no follow-up read action.
      *
      * @param int $eventId
      * @return array<int, array{total:int, unread:int}> Keyed by connection_group_id.
@@ -131,10 +142,10 @@ final class EventMessage
         $rows  = $wpdb->get_results(
             $wpdb->prepare(
                 "SELECT connection_group_id,
-                        COUNT(*)                        AS total,
+                        COUNT(*)                                     AS total,
                         SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) AS unread
                  FROM {$table}
-                 WHERE event_id = %d
+                 WHERE event_id = %d AND is_admin_reply = 0
                  GROUP BY connection_group_id",
                 $eventId
             )
@@ -154,7 +165,7 @@ final class EventMessage
     // ─── Mutations ───────────────────────────────────────────────────────────
 
     /**
-     * Inserts a new message and returns its ID, or false on failure.
+     * Inserts a new invitee message and returns its ID, or false on failure.
      */
     public static function create(int $eventId, int $groupId, string $message): int|false
     {
@@ -167,11 +178,55 @@ final class EventMessage
                 'connection_group_id' => $groupId,
                 'message'             => $message,
                 'is_read'             => 0,
+                'is_admin_reply'      => 0,
             ],
-            ['%d', '%d', '%s', '%d']
+            ['%d', '%d', '%s', '%d', '%d']
         );
 
         return $result ? (int) $wpdb->insert_id : false;
+    }
+
+    /**
+     * Inserts an admin reply into the thread and returns its ID, or false on failure.
+     *
+     * Admin replies are always inserted with is_read=1 since the admin wrote them.
+     */
+    public static function createAdminReply(int $eventId, int $groupId, string $message): int|false
+    {
+        global $wpdb;
+
+        $result = $wpdb->insert(
+            DatabaseManager::eventMessagesTable(),
+            [
+                'event_id'            => $eventId,
+                'connection_group_id' => $groupId,
+                'message'             => $message,
+                'is_read'             => 1,
+                'is_admin_reply'      => 1,
+            ],
+            ['%d', '%d', '%s', '%d', '%d']
+        );
+
+        return $result ? (int) $wpdb->insert_id : false;
+    }
+
+    /**
+     * Marks all invitee messages in an event+group thread as read.
+     *
+     * Called automatically when an admin posts a reply, signalling they have
+     * read all outstanding messages before responding.
+     */
+    public static function markThreadRead(int $eventId, int $groupId): void
+    {
+        global $wpdb;
+
+        $wpdb->update(
+            DatabaseManager::eventMessagesTable(),
+            ['is_read' => 1],
+            ['event_id' => $eventId, 'connection_group_id' => $groupId, 'is_admin_reply' => 0],
+            ['%d'],
+            ['%d', '%d', '%d']
+        );
     }
 
     /**
@@ -228,9 +283,10 @@ final class EventMessage
             id:                  (int)    $row->id,
             eventId:             (int)    $row->event_id,
             connectionGroupId:   (int)    $row->connection_group_id,
-            message:             (string) ($row->message    ?? ''),
-            isRead:              (bool)   ($row->is_read    ?? false),
-            createdAt:           (string) ($row->created_at ?? ''),
+            message:             (string) ($row->message       ?? ''),
+            isRead:              (bool)   ($row->is_read       ?? false),
+            isAdminReply:        (bool)   ($row->is_admin_reply ?? false),
+            createdAt:           (string) ($row->created_at    ?? ''),
             connectionGroupName: isset($row->connection_group_name) ? (string) $row->connection_group_name : null,
             eventName:           isset($row->event_name)            ? (string) $row->event_name            : null,
         );

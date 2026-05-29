@@ -114,11 +114,11 @@ final class MessagesPage extends AbstractAdminPage
                         <th class="eim-bulk-select-cell" style="width:3%;">
                             <?= $this->renderBulkSelectHeader('messages'); ?>
                         </th>
+                        <th style="width:11%;"><?= $this->sortLink('Date',            'created_at',            AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_MESSAGES]); ?></th>
                         <th style="width:15%;"><?= $this->sortLink('Event',            'event_name',            AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_MESSAGES]); ?></th>
-                        <th style="width:16%;"><?= $this->sortLink('Connection Group', 'connection_group_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_MESSAGES]); ?></th>
                         <th style="width:35%;"><?= $this->sortLink('Message',         'message',               AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_MESSAGES]); ?></th>
                         <th style="width:9%;"><?= $this->sortLink('Status',           'is_read',               AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_MESSAGES]); ?></th>
-                        <th style="width:11%;"><?= $this->sortLink('Date',            'created_at',            AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_MESSAGES]); ?></th>
+                        <th style="width:16%;"><?= $this->sortLink('Connection Group', 'connection_group_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_MESSAGES]); ?></th>
                         <th style="width:11%;">Actions</th>
                     </tr>
                 </thead>
@@ -160,15 +160,15 @@ final class MessagesPage extends AbstractAdminPage
             <tr data-message-id="<?= esc_attr($msg->id); ?>"
                 data-is-read="<?= $msg->isRead ? '1' : '0'; ?>">
                 <?= $this->renderBulkSelectCell('eim-messages-bulk-form', 'messages', $msg->id, $msg->message); ?>
+                <td><?= esc_html($this->formatDate($msg->createdAt)); ?></td>
                 <td>
-                    <a href="<?= esc_url($eventUrl); ?>">
-                        <?= esc_html($msg->eventName ?? '—'); ?>
-                    </a>
-                </td>
-                <td>
-                    <a href="<?= esc_url($cgUrl); ?>">
-                        <?= esc_html($msg->connectionGroupName ?? '—'); ?>
-                    </a>
+                    <?php if ($msg->eventName !== null): ?>
+                        <a href="<?= esc_url($eventUrl); ?>" class="eim-event-chip">
+                            <?= esc_html($msg->eventName); ?>
+                        </a>
+                    <?php else: ?>
+                        —
+                    <?php endif; ?>
                 </td>
                 <td title="<?= esc_attr($msg->message); ?>">
                     <?= esc_html($truncated); ?>
@@ -179,8 +179,19 @@ final class MessagesPage extends AbstractAdminPage
                         <?= esc_html($badgeLabel); ?>
                     </span>
                 </td>
-                <td><?= esc_html($this->formatDate($msg->createdAt)); ?></td>
+                <td>
+                    <a href="<?= esc_url($cgUrl); ?>">
+                        <?= esc_html($msg->connectionGroupName ?? '—'); ?>
+                    </a>
+                </td>
                 <td style="white-space:nowrap;">
+                    <button type="button"
+                            class="button button-small eim-msg-thread"
+                            data-event-id="<?= esc_attr($msg->eventId); ?>"
+                            data-group-id="<?= esc_attr($msg->connectionGroupId); ?>"
+                            data-group-name="<?= esc_attr($msg->connectionGroupName ?? ''); ?>">
+                        Thread
+                    </button>
                     <button type="button"
                             class="button button-small eim-msg-toggle-read"
                             data-message-id="<?= esc_attr($msg->id); ?>"

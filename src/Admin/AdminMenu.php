@@ -251,6 +251,7 @@ final class AdminMenu
         add_action('wp_ajax_eim_get_group_messages',    [$this->eventsPage, 'handleAjaxGetGroupMessages']);
         add_action('wp_ajax_eim_mark_message_read',     [$this->eventsPage, 'handleAjaxMarkMessageRead']);
         add_action('wp_ajax_eim_delete_message',        [$this->eventsPage, 'handleAjaxDeleteMessage']);
+        add_action('wp_ajax_eim_reply_to_message',      [$this->eventsPage, 'handleAjaxReplyToMessage']);
 
         add_filter('script_loader_tag', [$this, 'addModuleTypeToScript'], 10, 2);
     }
@@ -372,10 +373,12 @@ final class AdminMenu
         if ($tab === self::TAB_MESSAGES) {
             wp_enqueue_script('eim-admin-messages', EIM_PLUGIN_URL . 'assets/js/admin-messages.js', [], EIM_VERSION, true);
             wp_localize_script('eim-admin-messages', 'eimMessagesAdmin', [
-                'searchNonce'   => wp_create_nonce('eim_search_messages_nonce'),
-                'markReadNonce' => wp_create_nonce('eim_mark_message_read_nonce'),
-                'deleteNonce'   => wp_create_nonce('eim_delete_message_nonce'),
-                'table'         => [
+                'searchNonce'      => wp_create_nonce('eim_search_messages_nonce'),
+                'markReadNonce'    => wp_create_nonce('eim_mark_message_read_nonce'),
+                'deleteNonce'      => wp_create_nonce('eim_delete_message_nonce'),
+                'getMessagesNonce' => wp_create_nonce('eim_get_group_messages_nonce'),
+                'replyNonce'       => wp_create_nonce('eim_reply_to_message_nonce'),
+                'table'            => [
                     'enabled' => true,
                     'sort'    => sanitize_key($_GET['sort']  ?? 'created_at'),
                     'order'   => strtolower((string) ($_GET['order'] ?? 'desc')) === 'asc' ? 'asc' : 'desc',
@@ -468,6 +471,7 @@ final class AdminMenu
                     'getMessagesNonce'    => wp_create_nonce('eim_get_group_messages_nonce'),
                     'markReadNonce'       => wp_create_nonce('eim_mark_message_read_nonce'),
                     'deleteMessageNonce'  => wp_create_nonce('eim_delete_message_nonce'),
+                    'replyNonce'          => wp_create_nonce('eim_reply_to_message_nonce'),
                 ],
                 'connectionGroup' => [
                     'enabled' => $tab === self::TAB_CONNECTION_GROUPS && in_array($action, ['add', 'edit'], true),

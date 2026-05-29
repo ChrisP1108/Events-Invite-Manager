@@ -40,11 +40,12 @@ final class BudgetPage extends AbstractAdminPage
             wp_send_json_error('Insufficient permissions.', 403);
         }
 
-        $planId = (int) ($_GET['plan_id'] ?? 0);
-        $query  = sanitize_text_field(wp_unslash($_GET['query'] ?? ''));
-        $sort   = sanitize_key($_GET['sort']  ?? 'sort_order');
-        $order  = strtolower((string) ($_GET['order'] ?? 'asc')) === 'desc' ? 'desc' : 'asc';
-        $field  = sanitize_key($_GET['field']  ?? '');
+        $planId   = (int) ($_GET['plan_id']   ?? 0);
+        $query    = sanitize_text_field(wp_unslash($_GET['query'] ?? ''));
+        $sort     = sanitize_key($_GET['sort']     ?? 'sort_order');
+        $order    = strtolower((string) ($_GET['order'] ?? 'asc')) === 'desc' ? 'desc' : 'asc';
+        $field    = sanitize_key($_GET['field']    ?? '');
+        $vendorId = max(0, (int) ($_GET['vendor_id'] ?? 0));
 
         $plan  = $planId > 0 ? BudgetPlan::find($planId) : null;
         if ($plan === null) {
@@ -54,7 +55,7 @@ final class BudgetPage extends AbstractAdminPage
         $page    = max(1, (int) ($_GET['page']     ?? 1));
         $perPage = in_array((int) ($_GET['per_page'] ?? 10), [5, 10, 25, 50, 100], true) ? (int) $_GET['per_page'] : 10;
 
-        $all   = BudgetLineItem::searchForPlan($planId, $query, $sort, $order, $field);
+        $all   = BudgetLineItem::searchForPlan($planId, $query, $sort, $order, $field, $vendorId);
         $total = count($all);
         $items = array_slice($all, ($page - 1) * $perPage, $perPage);
 
@@ -687,6 +688,20 @@ final class BudgetPage extends AbstractAdminPage
         $liAll    = BudgetLineItem::searchForPlan($plan->id, '', $liSort, $liOrder);
         $liTotal  = count($liAll);
         $liItems  = array_slice($liAll, 0, 10);
+
+        // Build vendor list for the filter dropdown (only vendors used by this plan's line items).
+        $liVendorIds    = array_values(array_unique(array_filter(
+            array_map(static fn(BudgetLineItem $i) => $i->vendorId, $liAll)
+        )));
+        $liVendorsMap   = !empty($liVendorIds) ? Vendor::findMany($liVendorIds) : [];
+        $liVendorOptions = [];
+        foreach ($liVendorIds as $vid) {
+            $v = $liVendorsMap[$vid] ?? null;
+            if ($v !== null) {
+                $liVendorOptions[$vid] = $v->companyName;
+            }
+        }
+        asort($liVendorOptions);
         $planCats = Category::forEntity('budget_plan', $plan->id);
 
         // Payments tab — counts only; the full lists are loaded via AJAX on accordion expand.
@@ -854,6 +869,19 @@ final class BudgetPage extends AbstractAdminPage
                     ''
                 ); ?>
 
+                <?php if (!empty($liVendorOptions)): ?>
+                <div style="display:flex;align-items:center;gap:8px;margin:6px 0 10px;">
+                    <label for="eim-line-item-vendor-filter" style="font-weight:600;white-space:nowrap;">Filter by Vendor:</label>
+                    <select id="eim-line-item-vendor-filter" class="eim-search-field-select">
+                        <option value="">— All Vendors —</option>
+                        <?php foreach ($liVendorOptions as $vid => $vName): ?>
+                            <option value="<?= esc_attr($vid); ?>"><?= esc_html($vName); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <button type="button" id="eim-li-vendor-clear" class="button button-small" style="display:none;">Clear</button>
+                </div>
+                <?php endif; ?>
+
                 <?php $this->renderBulkActions(
                     'eim-line-items-bulk-form',
                     AdminMenu::tabUrl(AdminMenu::TAB_BUDGET, ['action' => 'edit', 'id' => $plan->id]),
@@ -900,9 +928,9 @@ final class BudgetPage extends AbstractAdminPage
             <?php /* ── Payments panel ───────────────────────────────────── */ ?>
             <div id="eim-btab-payments" class="eim-btab-panel">
 
-                <?php $this->renderPaymentAccordionSection('needs_payment', 'Needs Payment', $needsPaymentCount, $plan->id, $needsPaymentDueSoonCount); ?>
+                <?php $this->renderPaymentAccordionSection('needs_payment', 'Needs Payment', $needsPaymentCount, $plan->id, $needsPaymentDueSoonCount, $liVendorOptions); ?>
 
-                <?php $this->renderPaymentAccordionSection('paid', 'Paid', $paidCount, $plan->id); ?>
+                <?php $this->renderPaymentAccordionSection('paid', 'Paid', $paidCount, $plan->id, 0, $liVendorOptions); ?>
 
             </div><!-- /.eim-btab-payments -->
 
@@ -1197,21 +1225,22 @@ final class BudgetPage extends AbstractAdminPage
             wp_send_json_error('Insufficient permissions.', 403);
         }
 
-        $planId  = (int) ($_GET['plan_id'] ?? 0);
-        $status  = in_array(($_GET['status'] ?? ''), ['needs_payment', 'paid'], true) ? $_GET['status'] : 'needs_payment';
-        $query   = sanitize_text_field(wp_unslash($_GET['query']  ?? ''));
-        $sort    = $this->sanitizeLineItemSortKey(sanitize_key($_GET['sort']  ?? 'deadline'));
-        $order   = strtolower((string) ($_GET['order']  ?? 'asc')) === 'desc' ? 'desc' : 'asc';
-        $field   = sanitize_key($_GET['field']   ?? '');
-        $page    = max(1, (int) ($_GET['page']   ?? 1));
-        $perPage = in_array((int) ($_GET['per_page'] ?? 10), [5, 10, 25, 50, 100], true) ? (int) $_GET['per_page'] : 10;
+        $planId   = (int) ($_GET['plan_id']   ?? 0);
+        $status   = in_array(($_GET['status'] ?? ''), ['needs_payment', 'paid'], true) ? $_GET['status'] : 'needs_payment';
+        $query    = sanitize_text_field(wp_unslash($_GET['query']  ?? ''));
+        $sort     = $this->sanitizeLineItemSortKey(sanitize_key($_GET['sort']  ?? 'deadline'));
+        $order    = strtolower((string) ($_GET['order']  ?? 'asc')) === 'desc' ? 'desc' : 'asc';
+        $field    = sanitize_key($_GET['field']    ?? '');
+        $vendorId = max(0, (int) ($_GET['vendor_id'] ?? 0));
+        $page     = max(1, (int) ($_GET['page']    ?? 1));
+        $perPage  = in_array((int) ($_GET['per_page'] ?? 10), [5, 10, 25, 50, 100], true) ? (int) $_GET['per_page'] : 10;
 
         $plan = $planId > 0 ? BudgetPlan::find($planId) : null;
         if ($plan === null) {
             wp_send_json_error('Plan not found.', 404);
         }
 
-        $all = BudgetLineItem::searchForPlan($planId, $query, $sort, $order, $field);
+        $all = BudgetLineItem::searchForPlan($planId, $query, $sort, $order, $field, $vendorId);
 
         $filtered = $status === 'paid'
             ? array_values(array_filter($all, static fn(BudgetLineItem $i): bool => $i->estimatedCents() > 0 && $i->paidAmountCents >= $i->estimatedCents()))
@@ -1242,7 +1271,7 @@ final class BudgetPage extends AbstractAdminPage
      *
      * @param int $dueSoonCount Number of items whose deadline is within 30 days (needs_payment only).
      */
-    private function renderPaymentAccordionSection(string $status, string $heading, int $count, int $planId, int $dueSoonCount = 0): void
+    private function renderPaymentAccordionSection(string $status, string $heading, int $count, int $planId, int $dueSoonCount = 0, array $vendorOptions = []): void
     {
         $topMargin = $status === 'needs_payment' ? '16px' : '8px';
         ?>
@@ -1277,7 +1306,7 @@ final class BudgetPage extends AbstractAdminPage
             <div class="eim-payment-section-body" hidden style="border:1px solid #dcdcde;border-top:none;border-radius:0 0 4px 4px;padding:12px 14px 4px;">
 
                 <?php /* Search row */ ?>
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
                     <input type="text" class="eim-payment-search-input regular-text"
                            placeholder="Search line items…" autocomplete="off">
                     <select class="eim-payment-search-field">
@@ -1294,6 +1323,18 @@ final class BudgetPage extends AbstractAdminPage
                         <option value="100">100 / page</option>
                     </select>
                 </div>
+                <?php if (!empty($vendorOptions)): ?>
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+                    <label style="font-weight:600;white-space:nowrap;font-size:13px;">Filter by Vendor:</label>
+                    <select class="eim-payment-vendor-filter eim-search-field-select">
+                        <option value="">— All Vendors —</option>
+                        <?php foreach ($vendorOptions as $vid => $vName): ?>
+                            <option value="<?= esc_attr($vid); ?>"><?= esc_html($vName); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <button type="button" class="eim-payment-vendor-clear button button-small" style="display:none;">Clear</button>
+                </div>
+                <?php endif; ?>
 
                 <?php /* Table */ ?>
                 <table class="wp-list-table widefat fixed striped" style="margin-bottom:8px;">

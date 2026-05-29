@@ -168,7 +168,7 @@
             close.type = 'button';
             close.className = 'button-link eim-li-image-modal-close';
             close.setAttribute('aria-label', 'Close image preview');
-            close.textContent = '×';
+            close.textContent = 'X';
             this.#image   = document.createElement('img');
             this.#image.alt = '';
             this.#caption = document.createElement('div');

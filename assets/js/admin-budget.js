@@ -179,6 +179,10 @@
         #search;
         /** @type {HTMLSelectElement|null} */
         #field;
+        /** @type {HTMLSelectElement|null} */
+        #vendorFilter;
+        /** @type {HTMLButtonElement|null} */
+        #vendorClear;
         /** @type {HTMLElement|null} */
         #count;
         /** @type {HTMLElement|null} */
@@ -203,6 +207,8 @@
             this.#tbody        = document.getElementById('eim-line-items-table-body');
             this.#search       = document.getElementById('eim-line-item-search');
             this.#field        = document.getElementById('eim-line-item-search-field');
+            this.#vendorFilter = document.getElementById('eim-line-item-vendor-filter');
+            this.#vendorClear  = document.getElementById('eim-li-vendor-clear');
             this.#count        = document.getElementById('eim-line-item-count');
             this.#spinner      = document.getElementById('eim-line-item-loading');
             this.#perPageSel   = document.getElementById('eim-line-item-search-per-page');
@@ -223,6 +229,21 @@
             this.#search?.addEventListener('input', debounce(() => { this.#page = 1; this.#refresh(); }));
             this.#field?.addEventListener('change', () => { this.#page = 1; this.#refresh(); });
 
+            this.#vendorFilter?.addEventListener('change', () => {
+                this.#page = 1;
+                if (this.#vendorClear) {
+                    this.#vendorClear.style.display = this.#vendorFilter.value ? '' : 'none';
+                }
+                this.#refresh();
+            });
+
+            this.#vendorClear?.addEventListener('click', () => {
+                if (this.#vendorFilter) this.#vendorFilter.value = '';
+                if (this.#vendorClear)  this.#vendorClear.style.display = 'none';
+                this.#page = 1;
+                this.#refresh();
+            });
+
             for (const link of this.#table.querySelectorAll('.eim-sort-link')) {
                 link.addEventListener('click', (e) => {
                     e.preventDefault();
@@ -240,14 +261,15 @@
             this.#spinner?.classList.add('is-active');
             try {
                 const url = ajaxUrl('eim_search_budget_line_items', {
-                    nonce:    config.lineItemNonce,
-                    plan_id:  this.#planId,
-                    query:    this.#search?.value || '',
-                    sort:     this.#sort,
-                    order:    this.#order,
-                    field:    this.#field?.value || '',
-                    page:     this.#page,
-                    per_page: this.#perPage,
+                    nonce:     config.lineItemNonce,
+                    plan_id:   this.#planId,
+                    query:     this.#search?.value || '',
+                    sort:      this.#sort,
+                    order:     this.#order,
+                    field:     this.#field?.value || '',
+                    vendor_id: this.#vendorFilter?.value || 0,
+                    page:      this.#page,
+                    per_page:  this.#perPage,
                 });
                 const { success, data } = await (await fetch(url, { credentials: 'same-origin' })).json();
                 if (!success) return;
@@ -413,7 +435,7 @@
             close.type = 'button';
             close.className = 'button-link eim-li-image-modal-close';
             close.setAttribute('aria-label', 'Close image preview');
-            close.textContent = 'x';
+            close.textContent = 'X';
             this.#image = document.createElement('img');
             this.#image.alt = '';
             this.#caption = document.createElement('div');
@@ -1197,6 +1219,8 @@
         #body;
         #search;
         #field;
+        #vendorFilter;
+        #vendorClear;
         #perPageSel;
         #tbody;
         #countEl;
@@ -1217,6 +1241,8 @@
             this.#body         = container.querySelector('.eim-payment-section-body');
             this.#search       = container.querySelector('.eim-payment-search-input');
             this.#field        = container.querySelector('.eim-payment-search-field');
+            this.#vendorFilter = container.querySelector('.eim-payment-vendor-filter');
+            this.#vendorClear  = container.querySelector('.eim-payment-vendor-clear');
             this.#perPageSel   = container.querySelector('.eim-payment-per-page');
             this.#tbody        = container.querySelector('.eim-payment-tbody');
             this.#countEl      = container.querySelector('.eim-payment-section-count');
@@ -1229,6 +1255,17 @@
 
             this.#search?.addEventListener('input', debounce(() => { this.#page = 1; this.#refresh(); }, 250));
             this.#field?.addEventListener('change', () => { this.#page = 1; this.#refresh(); });
+            this.#vendorFilter?.addEventListener('change', () => {
+                this.#page = 1;
+                if (this.#vendorClear) this.#vendorClear.style.display = this.#vendorFilter.value ? '' : 'none';
+                this.#refresh();
+            });
+            this.#vendorClear?.addEventListener('click', () => {
+                if (this.#vendorFilter) this.#vendorFilter.value = '';
+                if (this.#vendorClear)  this.#vendorClear.style.display = 'none';
+                this.#page = 1;
+                this.#refresh();
+            });
             this.#perPageSel?.addEventListener('change', () => {
                 this.#perPage = Number(this.#perPageSel.value);
                 this.#page = 1;
@@ -1281,15 +1318,16 @@
             this.#spinner?.classList.add('is-active');
             try {
                 const url = ajaxUrl('eim_search_budget_payment_items', {
-                    nonce:    config.paymentSearchNonce || '',
-                    plan_id:  this.#planId,
-                    status:   this.#status,
-                    query:    this.#search?.value || '',
-                    sort:     this.#sort,
-                    order:    this.#order,
-                    field:    this.#field?.value || '',
-                    page:     this.#page,
-                    per_page: this.#perPage,
+                    nonce:     config.paymentSearchNonce || '',
+                    plan_id:   this.#planId,
+                    status:    this.#status,
+                    query:     this.#search?.value || '',
+                    sort:      this.#sort,
+                    order:     this.#order,
+                    field:     this.#field?.value || '',
+                    vendor_id: this.#vendorFilter?.value || 0,
+                    page:      this.#page,
+                    per_page:  this.#perPage,
                 });
                 const { success, data } = await (await fetch(url, { credentials: 'same-origin' })).json();
                 if (!success) return;

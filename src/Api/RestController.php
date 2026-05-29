@@ -1108,10 +1108,11 @@ class RestController
             'group_id' => $connectionGroupId,
             'count'    => count($messages),
             'messages' => array_map(static fn(EventMessage $msg): array => [
-                'id'         => $msg->id,
-                'message'    => $msg->message,
-                'is_read'    => (bool) $msg->isRead,
-                'created_at' => $msg->createdAt,
+                'id'             => $msg->id,
+                'message'        => $msg->message,
+                'is_read'        => (bool) $msg->isRead,
+                'is_admin_reply' => (bool) $msg->isAdminReply,
+                'created_at'     => $msg->createdAt,
             ], $messages),
         ], 200);
     }

@@ -635,6 +635,25 @@ h1 {
     color: #1a3d80;
 }
 
+.eim-event-chip {
+    background: #edfbef;
+    border: 1px solid #8dca93;
+    border-radius: 999px;
+    color: #1f6b27;
+    display: inline-block;
+    font-size: 12px;
+    line-height: 1.4;
+    padding: 2px 8px;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.eim-event-chip:hover,
+.eim-event-chip:focus {
+    background: #d4f3d8;
+    color: #155220;
+}
+
 /* Event tags (blue) */
 .eim-event-tag {
     background: #e7f2fb;
@@ -1168,6 +1187,24 @@ h1 {
     font-size: 20px;
     line-height: 1;
     padding: 4px 6px;
+}
+
+.eim-li-image-modal-close {
+    color: #fff !important;
+    font-size: clamp(1rem, 3.5vw, 1.75rem) !important;
+    text-decoration: none;
+    position: fixed;
+    text-decoration: none ! important;
+    border: 0.1em white solid !important;
+    border-radius: 50% !important;
+    padding: 0.875em !important;
+    top: 8px;
+    right: 8px;
+    transition: 0.25s !important;
+}
+
+.eim-li-image-modal-close:hover {
+    transform: scale(1.1);
 }
 
 .eim-modal-close:hover {

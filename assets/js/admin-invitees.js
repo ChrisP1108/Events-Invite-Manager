@@ -2436,64 +2436,158 @@
         #renderMessages(messages, unreadOnly) {
             if (!this.#modalBody) return;
 
-            const filtered = unreadOnly ? messages.filter(m => !m.is_read) : messages;
+            // When unreadOnly, show only unread invitee messages (admin replies are always read)
+            const filtered = unreadOnly
+                ? messages.filter(m => !m.is_read && !m.is_admin_reply)
+                : messages;
+
+            const msgList = document.createElement('div');
+            msgList.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-bottom:12px;min-height:40px;';
 
             if (!filtered.length) {
-                this.#modalBody.innerHTML = `<p style="color:#999;">${unreadOnly ? 'No unread messages.' : 'No messages yet.'}</p>`;
-                return;
+                const empty = document.createElement('p');
+                empty.style.cssText = 'color:#999;margin:0;';
+                empty.textContent = unreadOnly ? 'No unread messages.' : 'No messages yet.';
+                msgList.appendChild(empty);
+            } else {
+                for (const msg of filtered) {
+                    msgList.appendChild(this.#createBubble(msg));
+                }
             }
 
-            const list = document.createElement('ul');
-            list.style.cssText = 'list-style:none;margin:0;padding:0;';
+            this.#modalBody.replaceChildren(msgList, this.#buildReplyArea());
+        }
 
-            for (const msg of filtered) {
-                const li = document.createElement('li');
-                li.dataset.messageId = String(msg.id);
-                li.style.cssText = 'padding:10px 0;border-bottom:1px solid #f0f0f1;display:flex;gap:10px;align-items:flex-start;';
+        #createBubble(msg) {
+            const isAdmin = !!msg.is_admin_reply;
 
-                // Read checkbox
+            const wrap = document.createElement('div');
+            wrap.dataset.messageId = String(msg.id);
+            wrap.style.cssText = `display:flex;flex-direction:column;align-items:${isAdmin ? 'flex-end' : 'flex-start'};`;
+
+            const bubble = document.createElement('div');
+            bubble.className = 'eim-msg-bubble';
+            bubble.style.cssText = [
+                'max-width:80%',
+                'padding:8px 12px',
+                `border-radius:${isAdmin ? '12px 12px 2px 12px' : '12px 12px 12px 2px'}`,
+                `background:${isAdmin ? '#2271b1' : '#f0f0f1'}`,
+                `color:${isAdmin ? '#fff' : '#1d2327'}`,
+                'font-size:13px',
+                'white-space:pre-wrap',
+                'word-break:break-word',
+            ].join(';');
+            bubble.textContent = msg.message;
+
+            const meta = document.createElement('div');
+            meta.style.cssText = 'font-size:11px;color:#999;margin-top:3px;display:flex;gap:8px;align-items:center;';
+
+            const dateSpan = document.createElement('span');
+            dateSpan.textContent = this.#formatDate(msg.created_at);
+            meta.appendChild(dateSpan);
+
+            if (!isAdmin) {
+                // Read checkbox for invitee messages only
+                const chkLabel = document.createElement('label');
+                chkLabel.style.cssText = 'display:flex;align-items:center;gap:3px;cursor:pointer;';
+
                 const chk = document.createElement('input');
                 chk.type    = 'checkbox';
-                chk.checked = msg.is_read;
+                chk.checked = !!msg.is_read;
                 chk.title   = msg.is_read ? 'Mark as unread' : 'Mark as read';
-                chk.style.cssText = 'margin-top:3px;flex-shrink:0;cursor:pointer;';
-                chk.addEventListener('change', () => this.#toggleRead(msg.id, chk, li));
 
-                // Text block
-                const textWrap = document.createElement('div');
-                textWrap.style.flex = '1';
+                const chkText = document.createElement('span');
+                chkText.textContent = msg.is_read ? 'Read' : 'Unread';
 
-                const msgText = document.createElement('p');
-                msgText.style.cssText = 'margin:0 0 4px;font-size:13px;white-space:pre-wrap;';
-                msgText.textContent = msg.message;
+                chk.addEventListener('change', () => {
+                    this.#toggleRead(msg.id, chk, wrap, chkText);
+                });
 
-                const meta = document.createElement('span');
-                meta.style.cssText = 'font-size:11px;color:#999;';
-                meta.textContent   = this.#formatDate(msg.created_at);
-
-                textWrap.appendChild(msgText);
-                textWrap.appendChild(meta);
-
-                // Delete button
-                const del = document.createElement('button');
-                del.type      = 'button';
-                del.textContent = 'Delete';
-                del.className = 'button-link';
-                del.style.cssText = 'color:#d63638;font-size:12px;flex-shrink:0;margin-top:2px;';
-                del.addEventListener('click', () => this.#deleteMessage(msg.id, li));
-
-                li.appendChild(chk);
-                li.appendChild(textWrap);
-                li.appendChild(del);
-                list.appendChild(li);
+                chkLabel.append(chk, chkText);
+                meta.appendChild(chkLabel);
             }
 
-            this.#modalBody.replaceChildren(list);
+            const del = document.createElement('button');
+            del.type        = 'button';
+            del.textContent = 'Delete';
+            del.className   = 'button-link';
+            del.style.cssText = 'color:#d63638;font-size:11px;';
+            del.addEventListener('click', () => this.#deleteMessage(msg.id, wrap));
+            meta.appendChild(del);
+
+            wrap.append(bubble, meta);
+            return wrap;
+        }
+
+        #buildReplyArea() {
+            const wrap = document.createElement('div');
+            wrap.style.cssText = 'border-top:1px solid #f0f0f1;padding-top:12px;margin-top:4px;';
+
+            const textarea = document.createElement('textarea');
+            textarea.rows        = 3;
+            textarea.placeholder = 'Type a reply…';
+            textarea.style.cssText = 'width:100%;box-sizing:border-box;font-size:13px;resize:vertical;';
+
+            const footer = document.createElement('div');
+            footer.style.cssText = 'margin-top:6px;display:flex;justify-content:flex-end;align-items:center;gap:10px;';
+
+            const statusEl = document.createElement('span');
+            statusEl.style.cssText = 'font-size:12px;color:#d63638;';
+
+            const sendBtn = document.createElement('button');
+            sendBtn.type      = 'button';
+            sendBtn.className = 'button button-primary';
+            sendBtn.textContent = 'Send Reply';
+
+            sendBtn.addEventListener('click', async () => {
+                const text = textarea.value.trim();
+                if (!text) return;
+                sendBtn.disabled    = true;
+                sendBtn.textContent = 'Sending…';
+                statusEl.textContent = '';
+                const ok = await this.#sendReply(text);
+                if (ok) {
+                    textarea.value = '';
+                } else {
+                    statusEl.textContent = 'Failed to send reply.';
+                    sendBtn.disabled    = false;
+                    sendBtn.textContent = 'Send Reply';
+                }
+            });
+
+            footer.append(statusEl, sendBtn);
+            wrap.append(textarea, footer);
+            return wrap;
         }
 
         // ── Actions ───────────────────────────────────────────────────────────
 
-        async #toggleRead(messageId, chk, li) {
+        async #sendReply(text) {
+            try {
+                const body = new FormData();
+                body.append('action',   'eim_reply_to_message');
+                body.append('nonce',    config.event?.replyNonce || '');
+                body.append('event_id', String(this.#currentEventId));
+                body.append('group_id', String(this.#currentGroupId));
+                body.append('message',  text);
+
+                const { success, data } = await fetch(ajaxurl, {
+                    method: 'POST', credentials: 'same-origin', body,
+                }).then(r => r.json());
+
+                if (success) {
+                    this.#renderMessages(data.messages || [], this.#unreadOnly);
+                    this.#refreshRowCounts();
+                    return true;
+                }
+                return false;
+            } catch (err) {
+                console.error('[EIM] Reply send failed:', err);
+                return false;
+            }
+        }
+
+        async #toggleRead(messageId, chk, wrap, chkText) {
             const isRead = chk.checked;
             chk.disabled = true;
 
@@ -2510,11 +2604,11 @@
 
                 if (success) {
                     chk.title = isRead ? 'Mark as unread' : 'Mark as read';
-                    li.style.opacity = isRead ? '0.6' : '1';
-                    // Update the unread count badge in the table row.
+                    wrap.style.opacity = isRead ? '0.6' : '1';
+                    if (chkText) chkText.textContent = isRead ? 'Read' : 'Unread';
                     this.#refreshRowCounts();
                 } else {
-                    chk.checked = !isRead; // revert
+                    chk.checked = !isRead;
                 }
             } catch (err) {
                 console.error('[EIM] Mark read failed:', err);
@@ -2524,7 +2618,7 @@
             }
         }
 
-        async #deleteMessage(messageId, li) {
+        async #deleteMessage(messageId, wrap) {
             if (!window.confirm('Delete this message? This cannot be undone.')) return;
 
             try {
@@ -2538,9 +2632,13 @@
                 }).then(r => r.json());
 
                 if (success) {
-                    li.remove();
-                    if (!this.#modalBody?.querySelector('li')) {
-                        this.#modalBody.innerHTML = '<p style="color:#999;">No messages remaining.</p>';
+                    wrap.remove();
+                    const msgList = this.#modalBody?.querySelector('div[style*="flex-direction:column"]');
+                    if (msgList && !msgList.querySelector('.eim-msg-bubble')) {
+                        const empty = document.createElement('p');
+                        empty.style.cssText = 'color:#999;margin:0;';
+                        empty.textContent = 'No messages remaining.';
+                        msgList.replaceChildren(empty);
                     }
                     this.#refreshRowCounts();
                 }
@@ -2549,7 +2647,7 @@
             }
         }
 
-        /** After a read-toggle or delete, re-fetches counts and updates the table row badges. */
+        /** After a read-toggle, delete, or reply, re-fetches counts and updates the table row badges. */
         async #refreshRowCounts() {
             try {
                 const url = new URL(ajaxurl, window.location.href);
@@ -2561,7 +2659,8 @@
                 const { success, data } = await fetch(url, { credentials: 'same-origin' }).then(r => r.json());
                 if (!success) return;
 
-                const msgs   = data.messages || [];
+                // Count only invitee messages (admin replies don't need action)
+                const msgs   = (data.messages || []).filter(m => !m.is_admin_reply);
                 const total  = msgs.length;
                 const unread = msgs.filter(m => !m.is_read).length;
 

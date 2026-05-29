@@ -119,15 +119,14 @@ final class BudgetLineItem
      */
     public static function searchForPlan(
         int    $planId,
-        string $search = '',
-        string $sort   = 'sort_order',
-        string $order  = 'asc',
-        string $field  = ''
+        string $search   = '',
+        string $sort     = 'sort_order',
+        string $order    = 'asc',
+        string $field    = '',
+        int    $vendorId = 0
     ): array {
         global $wpdb;
 
-        $li       = DatabaseManager::budgetLineItemsTable();
-        $bi       = DatabaseManager::budgetItemsTable();
         $vt       = DatabaseManager::vendorsTable();
         $et       = DatabaseManager::eventsTable();
         $base     = self::baseSelect();
@@ -148,10 +147,14 @@ final class BudgetLineItem
         // then apply usort afterwards via maybePhpSort().
         $sortCol = $dbSortMap[$sort] ?? 'li.sort_order';
 
+        // Optional vendor ID filter — safe to interpolate since it's an integer.
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $vWhere = $vendorId > 0 ? sprintf(' AND COALESCE(bi.vendor_id, li.vendor_id) = %d', $vendorId) : '';
+
         if ($search === '') {
             // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
             $rows  = $wpdb->get_results(
-                $wpdb->prepare("{$base} WHERE li.plan_id = %d ORDER BY {$sortCol} {$orderSql}, li.id ASC", $planId)
+                $wpdb->prepare("{$base} WHERE li.plan_id = %d{$vWhere} ORDER BY {$sortCol} {$orderSql}, li.id ASC", $planId)
             );
             $items = array_map(static fn(object $r) => self::fromRow($r), $rows ?? []);
             return self::maybePhpSort($items, $sort, $order);
@@ -164,7 +167,7 @@ final class BudgetLineItem
             $rows = $wpdb->get_results(
                 $wpdb->prepare(
                     "{$base}
-                     WHERE li.plan_id = %d AND LOWER(COALESCE(bi.label, li.label)) LIKE %s
+                     WHERE li.plan_id = %d AND LOWER(COALESCE(bi.label, li.label)) LIKE %s{$vWhere}
                      ORDER BY {$sortCol} {$orderSql}, li.id ASC",
                     $planId, $like
                 )
@@ -175,7 +178,7 @@ final class BudgetLineItem
                 $wpdb->prepare(
                     "{$base}
                      LEFT JOIN {$vt} v ON v.id = COALESCE(bi.vendor_id, li.vendor_id)
-                     WHERE li.plan_id = %d AND LOWER(COALESCE(v.company_name,'')) LIKE %s
+                     WHERE li.plan_id = %d AND LOWER(COALESCE(v.company_name,'')) LIKE %s{$vWhere}
                      ORDER BY {$sortCol} {$orderSql}, li.id ASC",
                     $planId, $like
                 )
@@ -186,7 +189,7 @@ final class BudgetLineItem
                 $wpdb->prepare(
                     "{$base}
                      INNER JOIN {$et} e ON e.id = li.event_id
-                     WHERE li.plan_id = %d AND LOWER(e.name) LIKE %s
+                     WHERE li.plan_id = %d AND LOWER(e.name) LIKE %s{$vWhere}
                      ORDER BY {$sortCol} {$orderSql}, li.id ASC",
                     $planId, $like
                 )
@@ -201,7 +204,7 @@ final class BudgetLineItem
                      WHERE li.plan_id = %d
                        AND (LOWER(COALESCE(bi.label,               li.label))   LIKE %s
                             OR LOWER(COALESCE(v.company_name,''))                LIKE %s
-                            OR LOWER(COALESCE(bi.notes, li.notes, ''))          LIKE %s)
+                            OR LOWER(COALESCE(bi.notes, li.notes, ''))          LIKE %s){$vWhere}
                      ORDER BY {$sortCol} {$orderSql}, li.id ASC",
                     $planId, $like, $like, $like
                 )

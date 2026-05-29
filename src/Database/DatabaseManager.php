@@ -18,7 +18,7 @@ final class DatabaseManager
     /**
      * The current database schema version.
      */
-    private const SCHEMA_VERSION = '38';
+    private const SCHEMA_VERSION = '39';
 
     /**
      * The database table names.
@@ -469,6 +469,7 @@ final class DatabaseManager
                 connection_group_id BIGINT(20) UNSIGNED NOT NULL,
                 message             TEXT                NOT NULL,
                 is_read             TINYINT(1)          NOT NULL DEFAULT 0,
+                is_admin_reply      TINYINT(1)          NOT NULL DEFAULT 0,
                 created_at          DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (id),
                 KEY event_id (event_id),

@@ -1229,10 +1229,11 @@ final class EventsPage extends AbstractAdminPage
 
         wp_send_json_success([
             'messages' => array_map(static fn(EventMessage $m) => [
-                'id'         => $m->id,
-                'message'    => $m->message,
-                'is_read'    => $m->isRead,
-                'created_at' => $m->createdAt,
+                'id'             => $m->id,
+                'message'        => $m->message,
+                'is_read'        => $m->isRead,
+                'is_admin_reply' => $m->isAdminReply,
+                'created_at'     => $m->createdAt,
             ], $messages),
         ]);
     }
@@ -1284,6 +1285,53 @@ final class EventsPage extends AbstractAdminPage
 
         EventMessage::delete($messageId);
         wp_send_json_success();
+    }
+
+    /**
+     * AJAX: posts an admin reply to a message thread.
+     *
+     * Marks all existing invitee messages in the thread as read, inserts the reply,
+     * and returns the updated thread so the UI can refresh in place.
+     *
+     * Expected POST params: nonce, event_id, group_id, message.
+     * Returns JSON: { success: true, data: { reply_id, messages: [{id, message, is_read, is_admin_reply, created_at}] } }
+     */
+    public function handleAjaxReplyToMessage(): void
+    {
+        check_ajax_referer('eim_reply_to_message_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions.', 403);
+        }
+
+        $eventId = (int) ($_POST['event_id'] ?? 0);
+        $groupId = (int) ($_POST['group_id'] ?? 0);
+        $message = sanitize_textarea_field(wp_unslash($_POST['message'] ?? ''));
+
+        if (!$eventId || !$groupId || $message === '') {
+            wp_send_json_error('Missing required fields.');
+        }
+
+        // Auto-mark all invitee messages in this thread as read before replying.
+        EventMessage::markThreadRead($eventId, $groupId);
+
+        $replyId = EventMessage::createAdminReply($eventId, $groupId, $message);
+        if ($replyId === false) {
+            wp_send_json_error('Failed to save reply. Please try again.');
+        }
+
+        $thread = EventMessage::forEventGroup($eventId, $groupId);
+
+        wp_send_json_success([
+            'reply_id' => $replyId,
+            'messages' => array_map(static fn(EventMessage $m) => [
+                'id'             => $m->id,
+                'message'        => $m->message,
+                'is_read'        => $m->isRead,
+                'is_admin_reply' => $m->isAdminReply,
+                'created_at'     => $m->createdAt,
+            ], $thread),
+        ]);
     }
 
     /**
