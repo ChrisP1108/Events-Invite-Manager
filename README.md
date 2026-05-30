@@ -81,6 +81,25 @@ A **Budget** tab provides financial planning and tracking across one or more eve
 - **Summaries** — estimated total, total paid, and remaining balance are computed and displayed in a totals row.
 - The budget plan list supports AJAX live search, sortable columns, and a **Categories column** showing assigned category chips.
 
+### Data Exports
+Both events and budget plans can be exported directly from the admin in two formats. Export buttons appear above the tab navigation on each event and budget plan edit screen — no separate page needed.
+
+**Event export** includes:
+- **Event details** — name, description, start/end date & time, timezone, RSVP deadline, max invitees, venue name and address
+- **Invited invitees** — one row per group member with group ID, QR confirmation code, QR image URL, is-primary flag, full contact details (name, email, phone, address), RSVP status, registration timestamp, food and beverage selections, dietary notes, and lodging selection
+- **Messages** — every invitee message and admin reply for the event, with group ID, confirmation code, direction (invitee/admin), message text, read status, and timestamp
+- **Registry: claimed items** — gift name, description, price, the purchasing group's ID and confirmation code, and purchase timestamp
+- **Registry: available items** — all unclaimed gifts with name, description, price, and website URL
+
+**Budget plan export** includes:
+- **Plan details** — name, description, currency, target amount, estimated total, amount paid, and remaining balance, plus linked event names
+- **Vendors** — a deduplicated list of every vendor referenced by the plan's line items, each with their database ID, company name, contact name, email, phone, and website URL
+- **Line items** — label, `vendor_id` (referencing the vendors section), vendor name, quantity, quantity mode, unit cost, total override, estimated cost, paid amount, remaining balance, payment deadline, and notes
+
+**CSV format** — multi-section document with a clearly labelled `SECTION` header row before each data block, suitable for opening in Excel or Google Sheets.
+
+**JSON format** — fully structured document with nested objects and arrays; line items include a `vendor_id` key that references the top-level `vendors` array by the vendor's database ID.
+
 ### Contextual search bars
 All list tables use a shared search control that includes a text input and a column-filter dropdown. The search bar is only displayed when there is at least one item in the list. When a search returns no results it shows "No results found based upon search criteria." rather than the empty-state message.
 

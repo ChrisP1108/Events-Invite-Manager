@@ -377,6 +377,11 @@ final class AboutPage extends AbstractAdminPage
                 'title' => 'Budget Tracking',
                 'body'  => 'Plan and track event costs with named budget plans that can span multiple events. Each plan contains categorised line items with vendor, quantity (fixed or per-attending-guest), unit cost, total override, and paid amount. Estimated, paid, and remaining totals are computed and displayed in a summary row. Line items support drag-to-reorder.',
             ],
+            [
+                'icon'  => 'dashicons-download',
+                'title' => 'Data Exports (CSV & JSON)',
+                'body'  => 'Export buttons appear above the tab navigation on every event and budget plan edit screen. Event exports include all invited invitees with QR confirmation codes and image URLs, food/beverage/lodging selections, registry items (claimed and available), and invitee/admin messages. Budget exports include plan totals, a vendors section with database IDs, and line items with vendor_id references. Both formats are available: multi-section CSV for spreadsheet use, and structured JSON for programmatic use.',
+            ],
         ];
         ?>
         <div class="eim-about-section">
