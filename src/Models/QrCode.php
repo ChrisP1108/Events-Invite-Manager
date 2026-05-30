@@ -134,19 +134,27 @@ final class QrCode
     }
 
     /**
-     * Deletes all QR code records for a given event and removes their PNG files.
+     * Deletes all QR code records for a given event and removes their image files.
      *
      * @param int $eventId
-     * @return void
+     * @return int Number of QR code records removed.
      */
-    public static function deleteForEvent(int $eventId): void
+    public static function deleteForEvent(int $eventId): int
     {
         global $wpdb;
 
         $table = DatabaseManager::qrCodesTable();
         $rows  = $wpdb->get_results($wpdb->prepare("SELECT * FROM {$table} WHERE event_id = %d", $eventId));
-        self::deleteFiles(array_map(static fn(object $r) => self::fromRow($r), $rows ?? []));
+        $qrCodes = array_map(static fn(object $r) => self::fromRow($r), $rows ?? []);
+
+        if (empty($qrCodes)) {
+            return 0;
+        }
+
+        self::deleteFiles($qrCodes);
         $wpdb->delete($table, ['event_id' => $eventId]);
+
+        return count($qrCodes);
     }
 
     /**

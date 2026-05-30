@@ -67,6 +67,7 @@ final class EventsPage extends AbstractAdminPage
             'send_event_invite'         => $this->handleSendEventInvite(),
             'send_all_event_invites'    => $this->handleSendAllEventInvites(),
             'generate_all_qr_codes'     => $this->handleGenerateAllQrCodes(),
+            'delete_all_qr_codes'       => $this->handleDeleteAllQrCodes(),
             'export_event_csv'          => $this->handleExportEventCsv(),
             'export_event_json'         => $this->handleExportEventJson(),
             'add_gift_to_event'         => $this->handleAddGiftToEvent(),
@@ -1137,6 +1138,34 @@ final class EventsPage extends AbstractAdminPage
             'id'          => $eventId,
             'eim_message' => 'qr_codes_generated',
             'count'       => $generated,
+        ]) . '#eim-etab-invitees');
+        exit;
+    }
+
+    /**
+     * Deletes every QR code record and stored image file for one event.
+     *
+     * This lets admins regenerate QR codes after a domain change so the encoded
+     * invite URLs use the current site URL.
+     */
+    private function handleDeleteAllQrCodes(): void
+    {
+        $eventId = (int) ($_GET['event_id'] ?? 0);
+        $nonce   = (string) ($_GET['_wpnonce'] ?? '');
+
+        if (!wp_verify_nonce($nonce, 'eim_delete_all_qr_codes_' . $eventId)) {
+            wp_die('Security check failed.');
+        }
+
+        $deleted = Event::find($eventId) !== null
+            ? QrCode::deleteForEvent($eventId)
+            : 0;
+
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
+            'action'      => 'edit',
+            'id'          => $eventId,
+            'eim_message' => 'qr_codes_deleted',
+            'count'       => $deleted,
         ]) . '#eim-etab-invitees');
         exit;
     }
@@ -4285,7 +4314,14 @@ final class EventsPage extends AbstractAdminPage
                 AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'generate_all_qr_codes', 'event_id' => $event->id]),
                 'eim_generate_all_qr_codes_' . $event->id
             );
+            $deleteQrUrl = wp_nonce_url(
+                AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'delete_all_qr_codes', 'event_id' => $event->id]),
+                'eim_delete_all_qr_codes_' . $event->id
+            );
         ?>
+        <h2 style="margin-top:32px;">
+            QR Code Generation/Deletion
+        </h2>
         <p style="margin-top:20px;margin-bottom:0;">
             <a href="<?= esc_url($generateQrUrl); ?>" class="button"
                onclick="return confirm('Generate QR codes for all invitation groups? No emails will be sent.');">
@@ -4293,6 +4329,15 @@ final class EventsPage extends AbstractAdminPage
             </a>
             <span style="margin-left:10px;color:#646970;font-size:12px;">
                 Creates or restores QR code images for every group — useful for testing the RSVP flow before sending invites.
+            </span>
+        </p>
+        <p style="margin-top:8px;margin-bottom:0;">
+            <a href="<?= esc_url($deleteQrUrl); ?>" class="button button-link-delete"
+               onclick="return confirm('Delete all QR code files and confirmation-code records for this event? Existing QR links for this event will stop working until QR codes are regenerated.');">
+                Delete All QR Codes
+            </a>
+            <span style="margin-left:10px;color:#646970;font-size:12px;">
+                Removes this event's stored QR files and database rows so new codes can be generated for the current website domain.
             </span>
         </p>
         <?php endif; ?>

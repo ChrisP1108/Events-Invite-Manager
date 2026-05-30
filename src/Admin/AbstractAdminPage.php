@@ -377,6 +377,7 @@ abstract class AbstractAdminPage
             'invite_sent'           => 'Invite email sent successfully.',
             'invites_sent'          => "Sent {$count} invite email(s) to unsent groups.",
             'qr_codes_generated'    => "Generated {$count} QR code(s) for all invitation groups.",
+            'qr_codes_deleted'      => "Deleted {$count} QR code(s) for this event.",
             'lodging_created'       => 'Lodging location added successfully.',
             'lodging_updated'       => 'Lodging location updated successfully.',
             'lodging_deleted'       => 'Lodging location deleted.',
