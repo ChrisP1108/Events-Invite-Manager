@@ -7,6 +7,7 @@ namespace EventsInviteManager\Models;
 if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Database\DatabaseManager;
+use EventsInviteManager\Hooks\EimChangeEvent;
 
 /**
  * Represents a plan-specific usage of a global BudgetItem.
@@ -308,7 +309,11 @@ final class BudgetLineItem
             'sort_order'           => $maxOrder + 1,
         ]);
 
-        return $result ? self::find((int) $wpdb->insert_id) : null;
+        $created = $result ? self::find((int) $wpdb->insert_id) : null;
+        if ($created !== null) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_BUDGET_LINE_ITEM, EimChangeEvent::ADDED, $created);
+        }
+        return $created;
     }
 
     /**
@@ -351,7 +356,11 @@ final class BudgetLineItem
         if (array_key_exists('payment_deadline', $data))     $planFields['payment_deadline']     = !empty($data['payment_deadline']) ? (string) $data['payment_deadline'] : null;
 
         if (empty($planFields)) return true;
-        return $wpdb->update(DatabaseManager::budgetLineItemsTable(), $planFields, ['id' => $id]) !== false;
+        $ok = $wpdb->update(DatabaseManager::budgetLineItemsTable(), $planFields, ['id' => $id]) !== false;
+        if ($ok) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_BUDGET_LINE_ITEM, EimChangeEvent::EDITED, self::find($id));
+        }
+        return $ok;
     }
 
     /**
@@ -360,7 +369,12 @@ final class BudgetLineItem
     public static function delete(int $id): bool
     {
         global $wpdb;
-        return $wpdb->delete(DatabaseManager::budgetLineItemsTable(), ['id' => $id]) !== false;
+        $snapshot = self::find($id);
+        $ok       = $wpdb->delete(DatabaseManager::budgetLineItemsTable(), ['id' => $id]) !== false;
+        if ($ok && $snapshot !== null) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_BUDGET_LINE_ITEM, EimChangeEvent::DELETED, $snapshot);
+        }
+        return $ok;
     }
 
     // -------------------------------------------------------------------------

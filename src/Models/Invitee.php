@@ -7,6 +7,7 @@ namespace EventsInviteManager\Models;
 if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Database\DatabaseManager;
+use EventsInviteManager\Hooks\EimChangeEvent;
 
 /**
  * Represents a single invitee and provides static CRUD methods against the database.
@@ -491,7 +492,11 @@ final class Invitee
             'image_attachment_id' => (int) ($data['image_attachment_id'] ?? 0),
         ]);
 
-        return $result ? (int) $wpdb->insert_id : false;
+        $id = $result ? (int) $wpdb->insert_id : false;
+        if ($id !== false) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_INVITEE, EimChangeEvent::ADDED, self::find($id));
+        }
+        return $id;
     }
 
     /**
@@ -523,7 +528,11 @@ final class Invitee
 
         $result = $wpdb->update(DatabaseManager::inviteesTable(), $fields, ['id' => $id]);
 
-        return $result !== false;
+        $ok = $result !== false;
+        if ($ok) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_INVITEE, EimChangeEvent::EDITED, self::find($id));
+        }
+        return $ok;
     }
 
     /**
@@ -569,12 +578,18 @@ final class Invitee
     {
         global $wpdb;
 
+        $snapshot = self::find($id);
+
         ConnectionGroup::removeInviteeFromAllGroups($id);
         InvitationGroup::removeInviteeFromAllGroups($id);
         $wpdb->delete(DatabaseManager::eventInviteesTable(), ['invitee_id' => $id]);
         $result = $wpdb->delete(DatabaseManager::inviteesTable(), ['id' => $id]);
 
-        return $result !== false;
+        $ok = $result !== false;
+        if ($ok && $snapshot !== null) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_INVITEE, EimChangeEvent::DELETED, $snapshot);
+        }
+        return $ok;
     }
 
     // -------------------------------------------------------------------------

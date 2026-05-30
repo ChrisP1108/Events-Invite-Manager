@@ -7,6 +7,7 @@ namespace EventsInviteManager\Models;
 if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Database\DatabaseManager;
+use EventsInviteManager\Hooks\EimChangeEvent;
 
 /**
  * Represents a vendor in the global vendor library (eim_vendors).
@@ -220,7 +221,11 @@ final class Vendor
             'notes'          => (string) ($data['notes']          ?? ''),
         ]);
 
-        return $result ? self::find((int) $wpdb->insert_id) : null;
+        $created = $result ? self::find((int) $wpdb->insert_id) : null;
+        if ($created !== null) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_VENDOR, EimChangeEvent::ADDED, $created);
+        }
+        return $created;
     }
 
     /** @param array<string,mixed> $data */
@@ -241,7 +246,11 @@ final class Vendor
         if (array_key_exists('notes',          $data)) $fields['notes']          = (string) $data['notes'];
 
         if (empty($fields)) return true;
-        return $wpdb->update(DatabaseManager::vendorsTable(), $fields, ['id' => $id]) !== false;
+        $ok = $wpdb->update(DatabaseManager::vendorsTable(), $fields, ['id' => $id]) !== false;
+        if ($ok) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_VENDOR, EimChangeEvent::EDITED, self::find($id));
+        }
+        return $ok;
     }
 
     /**
@@ -254,10 +263,16 @@ final class Vendor
     {
         global $wpdb;
 
+        $snapshot = self::find($id);
+
         $wpdb->update(DatabaseManager::budgetLineItemsTable(), ['vendor_id' => null], ['vendor_id' => $id]);
         $wpdb->update(DatabaseManager::menuItemsTable(),       ['vendor_id' => null], ['vendor_id' => $id]);
 
-        return $wpdb->delete(DatabaseManager::vendorsTable(), ['id' => $id]) !== false;
+        $ok = $wpdb->delete(DatabaseManager::vendorsTable(), ['id' => $id]) !== false;
+        if ($ok && $snapshot !== null) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_VENDOR, EimChangeEvent::DELETED, $snapshot);
+        }
+        return $ok;
     }
 
     public static function count(): int

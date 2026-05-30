@@ -7,6 +7,7 @@ namespace EventsInviteManager\Models;
 if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Database\DatabaseManager;
+use EventsInviteManager\Hooks\EimChangeEvent;
 
 /**
  * Represents a gift/registry item in the global gifts library (eim_gifts).
@@ -145,7 +146,11 @@ final class Gift
             'image_attachment_id' => (int)    ($data['image_attachment_id'] ?? 0),
         ]);
 
-        return $result ? self::find((int) $wpdb->insert_id) : null;
+        $created = $result ? self::find((int) $wpdb->insert_id) : null;
+        if ($created !== null) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_GIFT, EimChangeEvent::ADDED, $created);
+        }
+        return $created;
     }
 
     /** @param array<string,mixed> $data */
@@ -161,18 +166,28 @@ final class Gift
         if (array_key_exists('image_attachment_id', $data)) $fields['image_attachment_id'] = (int) $data['image_attachment_id'];
 
         if (empty($fields)) return true;
-        return $wpdb->update(DatabaseManager::giftsTable(), $fields, ['id' => $id]) !== false;
+        $ok = $wpdb->update(DatabaseManager::giftsTable(), $fields, ['id' => $id]) !== false;
+        if ($ok) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_GIFT, EimChangeEvent::EDITED, self::find($id));
+        }
+        return $ok;
     }
 
     public static function delete(int $id): bool
     {
         global $wpdb;
 
+        $snapshot = self::find($id);
+
         // Remove event links and purchase records.
         $wpdb->delete(DatabaseManager::giftEventsTable(),    ['gift_id' => $id]);
         $wpdb->delete(DatabaseManager::giftPurchasesTable(), ['gift_id' => $id]);
 
-        return $wpdb->delete(DatabaseManager::giftsTable(), ['id' => $id]) !== false;
+        $ok = $wpdb->delete(DatabaseManager::giftsTable(), ['id' => $id]) !== false;
+        if ($ok && $snapshot !== null) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_GIFT, EimChangeEvent::DELETED, $snapshot);
+        }
+        return $ok;
     }
 
     public static function count(): int
@@ -585,6 +600,8 @@ final class Gift
                 ...$args
             )
         );
+
+        EimChangeEvent::dispatch(EimChangeEvent::TYPE_GIFT, EimChangeEvent::EDITED, self::find($giftId));
     }
 
     // -------------------------------------------------------------------------

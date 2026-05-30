@@ -7,6 +7,7 @@ namespace EventsInviteManager\Models;
 if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Database\DatabaseManager;
+use EventsInviteManager\Hooks\EimChangeEvent;
 
 /**
  * Represents a frontend-submitted request to add a new person to a connection group.
@@ -218,7 +219,11 @@ final class RequestedInviteeAddOn
             'status'              => 'pending',
         ]);
 
-        return $result ? (int) $wpdb->insert_id : false;
+        $id = $result ? (int) $wpdb->insert_id : false;
+        if ($id !== false) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_REQUESTED_ADD_ON, EimChangeEvent::ADDED, self::find($id));
+        }
+        return $id;
     }
 
     /**
@@ -250,7 +255,11 @@ final class RequestedInviteeAddOn
         }
 
         $result = $wpdb->update(DatabaseManager::requestedInviteeAddOnsTable(), $fields, ['id' => $id]);
-        return $result !== false;
+        $ok = $result !== false;
+        if ($ok) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_REQUESTED_ADD_ON, EimChangeEvent::EDITED, self::find($id));
+        }
+        return $ok;
     }
 
     /**
@@ -274,17 +283,44 @@ final class RequestedInviteeAddOn
             return ['success' => false, 'error' => $request->status === 'approved' ? 'already_approved' : 'already_reviewed'];
         }
 
-        // Enforce event capacity when a limit is set.
-        if ($request->eventId) {
-            $event = Event::find($request->eventId);
-            if ($event && $event->maxInvitees !== null && $event->inviteeCount() >= $event->maxInvitees) {
-                return ['success' => false, 'error' => 'event_full'];
-            }
-        }
-
         // Wrap all writes in a transaction so a mid-sequence failure leaves no
         // partial state (e.g. invitee created but not added to the invitation group).
+        // Both the request row and the capacity count are locked with FOR UPDATE so
+        // two concurrent admin approvals cannot both pass their checks before either commits.
         $wpdb->query('START TRANSACTION');
+
+        // Lock the request row so a second concurrent approval is forced to wait.
+        // If the row is no longer 'pending' by the time we acquire the lock (because
+        // the first approval already committed), bail out before writing anything.
+        $riarTable  = DatabaseManager::requestedInviteeAddOnsTable();
+        $lockedId   = $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT id FROM {$riarTable} WHERE id = %d AND status = 'pending' FOR UPDATE",
+                $id
+            )
+        );
+        if ($lockedId === null) {
+            $wpdb->query('ROLLBACK');
+            return ['success' => false, 'error' => 'already_reviewed'];
+        }
+
+        // Re-check capacity inside the transaction so concurrent approvals are serialised.
+        if ($request->eventId) {
+            $event = Event::find($request->eventId);
+            if ($event && $event->maxInvitees !== null) {
+                $inviteeTable = DatabaseManager::eventInviteesTable();
+                $currentCount = (int) $wpdb->get_var(
+                    $wpdb->prepare(
+                        "SELECT COUNT(*) FROM {$inviteeTable} WHERE event_id = %d FOR UPDATE",
+                        $request->eventId
+                    )
+                );
+                if ($currentCount >= $event->maxInvitees) {
+                    $wpdb->query('ROLLBACK');
+                    return ['success' => false, 'error' => 'event_full'];
+                }
+            }
+        }
 
         // Reuse existing invitee if one with this email already exists.
         $inviteeTable = DatabaseManager::inviteesTable();
@@ -314,16 +350,20 @@ final class RequestedInviteeAddOn
         }
 
         // Add to connection group (INSERT IGNORE handles duplicates).
-        ConnectionGroup::addMember($request->connectionGroupId, $inviteeId);
+        if (!ConnectionGroup::addMember($request->connectionGroupId, $inviteeId)) {
+            $wpdb->query('ROLLBACK');
+            return ['success' => false, 'error' => 'connection_group_add_failed'];
+        }
 
         // If a specific event context was saved, add to event invitees.
-        if ($request->eventId) {
-            Invitee::addToEvent($inviteeId, $request->eventId);
+        if ($request->eventId && !Invitee::addToEvent($inviteeId, $request->eventId)) {
+            $wpdb->query('ROLLBACK');
+            return ['success' => false, 'error' => 'event_add_failed'];
         }
 
         // If an invitation group was saved, auto-RSVP as attending.
         if ($request->invitationGroupId) {
-            $wpdb->query($wpdb->prepare(
+            $inserted = $wpdb->query($wpdb->prepare(
                 "INSERT IGNORE INTO " . DatabaseManager::invitationGroupMembersTable() . "
                  (group_id, invitee_id, rsvp_status, registered_at)
                  VALUES (%d, %d, 'attending', %s)",
@@ -331,6 +371,11 @@ final class RequestedInviteeAddOn
                 $inviteeId,
                 current_time('mysql')
             ));
+
+            if ($inserted === false) {
+                $wpdb->query('ROLLBACK');
+                return ['success' => false, 'error' => 'invitation_group_add_failed'];
+            }
         }
 
         // Mark request approved.
@@ -351,6 +396,8 @@ final class RequestedInviteeAddOn
 
         $wpdb->query('COMMIT');
 
+        EimChangeEvent::dispatch(EimChangeEvent::TYPE_REQUESTED_ADD_ON, EimChangeEvent::EDITED, self::find($id));
+
         return ['success' => true, 'invitee_id' => $inviteeId];
     }
 
@@ -370,7 +417,11 @@ final class RequestedInviteeAddOn
             ['id' => $id]
         );
 
-        return $result !== false;
+        $ok = $result !== false;
+        if ($ok) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_REQUESTED_ADD_ON, EimChangeEvent::EDITED, self::find($id));
+        }
+        return $ok;
     }
 
     /**
@@ -383,8 +434,13 @@ final class RequestedInviteeAddOn
     {
         global $wpdb;
 
-        $result = $wpdb->delete(DatabaseManager::requestedInviteeAddOnsTable(), ['id' => $id]);
-        return $result !== false;
+        $snapshot = self::find($id);
+        $result   = $wpdb->delete(DatabaseManager::requestedInviteeAddOnsTable(), ['id' => $id]);
+        $ok       = $result !== false;
+        if ($ok && $snapshot !== null) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_REQUESTED_ADD_ON, EimChangeEvent::DELETED, $snapshot);
+        }
+        return $ok;
     }
 
     /**

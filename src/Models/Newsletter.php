@@ -7,6 +7,7 @@ namespace EventsInviteManager\Models;
 if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Database\DatabaseManager;
+use EventsInviteManager\Hooks\EimChangeEvent;
 
 /**
  * Represents a single newsletter post (eim_newsletters).
@@ -368,6 +369,8 @@ final class Newsletter
         self::syncEvents($id, $data['event_ids'] ?? []);
         self::syncTags($id, $data['tag_ids']     ?? []);
 
+        EimChangeEvent::dispatch(EimChangeEvent::TYPE_NEWSLETTER, EimChangeEvent::ADDED, self::find($id));
+
         return $id;
     }
 
@@ -400,6 +403,8 @@ final class Newsletter
         self::syncEvents($id, $data['event_ids'] ?? []);
         self::syncTags($id, $data['tag_ids']     ?? []);
 
+        EimChangeEvent::dispatch(EimChangeEvent::TYPE_NEWSLETTER, EimChangeEvent::EDITED, self::find($id));
+
         return true;
     }
 
@@ -413,11 +418,17 @@ final class Newsletter
     {
         global $wpdb;
 
+        $snapshot = self::find($id);
+
         $wpdb->delete(DatabaseManager::newsletterEventsTable(), ['newsletter_id' => $id]);
         $wpdb->delete(DatabaseManager::newsletterTagMapTable(), ['newsletter_id' => $id]);
         $wpdb->delete(DatabaseManager::categoryMapTable(), ['entity_type' => 'newsletter', 'entity_id' => $id]);
 
-        return $wpdb->delete(DatabaseManager::newslettersTable(), ['id' => $id]) !== false;
+        $ok = $wpdb->delete(DatabaseManager::newslettersTable(), ['id' => $id]) !== false;
+        if ($ok && $snapshot !== null) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_NEWSLETTER, EimChangeEvent::DELETED, $snapshot);
+        }
+        return $ok;
     }
 
     // ─── Pivot sync helpers ──────────────────────────────────────────────────

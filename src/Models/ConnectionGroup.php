@@ -7,6 +7,7 @@ namespace EventsInviteManager\Models;
 if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Database\DatabaseManager;
+use EventsInviteManager\Hooks\EimChangeEvent;
 
 /**
  * Represents a global connection group (couple, family, household, etc.).
@@ -314,7 +315,11 @@ final class ConnectionGroup
             );
         }
 
-        return self::find($groupId);
+        $created = self::find($groupId);
+        if ($created !== null) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_CONNECTION_GROUP, EimChangeEvent::ADDED, $created);
+        }
+        return $created;
     }
 
     /**
@@ -335,7 +340,11 @@ final class ConnectionGroup
             ['id' => $id]
         );
 
-        return $result !== false;
+        $ok = $result !== false;
+        if ($ok) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_CONNECTION_GROUP, EimChangeEvent::EDITED, self::find($id));
+        }
+        return $ok;
     }
 
     /**
@@ -348,10 +357,16 @@ final class ConnectionGroup
     {
         global $wpdb;
 
+        $snapshot = self::find($id);
+
         $wpdb->delete(DatabaseManager::inviteeConnectionGroupMembersTable(), ['group_id' => $id]);
         $result = $wpdb->delete(DatabaseManager::inviteeConnectionGroupsTable(), ['id' => $id]);
 
-        return $result !== false;
+        $ok = $result !== false;
+        if ($ok && $snapshot !== null) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_CONNECTION_GROUP, EimChangeEvent::DELETED, $snapshot);
+        }
+        return $ok;
     }
 
     // -------------------------------------------------------------------------
@@ -380,7 +395,11 @@ final class ConnectionGroup
             )
         );
 
-        return $result !== false;
+        $ok = $result !== false;
+        if ($ok) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_CONNECTION_GROUP, EimChangeEvent::EDITED, self::find($groupId));
+        }
+        return $ok;
     }
 
     /**
@@ -399,7 +418,11 @@ final class ConnectionGroup
             ['group_id' => $groupId, 'invitee_id' => $inviteeId]
         );
 
-        return $result !== false;
+        $ok = $result !== false;
+        if ($ok) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_CONNECTION_GROUP, EimChangeEvent::EDITED, self::find($groupId));
+        }
+        return $ok;
     }
 
     /**

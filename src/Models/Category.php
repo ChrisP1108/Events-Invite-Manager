@@ -7,6 +7,7 @@ namespace EventsInviteManager\Models;
 if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Database\DatabaseManager;
+use EventsInviteManager\Hooks\EimChangeEvent;
 
 /**
  * Represents a unified category in eim_categories.
@@ -266,7 +267,11 @@ final class Category
             'parent_id' => $parentId,
         ]);
 
-        return $result ? (int) $wpdb->insert_id : false;
+        $id = $result ? (int) $wpdb->insert_id : false;
+        if ($id !== false) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_CATEGORY, EimChangeEvent::ADDED, self::find($id));
+        }
+        return $id;
     }
 
     /**
@@ -275,6 +280,8 @@ final class Category
     public static function delete(int $id): bool
     {
         global $wpdb;
+
+        $snapshot = self::find($id);
 
         $t = DatabaseManager::categoriesTable();
         $m = DatabaseManager::categoryMapTable();
@@ -290,6 +297,10 @@ final class Category
         foreach ($allIds as $delId) {
             $wpdb->delete($m, ['category_id' => $delId]);
             $wpdb->delete($t, ['id'          => $delId]);
+        }
+
+        if ($snapshot !== null) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_CATEGORY, EimChangeEvent::DELETED, $snapshot);
         }
 
         return true;

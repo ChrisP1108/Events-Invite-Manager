@@ -90,16 +90,17 @@ final class RsvpFlowResolver
         if (empty($attendingMembers)) {
             // Every member declined.
             return new RsvpFlowResult(
-                success:          true,
-                nextAction:       RsvpFlowResult::ACTION_DECLINED,
-                event:            $event,
-                group:            $group,
-                members:          $members,
-                requiresLodging:  false,
-                requiresFood:     false,
-                requiresBeverage: false,
-                dashboardUrl:     $event->dashboardUrl($code),
-                message:          null,
+                success:            true,
+                nextAction:         RsvpFlowResult::ACTION_DECLINED,
+                event:              $event,
+                group:              $group,
+                members:            $members,
+                requiresLodging:    false,
+                requiresFood:       false,
+                requiresBeverage:   false,
+                dashboardUrl:       $event->dashboardUrl($code),
+                message:            null,
+                rsvpDeadlinePassed: $deadlinePassed,
             );
         }
 
@@ -109,30 +110,32 @@ final class RsvpFlowResolver
             foreach ($attendingMembers as $member) {
                 if ($requiresFood && $member->foodConfirmedAt === null) {
                     return new RsvpFlowResult(
-                        success:          true,
-                        nextAction:       RsvpFlowResult::ACTION_MENU_REQUIRED,
-                        event:            $event,
-                        group:            $group,
-                        members:          $members,
-                        requiresLodging:  $requiresLodging,
-                        requiresFood:     $requiresFood,
-                        requiresBeverage: $requiresBeverage,
-                        dashboardUrl:     $event->dashboardUrl($code),
-                        message:          null,
+                        success:            true,
+                        nextAction:         RsvpFlowResult::ACTION_MENU_REQUIRED,
+                        event:              $event,
+                        group:              $group,
+                        members:            $members,
+                        requiresLodging:    $requiresLodging,
+                        requiresFood:       $requiresFood,
+                        requiresBeverage:   $requiresBeverage,
+                        dashboardUrl:       $event->dashboardUrl($code),
+                        message:            null,
+                        rsvpDeadlinePassed: $deadlinePassed,
                     );
                 }
                 if ($requiresBeverage && $member->beverageConfirmedAt === null) {
                     return new RsvpFlowResult(
-                        success:          true,
-                        nextAction:       RsvpFlowResult::ACTION_MENU_REQUIRED,
-                        event:            $event,
-                        group:            $group,
-                        members:          $members,
-                        requiresLodging:  $requiresLodging,
-                        requiresFood:     $requiresFood,
-                        requiresBeverage: $requiresBeverage,
-                        dashboardUrl:     $event->dashboardUrl($code),
-                        message:          null,
+                        success:            true,
+                        nextAction:         RsvpFlowResult::ACTION_MENU_REQUIRED,
+                        event:              $event,
+                        group:              $group,
+                        members:            $members,
+                        requiresLodging:    $requiresLodging,
+                        requiresFood:       $requiresFood,
+                        requiresBeverage:   $requiresBeverage,
+                        dashboardUrl:       $event->dashboardUrl($code),
+                        message:            null,
+                        rsvpDeadlinePassed: $deadlinePassed,
                     );
                 }
             }
@@ -150,16 +153,17 @@ final class RsvpFlowResolver
             );
             if (!$lodgingConfirmed) {
                 return new RsvpFlowResult(
-                    success:          true,
-                    nextAction:       RsvpFlowResult::ACTION_LODGING_REQUIRED,
-                    event:            $event,
-                    group:            $group,
-                    members:          $members,
-                    requiresLodging:  true,
-                    requiresFood:     $requiresFood,
-                    requiresBeverage: $requiresBeverage,
-                    dashboardUrl:     $event->dashboardUrl($code),
-                    message:          null,
+                    success:            true,
+                    nextAction:         RsvpFlowResult::ACTION_LODGING_REQUIRED,
+                    event:              $event,
+                    group:              $group,
+                    members:            $members,
+                    requiresLodging:    true,
+                    requiresFood:       $requiresFood,
+                    requiresBeverage:   $requiresBeverage,
+                    dashboardUrl:       $event->dashboardUrl($code),
+                    message:            null,
+                    rsvpDeadlinePassed: $deadlinePassed,
                 );
             }
         }

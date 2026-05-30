@@ -92,7 +92,7 @@ final class AboutPage extends AbstractAdminPage
                     Events Invite Manager
                     <span class="eim-about-version">v<?= esc_html(EIM_VERSION); ?></span>
                 </h1>
-                <p>Manage private event invitations, grouped RSVPs, attendee registration, venue and lodging assignments, a global food &amp; beverage menu library with vendor linkage, budget tracking, newsletter posts, a unified category taxonomy, and automated email workflows — all from the WordPress admin.</p>
+                <p>Manage private event invitations, grouped RSVPs, attendee registration, venue and lodging assignments, a global food &amp; beverage menu library with vendor linkage, a gifts &amp; registry system, invitee messaging, a guest-request workflow, budget tracking, newsletter posts, a unified category taxonomy, and automated email workflows — all from the WordPress admin.</p>
             </div>
         </div>
         <?php
@@ -167,17 +167,30 @@ final class AboutPage extends AbstractAdminPage
                 <div class="eim-about-step">
                     <div class="eim-about-step-num">5</div>
                     <div>
-                        <h3>Create an event</h3>
+                        <h3>Build your gifts &amp; registry <em style="font-weight:400;color:#646970;">(optional)</em></h3>
                         <p>
-                            Go to <strong>Events → Add New Event</strong>. The edit screen is tabbed — fill in the <strong>Details</strong>, set a venue on the <strong>Venue/Location</strong> tab, configure your invite email on the <strong>Invite Email</strong> tab, choose an RSVP page on <strong>QR Code &amp; RSVP</strong>, and enable lodging or food/beverage options on their respective tabs.
-                            After saving, assign food/beverage items from the global library directly on the <strong>Food &amp; Beverage</strong> tab, and manage invitees on the <strong>Invited Invitees</strong> tab.
-                            <a href="<?= esc_url($eventsUrl); ?>">Create your first event →</a>
+                            Go to <strong>Gifts &amp; Registry</strong> and add gifts with a name, description, price, optional website URL, and an optional image.
+                            After creating gifts globally, link them to specific events on the event's <strong>Gifts &amp; Registry</strong> tab.
+                            Invitees can mark gifts as purchased from their RSVP dashboard.
+                            <a href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_GIFTS)); ?>">Go to Gifts &amp; Registry →</a>
                         </p>
                     </div>
                 </div>
 
                 <div class="eim-about-step">
                     <div class="eim-about-step-num">6</div>
+                    <div>
+                        <h3>Create an event</h3>
+                        <p>
+                            Go to <strong>Events → Add New Event</strong>. The edit screen is tabbed — fill in the <strong>Details</strong> (including an optional RSVP deadline), set a venue on the <strong>Venue/Location</strong> tab, configure your invite email on the <strong>Invite Email</strong> tab, choose an RSVP page and Dashboard page on <strong>QR Code &amp; RSVP</strong>, and enable lodging or food/beverage options on their respective tabs.
+                            After saving, assign food/beverage items on the <strong>Food &amp; Beverage</strong> tab, link gifts on the <strong>Gifts &amp; Registry</strong> tab, and manage invitees on the <strong>Invited Invitees</strong> tab.
+                            <a href="<?= esc_url($eventsUrl); ?>">Create your first event →</a>
+                        </p>
+                    </div>
+                </div>
+
+                <div class="eim-about-step">
+                    <div class="eim-about-step-num">7</div>
                     <div>
                         <h3>Add your invitees</h3>
                         <p>
@@ -188,7 +201,7 @@ final class AboutPage extends AbstractAdminPage
                 </div>
 
                 <div class="eim-about-step">
-                    <div class="eim-about-step-num">7</div>
+                    <div class="eim-about-step-num">8</div>
                     <div>
                         <h3>Create connection groups</h3>
                         <p>
@@ -201,7 +214,7 @@ final class AboutPage extends AbstractAdminPage
                 </div>
 
                 <div class="eim-about-step">
-                    <div class="eim-about-step-num">8</div>
+                    <div class="eim-about-step-num">9</div>
                     <div>
                         <h3>Send invites</h3>
                         <p>
@@ -216,23 +229,25 @@ final class AboutPage extends AbstractAdminPage
                 </div>
 
                 <div class="eim-about-step">
-                    <div class="eim-about-step-num">9</div>
+                    <div class="eim-about-step-num">10</div>
                     <div>
-                        <h3>Build your RSVP page</h3>
+                        <h3>Build your RSVP &amp; dashboard pages</h3>
                         <p>
-                            Create a WordPress page and set it as the event's <strong>QR Code RSVP Page</strong>.
+                            Create a WordPress page for the RSVP flow and set it as the event's <strong>QR Code RSVP Page</strong>.
                             When an invitee scans their QR code the plugin redirects them to that page with
-                            <code>?eim_confirmation={code}</code> in the URL. Call
-                            <code>GET /wp-json/eim/v1/rsvp?confirmation_code={code}</code> to load the
-                            primary invitee, all group members, event details, food/beverage options, and lodging.
-                            Submit via <code>POST /wp-json/eim/v1/register</code> with per-person RSVP statuses,
-                            food/beverage selections, and optional dietary notes.
+                            <code>?eim_confirmation={code}</code> in the URL.
+                            The <code>next_action</code> field from <code>GET /eim/v1/rsvp</code> drives the multi-step flow:
+                            RSVP form → menu selections → lodging → dashboard redirect.
+                            Submit each step via <code>POST /eim/v1/register</code> with per-member RSVP statuses,
+                            food/beverage selections, dietary notes, and lodging choice.
+                            Optionally set a <strong>Dashboard Page</strong> — invitees land there after completing the flow.
+                            Call <code>GET /eim/v1/dashboard</code> to load upcoming events, RSVP summaries, newsletters, and registry.
                         </p>
                     </div>
                 </div>
 
                 <div class="eim-about-step">
-                    <div class="eim-about-step-num">10</div>
+                    <div class="eim-about-step-num">11</div>
                     <div>
                         <h3>Write newsletters <em style="font-weight:400;color:#646970;">(optional)</em></h3>
                         <p>
@@ -243,7 +258,7 @@ final class AboutPage extends AbstractAdminPage
                 </div>
 
                 <div class="eim-about-step">
-                    <div class="eim-about-step-num">11</div>
+                    <div class="eim-about-step-num">12</div>
                     <div>
                         <h3>Track your budget <em style="font-weight:400;color:#646970;">(optional)</em></h3>
                         <p>
@@ -285,7 +300,7 @@ final class AboutPage extends AbstractAdminPage
             [
                 'icon'  => 'dashicons-calendar-alt',
                 'title' => 'Event Management',
-                'body'  => 'Create events with name, description, date, start/end time, time zone, an optional invitee cap, and food/beverage option flags. The edit screen is organised into seven tabs — Details, Venue/Location, Invite Email, QR Code & RSVP, Lodging, Food & Beverage, and Invited Invitees — with tab state persisted via localStorage and URL hash. A monthly calendar grid gives a visual overview of all dated events. The events list below the calendar supports AJAX live search, sortable columns, and pagination.',
+                'body'  => 'Create events with name, description, date, start/end time, time zone, an optional invitee cap, RSVP deadline, and food/beverage option flags. The edit screen is organised into eight tabs — Details, Venue/Location, Invite Email, QR Code & RSVP, Lodging, Food & Beverage, Gifts & Registry, and Invited Invitees — with tab state persisted via localStorage and URL hash. A monthly calendar grid gives a visual overview of all dated events. The events list below the calendar supports AJAX live search, sortable columns, and pagination.',
             ],
             [
                 'icon'  => 'dashicons-admin-home',
@@ -318,14 +333,34 @@ final class AboutPage extends AbstractAdminPage
                 'body'  => 'Write invite emails with full HTML support via the WordPress editor. Insert primary recipient details, group names/counts, a personalised QR code image, the matching RSVP URL, and event information using template tags.',
             ],
             [
-                'icon'  => 'dashicons-qrcode',
+                'icon'  => 'dashicons-shield-alt',
                 'title' => 'QR Code RSVP',
                 'body'  => 'Each invitation group receives a unique QR code. Scanning it redirects to the configured RSVP page with the confirmation code and lets the recipient RSVP for every member in the group, choose food/beverage preferences, and enter dietary notes.',
             ],
             [
+                'icon'  => 'dashicons-products',
+                'title' => 'Gifts & Registry',
+                'body'  => 'A full gifts and registry system. Gifts are created globally with a name, description, price, optional website URL, and image, then linked to events on the event\'s Gifts & Registry tab. Invitees can view the registry on their dashboard and mark gifts as purchased. Purchase records track which invitation group claimed the gift, and only that group can unmark it.',
+            ],
+            [
+                'icon'  => 'dashicons-format-chat',
+                'title' => 'Invitee Messaging',
+                'body'  => 'A conversation thread system between invitees and the admin, scoped per event and connection group. Invitees send messages via the REST API; admins read and reply from the Messages admin tab. Unread message counts are surfaced in the list. Admin replies are flagged separately so threads render as a chronological conversation.',
+            ],
+            [
+                'icon'  => 'dashicons-admin-users',
+                'title' => 'Requested Invitee Add-Ons',
+                'body'  => 'Invitees can request additional guests be added to their invitation group via the REST API. Requests are queued in the Requested Invitees admin tab for review. Admins can approve (creating the invitee, adding them to the connection group and invitation group, and auto-RSVPing them as attending inside a DB transaction) or deny.',
+            ],
+            [
                 'icon'  => 'dashicons-rest-api',
                 'title' => 'REST API',
-                'body'  => 'Two JSON endpoints power the RSVP page: GET /rsvp loads event details, food/beverage options, lodging, and all group members with their current RSVP status; POST /register updates per-person RSVP status, food/beverage selections, and dietary notes.',
+                'body'  => 'Nine JSON endpoints power the front-end experience: GET /rsvp and POST /register drive the multi-step RSVP flow (rsvp_required → menu → lodging → dashboard); GET /dashboard returns upcoming events, RSVP summaries, newsletters, and registry; GET /newsletters and GET /registry serve content to dashboard visitors; POST /registry/purchase marks gifts as purchased; POST /request-guest submits guest requests; and GET + POST /messages handle invitee/admin conversation threads.',
+            ],
+            [
+                'icon'  => 'dashicons-admin-generic',
+                'title' => 'eim_change Action Hook',
+                'body'  => 'Every create, edit, and delete across all entities fires the eim_change WordPress action, passing an EimChangeEvent object with type, change_type (added/edited/deleted), and data. External code snippets can listen to any change without modifying the plugin. TYPE_* and change-type constants make listener code refactor-safe.',
             ],
             [
                 'icon'  => 'dashicons-shield',
@@ -422,7 +457,7 @@ final class AboutPage extends AbstractAdminPage
             <h2>REST API Reference</h2>
             <p style="color:#50575e;font-size:13px;margin-bottom:16px;">
                 Base URL: <code><?= esc_html($baseUrl); ?></code><br>
-                Both endpoints are public — access is gated by the 16-character confirmation code embedded in each invitation's QR code URL.
+                All endpoints are public — access is gated by the 16-character confirmation code embedded in each invitation's QR code URL.
             </p>
 
             <div class="eim-about-endpoint">
@@ -431,22 +466,7 @@ final class AboutPage extends AbstractAdminPage
                     <code>/wp-json/eim/v1/rsvp?confirmation_code={code}</code>
                 </div>
                 <div class="eim-about-endpoint-body">
-                    <p>Looks up the confirmation code and returns event details, the food and beverage options assigned to the event, lodging options, and all members in the invitation group. Call this on RSVP page load to personalise the page before the recipient confirms.</p>
-                    <table class="eim-about-table" style="margin-bottom:10px;">
-                        <thead><tr><th>Param</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
-                        <tbody>
-                            <tr><td><code>confirmation_code</code></td><td>string</td><td>Yes</td><td>16-character code from the QR code URL</td></tr>
-                        </tbody>
-                    </table>
-                    <p>
-                        A successful response contains:
-                        <code>event</code> (name, description, date, venue),
-                        <code>rsvp_options</code> (food and beverage arrays, each with id, label, description, sort_order — empty arrays when the option is not enabled on the event),
-                        <code>invitee</code> (primary recipient's first_name, last_name, email),
-                        <code>rsvp_notes</code> (shared general notes for the invitation group),
-                        <code>group_members</code> (invitee_id, name, email, rsvp_status, registered_at, food_option_id, beverage_option_id, dietary_notes),
-                        and <code>lodging</code> (name, address, booking_url, is_other).
-                    </p>
+                    <p>Returns the current RSVP flow state: event details, food/beverage options, lodging options, all group members, and a <code>next_action</code> field (<code>rsvp_required</code>, <code>menu_required</code>, <code>lodging_required</code>, <code>dashboard_redirect</code>, or <code>declined</code>) that tells the frontend exactly what to present next. Call this on every RSVP page load.</p>
                 </div>
             </div>
 
@@ -456,23 +476,77 @@ final class AboutPage extends AbstractAdminPage
                     <code>/wp-json/eim/v1/register</code>
                 </div>
                 <div class="eim-about-endpoint-body">
-                    <p>Validates the confirmation code and updates RSVP status for the invitation group. If no <code>members</code> array is provided, all pending members are marked as attending (backward compatible). With a <code>members</code> array, each listed member can be set individually with RSVP status, food/beverage selection, and dietary notes. A top-level <code>rsvp_notes</code> value stores the shared general notes for the whole invitation group.</p>
-                    <table class="eim-about-table" style="margin-bottom:10px;">
-                        <thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
-                        <tbody>
-                            <tr><td><code>confirmation_code</code></td><td>string</td><td>Yes</td><td>16-character code from the QR code URL</td></tr>
-                            <tr><td><code>rsvp_notes</code></td><td>string</td><td>No</td><td>Shared general notes for the invitation group.</td></tr>
-                            <tr><td><code>members</code></td><td>array</td><td>No</td><td>
-                                List of objects, one per group member, each containing:
-                                <code>invitee_id</code> (int, required),
-                                <code>rsvp_status</code> (string: <code>attending</code>, <code>declined</code>, or <code>pending</code>),
-                                <code>food_option_id</code> (int, optional — must be an active item assigned to this event),
-                                <code>beverage_option_id</code> (int, optional — same validation),
-                                <code>dietary_notes</code> (string, optional).
-                            </td></tr>
-                        </tbody>
-                    </table>
-                    <p>A successful response includes <code>success</code>, <code>already_registered</code> (true when all members were already attending), <code>message</code>, and an <code>invitee</code> object for the primary recipient.</p>
+                    <p>Validates the confirmation code and updates RSVP status for the invitation group. With a <code>members</code> array each listed member can be set individually with RSVP status, food/beverage selection, dietary notes, and lodging choice. Members omitted while still pending are auto-declined. Accepts top-level lodging fields (<code>lodging_id</code>, <code>lodging_is_other</code>, <code>lodging_undisclosed</code>, <code>lodging_booked</code>, <code>lodging_notes</code>) and shared <code>rsvp_notes</code>. Returns the full updated flow state including the new <code>next_action</code>.</p>
+                </div>
+            </div>
+
+            <div class="eim-about-endpoint">
+                <div class="eim-about-endpoint-header">
+                    <span class="eim-about-method" style="background:#2e7d32;">GET</span>
+                    <code>/wp-json/eim/v1/dashboard?confirmation_code={code}</code>
+                </div>
+                <div class="eim-about-endpoint-body">
+                    <p>Returns all upcoming events the primary invitee has been invited to, including pending, declined, incomplete, and registered events. Each event includes its per-event <code>confirmation_code</code>, <code>invitation_group_id</code>, RSVP details with invitee contact information, published newsletters when the event flow is complete, and registry data when available. Requires the current QR code's RSVP flow to be complete before the dashboard can load.</p>
+                </div>
+            </div>
+
+            <div class="eim-about-endpoint">
+                <div class="eim-about-endpoint-header">
+                    <span class="eim-about-method" style="background:#2e7d32;">GET</span>
+                    <code>/wp-json/eim/v1/newsletters?confirmation_code={code}</code>
+                </div>
+                <div class="eim-about-endpoint-body">
+                    <p>Returns published newsletters for all complete, upcoming events the group is registered for. Pass <code>newsletter_id</code> to fetch a single newsletter's full content. Requires a complete RSVP flow.</p>
+                </div>
+            </div>
+
+            <div class="eim-about-endpoint">
+                <div class="eim-about-endpoint-header">
+                    <span class="eim-about-method" style="background:#2e7d32;">GET</span>
+                    <code>/wp-json/eim/v1/registry?confirmation_code={code}</code>
+                </div>
+                <div class="eim-about-endpoint-body">
+                    <p>Returns registry gifts for all complete, upcoming events accessible from the confirmation code. Pass <code>event_id</code> to filter to one event. Each gift includes purchase status and a flag indicating whether the current group is the purchasing group.</p>
+                </div>
+            </div>
+
+            <div class="eim-about-endpoint">
+                <div class="eim-about-endpoint-header">
+                    <span class="eim-about-method">POST</span>
+                    <code>/wp-json/eim/v1/registry/purchase</code>
+                </div>
+                <div class="eim-about-endpoint-body">
+                    <p>Marks or unmarks a gift as purchased for a specific event. A group can only unmark a gift it previously marked. Fields: <code>confirmation_code</code>, <code>event_id</code>, <code>gift_id</code>, <code>is_purchased</code> (boolean, defaults true). Returns the updated gift object.</p>
+                </div>
+            </div>
+
+            <div class="eim-about-endpoint">
+                <div class="eim-about-endpoint-header">
+                    <span class="eim-about-method">POST</span>
+                    <code>/wp-json/eim/v1/request-guest</code>
+                </div>
+                <div class="eim-about-endpoint-body">
+                    <p>Submits a pending request to add an additional guest to the invitation group. Fields: <code>confirmation_code</code>, <code>first_name</code>, <code>last_name</code>, <code>email</code> (required), plus optional <code>phone</code>, <code>street_address</code>, <code>city</code>, <code>state</code>, <code>zip_code</code>, <code>notes</code>. Prevents duplicate pending requests for the same email.</p>
+                </div>
+            </div>
+
+            <div class="eim-about-endpoint">
+                <div class="eim-about-endpoint-header">
+                    <span class="eim-about-method" style="background:#2e7d32;">GET</span>
+                    <code>/wp-json/eim/v1/messages?confirmation_code={code}&amp;event_id={id}</code>
+                </div>
+                <div class="eim-about-endpoint-body">
+                    <p>Returns all messages in the conversation thread for the given event and connection group. The <code>event_id</code> must match the supplied confirmation code's event. The response includes <code>connection_group_id</code>, and each message includes <code>is_admin_reply</code> and <code>is_read</code> flags.</p>
+                </div>
+            </div>
+
+            <div class="eim-about-endpoint">
+                <div class="eim-about-endpoint-header">
+                    <span class="eim-about-method">POST</span>
+                    <code>/wp-json/eim/v1/messages</code>
+                </div>
+                <div class="eim-about-endpoint-body">
+                    <p>Sends a new invitee message for a specific event/group thread. Fields: <code>confirmation_code</code>, <code>event_id</code>, <code>message</code>. Returns the new message ID.</p>
                 </div>
             </div>
         </div>

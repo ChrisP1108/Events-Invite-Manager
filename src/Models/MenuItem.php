@@ -7,6 +7,7 @@ namespace EventsInviteManager\Models;
 if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Database\DatabaseManager;
+use EventsInviteManager\Hooks\EimChangeEvent;
 
 /**
  * Represents a global food or beverage menu item.
@@ -193,7 +194,11 @@ class MenuItem
         }
         $result = $wpdb->insert(DatabaseManager::menuItemsTable(), $insertData);
 
-        return $result ? self::find((int) $wpdb->insert_id) : null;
+        $created = $result ? self::find((int) $wpdb->insert_id) : null;
+        if ($created !== null) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_MENU_ITEM, EimChangeEvent::ADDED, $created);
+        }
+        return $created;
     }
 
     /**
@@ -221,7 +226,11 @@ class MenuItem
             return true;
         }
 
-        return $wpdb->update(DatabaseManager::menuItemsTable(), $fields, ['id' => $id]) !== false;
+        $ok = $wpdb->update(DatabaseManager::menuItemsTable(), $fields, ['id' => $id]) !== false;
+        if ($ok) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_MENU_ITEM, EimChangeEvent::EDITED, self::find($id));
+        }
+        return $ok;
     }
 
     /**
@@ -233,8 +242,13 @@ class MenuItem
     public static function delete(int $id): bool
     {
         global $wpdb;
+        $snapshot = self::find($id);
         $wpdb->delete(DatabaseManager::eventMenuItemsTable(), ['menu_item_id' => $id]);
-        return $wpdb->delete(DatabaseManager::menuItemsTable(), ['id' => $id]) !== false;
+        $ok = $wpdb->delete(DatabaseManager::menuItemsTable(), ['id' => $id]) !== false;
+        if ($ok && $snapshot !== null) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_MENU_ITEM, EimChangeEvent::DELETED, $snapshot);
+        }
+        return $ok;
     }
 
     // -------------------------------------------------------------------------

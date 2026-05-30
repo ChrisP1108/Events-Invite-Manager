@@ -7,6 +7,7 @@ namespace EventsInviteManager\Models;
 if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Database\DatabaseManager;
+use EventsInviteManager\Hooks\EimChangeEvent;
 use EventsInviteManager\Models\EventLodging;
 use EventsInviteManager\Models\EventMessage;
 use EventsInviteManager\Models\MenuItem;
@@ -196,7 +197,11 @@ final class Event
             'rsvp_deadline'            => !empty($data['rsvp_deadline']) ? $data['rsvp_deadline'] : null,
         ]);
 
-        return $result ? (int) $wpdb->insert_id : false;
+        $id = $result ? (int) $wpdb->insert_id : false;
+        if ($id !== false) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_EVENT, EimChangeEvent::ADDED, self::find($id));
+        }
+        return $id;
     }
 
     /**
@@ -235,7 +240,11 @@ final class Event
             ['id' => $id]
         );
 
-        return $result !== false;
+        $ok = $result !== false;
+        if ($ok) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_EVENT, EimChangeEvent::EDITED, self::find($id));
+        }
+        return $ok;
     }
 
     /**
@@ -247,6 +256,8 @@ final class Event
     public static function delete(int $id): bool
     {
         global $wpdb;
+
+        $snapshot = self::find($id);
 
         QrCode::deleteForEvent($id);
         InvitationGroup::deleteForEvent($id);
@@ -260,7 +271,11 @@ final class Event
         $wpdb->delete(DatabaseManager::budgetLineItemsTable(),  ['event_id' => $id]);
         $result = $wpdb->delete(DatabaseManager::eventsTable(), ['id' => $id]);
 
-        return $result !== false;
+        $ok = $result !== false;
+        if ($ok && $snapshot !== null) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_EVENT, EimChangeEvent::DELETED, $snapshot);
+        }
+        return $ok;
     }
 
     /**

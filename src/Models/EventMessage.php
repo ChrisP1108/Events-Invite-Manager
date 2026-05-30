@@ -7,6 +7,7 @@ namespace EventsInviteManager\Models;
 if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Database\DatabaseManager;
+use EventsInviteManager\Hooks\EimChangeEvent;
 
 /**
  * Represents a message or admin reply in a conversation thread between an
@@ -162,6 +163,16 @@ final class EventMessage
         return $result;
     }
 
+    // ─── Single-record lookup ────────────────────────────────────────────────
+
+    public static function find(int $id): ?self
+    {
+        global $wpdb;
+        $table = DatabaseManager::eventMessagesTable();
+        $row   = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id = %d LIMIT 1", $id));
+        return $row ? self::fromRow($row) : null;
+    }
+
     // ─── Mutations ───────────────────────────────────────────────────────────
 
     /**
@@ -183,7 +194,11 @@ final class EventMessage
             ['%d', '%d', '%s', '%d', '%d']
         );
 
-        return $result ? (int) $wpdb->insert_id : false;
+        $id = $result ? (int) $wpdb->insert_id : false;
+        if ($id !== false) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_MESSAGE, EimChangeEvent::ADDED, self::find($id));
+        }
+        return $id;
     }
 
     /**
@@ -207,7 +222,11 @@ final class EventMessage
             ['%d', '%d', '%s', '%d', '%d']
         );
 
-        return $result ? (int) $wpdb->insert_id : false;
+        $id = $result ? (int) $wpdb->insert_id : false;
+        if ($id !== false) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_MESSAGE, EimChangeEvent::ADDED, self::find($id));
+        }
+        return $id;
     }
 
     /**
@@ -254,11 +273,16 @@ final class EventMessage
     {
         global $wpdb;
 
-        return (bool) $wpdb->delete(
+        $snapshot = self::find($id);
+        $ok       = (bool) $wpdb->delete(
             DatabaseManager::eventMessagesTable(),
             ['id' => $id],
             ['%d']
         );
+        if ($ok && $snapshot !== null) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_MESSAGE, EimChangeEvent::DELETED, $snapshot);
+        }
+        return $ok;
     }
 
     /**

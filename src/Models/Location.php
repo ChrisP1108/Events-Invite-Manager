@@ -7,6 +7,7 @@ namespace EventsInviteManager\Models;
 if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Database\DatabaseManager;
+use EventsInviteManager\Hooks\EimChangeEvent;
 
 /**
  * Represents a single entry in the global location catalogue (eim_locations).
@@ -352,7 +353,11 @@ final class Location
             'booking_url'    => $data['booking_url'] ?? '',
         ]);
 
-        return $result ? (int) $wpdb->insert_id : false;
+        $id = $result ? (int) $wpdb->insert_id : false;
+        if ($id !== false) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_LOCATION, EimChangeEvent::ADDED, self::find($id));
+        }
+        return $id;
     }
 
     /**
@@ -383,7 +388,11 @@ final class Location
             ['id' => $id]
         );
 
-        return $result !== false;
+        $ok = $result !== false;
+        if ($ok) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_LOCATION, EimChangeEvent::EDITED, self::find($id));
+        }
+        return $ok;
     }
 
     /**
@@ -401,12 +410,18 @@ final class Location
     {
         global $wpdb;
 
+        $snapshot = self::find($id);
+
         $wpdb->update(DatabaseManager::eventsTable(), ['venue_id' => null], ['venue_id' => $id]);
         $wpdb->delete(DatabaseManager::eventLodgingTable(), ['location_id' => $id]);
 
         $result = $wpdb->delete(DatabaseManager::locationsTable(), ['id' => $id]);
 
-        return $result !== false;
+        $ok = $result !== false;
+        if ($ok && $snapshot !== null) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_LOCATION, EimChangeEvent::DELETED, $snapshot);
+        }
+        return $ok;
     }
 
     /**

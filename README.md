@@ -1,6 +1,6 @@
 # Events Invite Manager
 
-A WordPress plugin for managing private event invitations, grouped RSVPs, attendee registration, venue and lodging assignments, a global food & beverage menu library with vendor linkage, budget tracking, newsletter posts, a unified category taxonomy, and automated email workflows — built for events where a curated guest list and QR code RSVP flow are required.
+A WordPress plugin for managing private event invitations, grouped RSVPs, attendee registration, venue and lodging assignments, a global food & beverage menu library with vendor linkage, a gifts & registry system, an invitee messaging system, a guest request workflow, budget tracking, newsletter posts, a unified category taxonomy, and automated email workflows — built for events where a curated guest list and QR code RSVP flow are required.
 
 ---
 
@@ -27,16 +27,27 @@ Create and manage events with full details: name, description, date, start and e
 
 Below the calendar, the events list supports **AJAX live search** with a **column-filter dropdown** (Name, Description), sortable columns (Name, Date/Time), and pagination — filtering and sorting happen without a page reload.
 
-The event **edit screen uses a tabbed interface** with seven tabs — Details, Venue/Location, Invite Email, QR Code & RSVP, Lodging, Food & Beverage, and Invited Invitees — so each concern has its own dedicated panel. The active tab is persisted via `localStorage` and restored via URL hash after redirect actions (e.g. adding lodging returns to the Lodging tab, invitee actions return to the Invited Invitees tab).
+The event **edit screen uses a tabbed interface** with eight tabs — Details, Venue/Location, Invite Email, QR Code & RSVP, Lodging, Food & Beverage, Gifts & Registry, and Invited Invitees — so each concern has its own dedicated panel. The active tab is persisted via `localStorage` and restored via URL hash after redirect actions.
 
 ### Venue Assignment
 Each event can have a single venue selected from the location library. Typing in the venue field triggers a live search and shows matching locations with their addresses. Selecting a location auto-fills the hidden address fields and displays the formatted address below the input as read-only confirmation text.
 
 ### Lodging Locations
-Events can offer multiple lodging options to invitees, each selected from library entries with `has_lodging` enabled. Lodging assignments are stored in a dedicated pivot table (`eim_event_lodging`) and exposed via the REST API.
+Events can offer multiple lodging options to invitees, each selected from library entries with `has_lodging` enabled. Lodging assignments are stored in a dedicated pivot table (`eim_event_lodging`) and exposed via the REST API. Invitees can select a lodging option, choose "Other," or mark their preference as undisclosed. Lodging is stored as a shared group-wide choice rather than per-member.
 
 ### Food & Beverage Options (per event)
 When **food options** and/or **beverage options** are enabled on an event, the event edit screen presents an autocomplete search that pulls from the global menu item library. Selected items are stored in the `eim_event_menu_items` pivot table. These options are returned by the RSVP REST API and can be selected per invitee during registration (stored as `food_option_id` and `beverage_option_id` on each group member). When both food and beverage options are enabled, their assignment tables are displayed **side-by-side** in a two-column grid.
+
+### Gifts & Registry
+A full gifts and registry system, managed from the **Gifts & Registry** admin tab. Each gift has a name, description, price, optional website URL, and an optional image. Gifts are global library items — created once and linked to one or more events. The event edit screen's **Gifts & Registry** tab lets admins assign gifts from the global library to that event. From the RSVP dashboard, invitees can view the registry and mark gifts as purchased. Purchase records track which invitation group claimed the gift, and only the claiming group can unmark it.
+
+The Gifts admin table supports AJAX live search, sortable columns, and bulk operations.
+
+### Invitee Messaging
+A conversation thread system between invitees and the admin, scoped per event and per connection group. Invitees can send messages through the frontend REST API; admins read and reply from the **Messages** admin tab. Each thread is grouped by connection group and event. Admin replies are flagged as `is_admin_reply` and are always marked read. Unread message counts are surfaced in the admin list so nothing is missed.
+
+### Requested Invitee Add-Ons
+Invitees can request additional guests be added to their invitation group via the `POST /request-guest` REST endpoint. Each request stores the proposed guest's contact details and is queued for admin review in the **Requested Invitees** admin tab. Admins can **approve** (creating the invitee, adding them to the connection group and invitation group, and auto-RSVPing them as attending) or **deny** the request. The full approve workflow runs inside a database transaction.
 
 ### Invitees
 Add and manage invitees globally, each with a first name, last name, email address, phone number, and optional postal address. The Invitees admin table supports AJAX live search with a **column-filter dropdown** (First Name, Last Name, Email, Phone, Invited Events, Connection Groups), sortable columns, event tags, connection group tags, and a **Categories column** showing assigned category chips.
@@ -48,7 +59,7 @@ Create reusable groups of related invitees — couples, families, households, or
 From an event edit screen, add existing invitees to that event. When a selected invitee belongs to connection groups, connected people appear as checkboxes so the admin can include them in one invitation group. One invite email is sent per invitation group to the primary invitee, who can RSVP for everyone in the group. Email subject lines and body content are fully customisable using template tags, including `{{ qr_code }}`, `{{ invite_url }}`, and group-aware tags.
 
 ### QR Code RSVP
-When an invite is sent, a unique 16-character confirmation code is generated for the invitation group and a QR code PNG is produced and stored in the WordPress uploads directory (`wp-uploads/eim-qr-codes/`). The QR code encodes a URL of the form `{site}/?eim_confirmation={code}`. When scanned, the plugin intercepts the request via `template_redirect` and forwards the visitor to the configured RSVP page. The RSVP API returns all members so each person can be marked as `attending`, `declined`, or `pending`. QR codes are automatically removed from disk and the database when their invitation group is deleted.
+When an invite is sent, a unique 16-character confirmation code is generated for the invitation group and a QR code PNG is produced and stored in the WordPress uploads directory (`wp-uploads/eim-qr-codes/`). The QR code encodes a URL of the form `{site}/?eim_confirmation={code}`. When scanned, the plugin intercepts the request via `template_redirect` and forwards the visitor to the configured RSVP page. The RSVP API drives a multi-step flow: `rsvp_form` → `menu_required` → `lodging_required` → `dashboard_redirect`, with each step gated by the event's configuration. The `next_action` field in every response tells the frontend exactly what to present next. RSVP submissions after the configured deadline are rejected. QR codes are automatically removed from disk and the database when their invitation group is deleted.
 
 ### Invited Invitees — search & sort
 The **Invited Invitees** list on every event edit screen supports AJAX live search with a **column-filter dropdown** (Group Members, Email, Invite Sent, Registered) and sortable column headers (Group Members, Email, Invite Sent, Registered). Sorting and filtering occur without a page reload; both operate simultaneously.
@@ -73,13 +84,37 @@ A **Budget** tab provides financial planning and tracking across one or more eve
 ### Contextual search bars
 All list tables use a shared search control that includes a text input and a column-filter dropdown. The search bar is only displayed when there is at least one item in the list. When a search returns no results it shows "No results found based upon search criteria." rather than the empty-state message.
 
+### `eim_change` WordPress Action Hook
+Every create, edit, and delete operation across all plugin entities fires the `eim_change` WordPress action, allowing external code snippets to react to any data change without modifying the plugin's files.
+
+```php
+add_action('eim_change', function (EimChangeEvent $e): void {
+    // $e->type        — entity type, e.g. EimChangeEvent::TYPE_EVENT
+    // $e->change_type — one of 'added', 'edited', or 'deleted'
+    // $e->data        — the model object after the write (or a snapshot before deletion)
+});
+```
+
+**Type constants** (`EimChangeEvent::TYPE_*`): `event`, `invitee`, `requested_add_on`, `message`, `connection_group`, `location`, `menu_item`, `budget_plan`, `budget_line_item`, `vendor`, `newsletter`, `category`, `gift`.
+
+**Change type constants** (`EimChangeEvent::ADDED`, `EimChangeEvent::EDITED`, `EimChangeEvent::DELETED`).
+
+The hook lives in `EventsInviteManager\Hooks\EimChangeEvent` and fires only on successful writes — failed DB operations never dispatch it. For delete operations, `$e->data` contains a snapshot of the record captured immediately before deletion.
+
 ### REST API
-Two JSON endpoints power the front-end RSVP experience:
+JSON endpoints powering the front-end RSVP experience, invitee dashboard, registry, messaging, and guest-request features:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET`  | `/wp-json/eim/v1/rsvp`     | Returns event details, food/beverage options, lodging options, the primary invitee, and all invitation group members for a confirmation code |
-| `POST` | `/wp-json/eim/v1/register` | Updates RSVP status for all group members or for specific members; accepts per-person food/beverage selections and dietary notes |
+| `GET`  | `/wp-json/eim/v1/rsvp`              | Loads the current RSVP flow state — event details, food/beverage options, lodging, all group members, and the `next_action` step |
+| `POST` | `/wp-json/eim/v1/register`          | Submits RSVP status, food/beverage selections, dietary notes, and lodging choice for the invitation group |
+| `GET`  | `/wp-json/eim/v1/dashboard`         | Returns all upcoming registered events for the invitation group, with RSVP details, newsletters, and registry per event |
+| `GET`  | `/wp-json/eim/v1/newsletters`       | Returns published newsletters for all events the group is registered for; supports single-newsletter detail view |
+| `GET`  | `/wp-json/eim/v1/registry`          | Returns registry gifts for all complete, upcoming events accessible from the QR code |
+| `POST` | `/wp-json/eim/v1/registry/purchase` | Marks or unmarks a registry gift as purchased by the invitation group |
+| `POST` | `/wp-json/eim/v1/request-guest`     | Submits a pending request to add an additional guest to the invitation group |
+| `GET`  | `/wp-json/eim/v1/messages`          | Returns all messages in the event/group conversation thread |
+| `POST` | `/wp-json/eim/v1/messages`          | Sends a new message from the invitee to the admin for a specific event |
 
 ### Admin Calendar
 The events list includes a monthly calendar grid. Events with a date appear as linked blocks on their respective days. Month navigation arrows and a jump-to-event dropdown are provided for quick navigation.
@@ -132,43 +167,52 @@ Navigate to **Events Invite Manager → Food & Beverages** and add the food and 
 
 Each item has a **label** (required), optional **description**, an optional **vendor** (from the vendor library), an optional per-person **price** (used in budget calculations), and optional **categories**.
 
-### 5 — Create an event
+### 5 — Build your gifts & registry (optional)
+
+Navigate to **Events Invite Manager → Gifts & Registry** and add the gifts you'd like invitees to be able to purchase. Each gift has a name, description, price, optional website URL, and an optional image. After creating gifts globally, link them to specific events on the event's **Gifts & Registry** tab.
+
+### 6 — Create an event
 
 Navigate to **Events Invite Manager → Events → Add New Event** and fill in the fields across the tabbed interface:
 
-- **Details tab** — Event Name *(required)*, Description, Start/End Date & Time, Time Zone, Maximum Invitees
+- **Details tab** — Event Name *(required)*, Description, Start/End Date & Time, Time Zone, Maximum Invitees, RSVP Deadline
 - **Venue/Location tab** — search the location library to assign a venue
 - **Invite Email tab** — From name, From email, subject line, and body template (use `{{ qr_code }}` and `{{ invite_url }}` to embed the QR image or RSVP link)
-- **QR Code & RSVP tab** — select the WordPress page recipients land on after scanning their QR code
+- **QR Code & RSVP tab** — select the WordPress RSVP page and Dashboard page for recipients
 - **Lodging tab** — enable lodging and optionally pre-assign locations from the library
-- **Food & Beverage tab** — enable food/beverage option flags; after saving, assign items from the global library in the same tab
+- **Food & Beverage tab** — enable food/beverage option flags; after saving, assign items from the global library
+- **Gifts & Registry tab** — after saving, link gifts from the global library to this event
 
-### 6 — Add invitees
+### 7 — Add invitees
 
 Navigate to **Events Invite Manager → Invitees** and add each guest with their name, email address, phone number, and optional postal address.
 
-### 7 — Create connection groups
+### 8 — Create connection groups
 
-Navigate to **Events Invite Manager → Connection Groups** and create reusable groups for people who commonly RSVP together (couples, families, households). Connection groups provide checkbox suggestions when adding invitees to an event. The **Invited To** column shows which events each group has been invited to.
+Navigate to **Events Invite Manager → Connection Groups** and create reusable groups for people who commonly RSVP together (couples, families, households). Connection groups provide checkbox suggestions when adding invitees to an event.
 
-### 8 — Send invites
+### 9 — Send invites
 
 Open the event edit screen, navigate to the **Invited Invitees** tab, add existing invitees, and optionally check connected people to include them in the same invitation group. Use **Send Invite** on an individual group row or **Send All Unsent Invites** to dispatch one email per unsent group.
 
-### 9 — Build your RSVP page
+### 10 — Build your RSVP page
 
-Create a WordPress page and set it as the event's **QR Code RSVP Page**. When an invitee scans their QR code the plugin redirects them to that page with `?eim_confirmation={code}` appended. On that page:
+Create a WordPress page and set it as the event's **QR Code RSVP Page**. When an invitee scans their QR code the plugin redirects them to that page with `?eim_confirmation={code}` appended. The RSVP flow is driven by the `next_action` field returned by the API:
 
-1. Read `eim_confirmation` from the query string.
-2. Call `GET /wp-json/eim/v1/rsvp?confirmation_code={code}` to load the primary invitee, all group members, event details, food/beverage options, and lodging options.
-3. Display the group member list and allow the recipient to choose attending/declining and select menu preferences.
-4. Call `POST /wp-json/eim/v1/register` with the confirmation code (and optionally a `members` array with per-person RSVP status, `food_option_id`, `beverage_option_id`, and `dietary_notes`).
+1. Call `GET /wp-json/eim/v1/rsvp?confirmation_code={code}` to get the current state.
+2. Present the appropriate step based on `next_action` (`rsvp_form`, `menu_required`, `lodging_required`, `dashboard_redirect`).
+3. Submit via `POST /wp-json/eim/v1/register` with per-member RSVP statuses, food/beverage selections, dietary notes, and lodging choice.
+4. Repeat until `next_action` is `dashboard_redirect`, then redirect to the dashboard page.
 
-### 10 — Write newsletters (optional)
+### 11 — Build your dashboard page (optional)
+
+Create a WordPress page and set it as the event's **Dashboard Page**. After completing the RSVP flow, invitees land here. Call `GET /wp-json/eim/v1/dashboard?confirmation_code={code}` to load all upcoming events for the group, along with RSVP summaries, published newsletters, and registry data.
+
+### 12 — Write newsletters (optional)
 
 Navigate to **Events Invite Manager → Newsletters** to create newsletter posts for email blasts or website display. Associate each newsletter with one or more events, assign categories and tags, and use the TinyMCE editor to write HTML content. Click **Preview Content** to see a live side-by-side preview of the rendered HTML that updates automatically as you type.
 
-### 11 — Track your budget (optional)
+### 13 — Track your budget (optional)
 
 Navigate to **Events Invite Manager → Budget** to create a budget plan. Add line items with vendor, quantity, unit cost, and optional total overrides. Plans can span multiple events and the totals row shows estimated, paid, and remaining amounts at a glance.
 
@@ -203,112 +247,74 @@ Template tags are replaced with live values at send time. Tags are case-insensit
 
 ## REST API Reference
 
-All endpoints are under the `eim/v1` namespace. Both are publicly accessible — they are gated by the 16-character confirmation code embedded in the QR code URL rather than WordPress authentication.
+All endpoints are under the `eim/v1` namespace. All are publicly accessible — they are gated by the 16-character confirmation code embedded in the QR code URL rather than WordPress authentication.
 
 ### `GET /wp-json/eim/v1/rsvp`
 
-Returns event details, food/beverage options assigned to the event, lodging options, the primary invitee, and every member in the invitation group. Call this on RSVP page load to personalise the page before the recipient confirms.
+Returns the current RSVP flow state for a confirmation code: event details, food/beverage options, lodging options, all group members, and a `next_action` field indicating what the frontend should present next.
 
-**Query parameters**
+**`next_action` values**
 
-| Param | Type | Required | Description |
-|-------|------|----------|-------------|
-| `confirmation_code` | string | Yes | 16-character code from the QR code URL |
-
-**Successful response**
-
-```json
-{
-    "success": true,
-    "event": {
-        "name": "Chris & Jamie's Wedding",
-        "description": "Please join us to celebrate!",
-        "date": "June 14, 2025, 4:00 PM – 9:00 PM",
-        "venue": {
-            "name": "The Grand Ballroom",
-            "address": "123 Main St, Nashville, TN 37201"
-        }
-    },
-    "rsvp_options": {
-        "food": [
-            { "id": 1, "label": "Chicken", "description": "Herb-roasted chicken breast", "sort_order": 1 },
-            { "id": 2, "label": "Salmon",  "description": "Pan-seared Atlantic salmon",  "sort_order": 2 }
-        ],
-        "beverage": [
-            { "id": 3, "label": "Red Wine",   "description": "", "sort_order": 1 },
-            { "id": 4, "label": "White Wine",  "description": "", "sort_order": 2 }
-        ]
-    },
-    "invitee": {
-        "first_name": "Jamie",
-        "last_name": "Smith",
-        "email": "jamie@example.com"
-    },
-    "group_members": [
-        {
-            "invitee_id": 12,
-            "first_name": "Jamie",
-            "last_name": "Smith",
-            "email": "jamie@example.com",
-            "rsvp_status": "pending",
-            "registered_at": null,
-            "food_option_id": null,
-            "beverage_option_id": null,
-            "dietary_notes": ""
-        }
-    ],
-    "lodging": [
-        {
-            "name": "The Inn at Main",
-            "address": "456 Oak Ave, Nashville, TN 37202",
-            "booking_url": "https://example.com/book",
-            "is_other": false
-        }
-    ]
-}
-```
-
-The `rsvp_options.food` and `rsvp_options.beverage` arrays are empty when the corresponding option is not enabled on the event. `food_option_id` and `beverage_option_id` in each group member are `null` until the member selects a preference during registration.
-
----
+| Value | Meaning |
+|-------|---------|
+| `rsvp_form` | The invitee hasn't RSVP'd yet — show the RSVP form |
+| `menu_required` | RSVP complete; attending members still need food/beverage selections |
+| `lodging_required` | RSVP and menu complete; group still needs to choose lodging |
+| `dashboard_redirect` | All steps complete — redirect to the dashboard |
+| `declined` | All members declined |
 
 ### `POST /wp-json/eim/v1/register`
 
-Validates the confirmation code and updates RSVP status for the invitation group. If `members` is omitted, all pending group members are marked as `attending`. If `members` is provided, each listed member can be set individually with an optional food/beverage selection and dietary notes.
+Validates the confirmation code and updates RSVP status for the invitation group. With a `members` array, each listed member can be updated individually. Members omitted from the payload when pending are auto-declined. Accepts group-level and member-level lodging selections, shared RSVP notes, and lodging booking notes.
 
-**Request body (JSON or form-data)**
+**Key fields**
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `confirmation_code` | string | Yes | 16-character code from the QR code URL |
-| `members` | array | No | List of per-member objects (see below). If omitted, all pending members are marked attending. |
+| Field | Type | Description |
+|-------|------|-------------|
+| `confirmation_code` | string | 16-character code |
+| `members` | array | Per-member objects: `invitee_id`, `rsvp_status`, `food_option_id`, `beverage_option_id`, `dietary_notes`, `lodging_id`, `lodging_is_other`, `lodging_undisclosed` |
+| `rsvp_notes` | string | Shared group notes |
+| `lodging_id` | integer | Group-level lodging assignment |
+| `lodging_is_other` | boolean | Group chose "Other" for lodging |
+| `lodging_undisclosed` | boolean | Group prefers not to disclose |
+| `lodging_booked` | boolean | Group has booked their lodging |
+| `lodging_notes` | string | Free-text lodging notes |
 
-**Per-member object**
+### `GET /wp-json/eim/v1/dashboard`
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `invitee_id` | integer | Yes | ID of the invitee within the group |
-| `rsvp_status` | string | Yes | One of `attending`, `declined`, or `pending` |
-| `food_option_id` | integer | No | ID of a food item from `rsvp_options.food`. Must be assigned to this event; invalid IDs are ignored. |
-| `beverage_option_id` | integer | No | ID of a beverage item from `rsvp_options.beverage`. Must be assigned to this event; invalid IDs are ignored. |
-| `dietary_notes` | string | No | Free-text dietary requirements or preferences |
+Returns all upcoming events the invitation group is registered for (at least one member attending), along with RSVP details, published newsletters, and registry data per event. Requires the RSVP flow to be fully complete.
 
-**Successful response**
+### `GET /wp-json/eim/v1/newsletters`
 
-```json
-{
-    "success": true,
-    "already_registered": false,
-    "message": "You have successfully registered for the event!",
-    "invitee": {
-        "first_name": "Jamie",
-        "last_name": "Smith",
-        "email": "jamie@example.com"
-    }
-}
-```
+Returns published newsletters for all complete, upcoming events accessible from the confirmation code. Pass `newsletter_id` to fetch a single newsletter's full content. Requires the RSVP flow to be fully complete.
 
-When all group members are already attending, `already_registered` is `true` and the message reflects that.
+### `GET /wp-json/eim/v1/registry`
+
+Returns registry gifts for all complete, upcoming events accessible from the confirmation code. Pass `event_id` to filter to one event. Includes purchase status and whether the current group has claimed each gift.
+
+### `POST /wp-json/eim/v1/registry/purchase`
+
+Marks or unmarks a gift as purchased for a specific event. A group can only unmark a gift it previously marked. Returns the updated gift object.
+
+**Fields:** `confirmation_code`, `event_id`, `gift_id`, `is_purchased` (boolean, defaults to `true`).
+
+### `POST /wp-json/eim/v1/request-guest`
+
+Submits a request for an additional guest to be added to the invitation group. The request is stored for admin review and approval.
+
+**Fields:** `confirmation_code`, `first_name`, `last_name`, `email` (required), `phone`, `street_address`, `city`, `state`, `zip_code`, `notes`.
+
+### `GET /wp-json/eim/v1/messages`
+
+Returns all messages in the event/group conversation thread. The `event_id` must match the QR code's event.
+
+**Fields:** `confirmation_code`, `event_id`.
+
+### `POST /wp-json/eim/v1/messages`
+
+Sends a new invitee message for a specific event/group thread.
+
+**Fields:** `confirmation_code`, `event_id`, `message`.
 
 ---
 
@@ -316,7 +322,7 @@ When all group members are already attending, `already_registered` is `true` and
 
 | Table | Description |
 |-------|-------------|
-| `{prefix}eim_events` | Event records including venue FK, RSVP page ID, date/time, food/beverage flags, and invite email template |
+| `{prefix}eim_events` | Event records including venue FK, RSVP page ID, dashboard page ID, date/time, food/beverage flags, RSVP deadline, and invite email template |
 | `{prefix}eim_invitees` | Global invitee profile records |
 | `{prefix}eim_event_invitees` | Event membership assignments for individual invitees |
 | `{prefix}eim_locations` | Global location catalogue — venues and lodging options shared across all events |
@@ -325,18 +331,22 @@ When all group members are already attending, `already_registered` is `true` and
 | `{prefix}eim_invitee_connection_groups` | Reusable global relationship groups (couples, families, households, custom) |
 | `{prefix}eim_invitee_connection_group_members` | Pivot table linking global invitees to reusable connection groups |
 | `{prefix}eim_event_invitation_groups` | Event-specific invitation groups; each group has one primary invitee and one email/QR code |
-| `{prefix}eim_event_invitation_group_members` | Per-person RSVP status, registration timestamp, food/beverage selections, and dietary notes |
+| `{prefix}eim_event_invitation_group_members` | Per-person RSVP status, registration timestamp, food/beverage/lodging selections, and dietary notes |
 | `{prefix}eim_menu_items` | Global food and beverage menu item library — label, description, price, vendor FK |
 | `{prefix}eim_event_menu_items` | Pivot table linking events to their assigned menu items from the global library |
 | `{prefix}eim_vendors` | Global vendor library — company name, contact details, and free-text notes |
 | `{prefix}eim_budget_plans` | Budget plan records with name, description, target amount, and currency |
 | `{prefix}eim_budget_plan_events` | Pivot table linking budget plans to one or more events |
-| `{prefix}eim_budget_line_items` | Budget line items with vendor FK, quantity, unit cost, paid amount, and notes |
+| `{prefix}eim_budget_items` | Global budget item library — label, vendor FK, unit cost, and notes |
+| `{prefix}eim_budget_line_items` | Budget line items linking a global item to a plan, with quantity, paid amount, and notes |
+| `{prefix}eim_gifts` | Global gift library — name, description, price, website URL, and image attachment |
+| `{prefix}eim_gift_events` | Pivot table linking gifts to events |
+| `{prefix}eim_gift_purchases` | Purchase status per gift+event: is_purchased, purchased_at, purchased_by_group_id |
+| `{prefix}eim_event_messages` | Invitee/admin message threads, scoped per event and connection group |
+| `{prefix}eim_requested_invitee_add_ons` | Pending guest requests submitted by invitees via the REST API, awaiting admin approval |
 | `{prefix}eim_newsletters` | Newsletter post records with title, HTML content, status, and publish date |
 | `{prefix}eim_newsletter_events` | Pivot table linking newsletters to one or more events |
-| `{prefix}eim_newsletter_categories` | Managed newsletter category list (name, slug) |
 | `{prefix}eim_newsletter_tags` | Managed newsletter tag list (name, slug) |
-| `{prefix}eim_newsletter_category_map` | Pivot table linking newsletters to their categories |
 | `{prefix}eim_newsletter_tag_map` | Pivot table linking newsletters to their tags |
 | `{prefix}eim_categories` | Unified category taxonomy — name, slug, optional parent ID for one-level hierarchy |
 | `{prefix}eim_category_map` | Pivot table linking categories to any entity type (event, invitee, vendor, menu_item, etc.) |
@@ -350,8 +360,10 @@ When all group members are already attending, `already_registered` is `true` and
 - **No build tool required:** JS is authored in native ES2022 and loaded directly — no bundler or transpilation step.
 - **Autoloading:** PSR-4 via Composer. All classes live under the `EventsInviteManager\` namespace in `src/`.
 - **QR code storage:** PNGs are written to `{wp-uploads}/eim-qr-codes/` via `wp_upload_dir()` — not inside the plugin directory — so they survive plugin updates. Files are deleted from disk whenever the associated DB record is removed.
-- **Referential integrity:** No database-level foreign keys are used. Deletion cascades are handled in PHP: deleting an event removes its invitee assignments, lodging assignments, menu item assignments, invitation groups, invitation group members, and QR codes; deleting a location nulls `events.venue_id` and removes its lodging pivot rows; deleting a menu item removes its event pivot rows; deleting a vendor nulls `menu_items.vendor_id`; deleting an invitee removes them from connection groups and invitation groups; deleting a newsletter category or tag removes it from all newsletter associations; deleting any entity removes its `eim_category_map` rows.
+- **Referential integrity:** No database-level foreign keys are used. Deletion cascades are handled in PHP: deleting an event removes its invitee assignments, lodging assignments, menu item assignments, invitation groups, invitation group members, messages, requested add-ons, gift links, and QR codes; deleting a location nulls `events.venue_id` and removes its lodging pivot rows; deleting a menu item removes its event pivot rows; deleting a vendor nulls `menu_items.vendor_id` and `budget_line_items.vendor_id`; deleting an invitee removes them from connection groups and invitation groups; deleting a gift removes its event links and purchase records; deleting any entity removes its `eim_category_map` rows.
 - **Category system:** `Category::forEntities(string $entityType, array $entityIds)` bulk-loads categories for an entire list in one JOIN query (keyed by entity ID), avoiding N+1 lookups in list-table renders. `Category::forEntity()` loads for a single entity. `Category::syncToEntity()` atomically replaces all category assignments for an entity.
+- **`eim_change` hook:** `EimChangeEvent::dispatch(string $type, string $changeType, mixed $data)` fires `do_action('eim_change', $event)` after every successful create, update, or delete. The `EimChangeEvent` value object (in `EventsInviteManager\Hooks\EimChangeEvent`) carries `TYPE_*` and `ADDED`/`EDITED`/`DELETED` constants. For deletes, the data snapshot is captured before the record is removed.
+- **REST API architecture:** `RestController` is a slim router. Each feature area has its own controller class (`RsvpController`, `DashboardController`, `NewsletterController`, `RegistryController`, `GuestRequestController`, `MessagesController`) extending `AbstractApiController`, which holds all shared payload-building helpers.
 
 ---
 

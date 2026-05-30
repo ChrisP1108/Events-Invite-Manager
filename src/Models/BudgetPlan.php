@@ -7,6 +7,7 @@ namespace EventsInviteManager\Models;
 if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Database\DatabaseManager;
+use EventsInviteManager\Hooks\EimChangeEvent;
 
 /**
  * Represents a budget plan, which is the top-level container for event budgeting.
@@ -223,7 +224,11 @@ final class BudgetPlan
             'target_amount_cents' => (int)    ($data['target_amount_cents'] ?? 0),
             'currency'            => (string) ($data['currency']            ?? 'USD'),
         ]);
-        return $result ? self::find((int) $wpdb->insert_id) : null;
+        $created = $result ? self::find((int) $wpdb->insert_id) : null;
+        if ($created !== null) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_BUDGET_PLAN, EimChangeEvent::ADDED, $created);
+        }
+        return $created;
     }
 
     /**
@@ -245,7 +250,11 @@ final class BudgetPlan
         if (array_key_exists('target_amount_cents', $data)) $fields['target_amount_cents'] = (int)    $data['target_amount_cents'];
         if (array_key_exists('currency', $data))            $fields['currency']            = (string) $data['currency'];
         if (empty($fields)) return true;
-        return $wpdb->update(DatabaseManager::budgetPlansTable(), $fields, ['id' => $id]) !== false;
+        $ok = $wpdb->update(DatabaseManager::budgetPlansTable(), $fields, ['id' => $id]) !== false;
+        if ($ok) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_BUDGET_PLAN, EimChangeEvent::EDITED, self::find($id));
+        }
+        return $ok;
     }
 
     /**
@@ -257,9 +266,14 @@ final class BudgetPlan
     public static function delete(int $id): bool
     {
         global $wpdb;
+        $snapshot = self::find($id);
         $wpdb->delete(DatabaseManager::budgetLineItemsTable(),  ['plan_id' => $id]);
         $wpdb->delete(DatabaseManager::budgetPlanEventsTable(), ['plan_id' => $id]);
-        return $wpdb->delete(DatabaseManager::budgetPlansTable(), ['id' => $id]) !== false;
+        $ok = $wpdb->delete(DatabaseManager::budgetPlansTable(), ['id' => $id]) !== false;
+        if ($ok && $snapshot !== null) {
+            EimChangeEvent::dispatch(EimChangeEvent::TYPE_BUDGET_PLAN, EimChangeEvent::DELETED, $snapshot);
+        }
+        return $ok;
     }
 
     // -------------------------------------------------------------------------

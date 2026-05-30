@@ -7,6 +7,7 @@ namespace EventsInviteManager\Services;
 if (!defined('ABSPATH')) exit;
 
 use Endroid\QrCode\Builder\Builder;
+use Endroid\QrCode\Color\Color;
 use Endroid\QrCode\Encoding\Encoding;
 use Endroid\QrCode\ErrorCorrectionLevel;
 use Endroid\QrCode\RoundBlockSizeMode;
@@ -31,9 +32,6 @@ final class QrCodeService
     /** @var int Width and height in pixels of the generated QR code PNG. */
     private const QR_SIZE         = 300;
 
-    /** @var int Quiet-zone margin in pixels around the QR code module grid. */
-    private const QR_MARGIN       = 10;
-
     /** @var int Number of characters in each random confirmation code. */
     private const QR_CODE_LENGTH  = 16;
 
@@ -56,7 +54,10 @@ final class QrCodeService
                 return $existing;
             }
 
-            QrCode::deleteForGroup($group->id);
+            // The DB record (and confirmation code) exist but the image file was deleted.
+            // Regenerate the PNG using the same confirmation code so any printed invite
+            // cards or emails that already contain the code remain valid.
+            return $this->regenerateImageForGroup($existing);
         }
 
         return $this->generateForGroup($event->id, $group->id);
@@ -113,8 +114,10 @@ final class QrCodeService
                 ->encoding(new Encoding('UTF-8'))
                 ->errorCorrectionLevel(ErrorCorrectionLevel::Medium)
                 ->size(self::QR_SIZE)
-                ->margin(self::QR_MARGIN)
                 ->roundBlockSizeMode(RoundBlockSizeMode::Margin)
+                ->foregroundColor(new Color(0, 0, 0))
+                ->backgroundColor(new Color(0, 0, 0, 127))
+                ->margin(0)
                 ->build();
 
             $result->saveToFile($absPath);
@@ -123,6 +126,46 @@ final class QrCodeService
         }
 
         return QrCode::create($eventId, $groupId, $code, $relPath);
+    }
+
+    /**
+     * Rewrites the QR code PNG for an existing DB record using its stored confirmation code.
+     *
+     * Called when the file is missing but the record still exists — preserves the
+     * confirmation code so printed cards and sent emails stay valid.
+     *
+     * @param QrCode $existing
+     * @return QrCode|null The same QrCode on success; null when the PNG cannot be written.
+     */
+    private function regenerateImageForGroup(QrCode $existing): ?QrCode
+    {
+        $url     = $this->buildInviteUrl($existing->confirmationCode);
+        $absPath = $existing->absolutePath();
+        $dir     = dirname($absPath);
+
+        if (!is_dir($dir)) {
+            wp_mkdir_p($dir);
+        }
+
+        try {
+            $result = Builder::create()
+                ->writer(new PngWriter())
+                ->data($url)
+                ->encoding(new Encoding('UTF-8'))
+                ->errorCorrectionLevel(ErrorCorrectionLevel::Medium)
+                ->size(self::QR_SIZE)
+                ->roundBlockSizeMode(RoundBlockSizeMode::Margin)
+                ->foregroundColor(new Color(0, 0, 0))
+                ->backgroundColor(new Color(0, 0, 0, 127))
+                ->margin(0)
+                ->build();
+
+            $result->saveToFile($absPath);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $existing;
     }
 
     /**
