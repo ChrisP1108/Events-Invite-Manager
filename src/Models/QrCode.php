@@ -12,7 +12,7 @@ use EventsInviteManager\Database\DatabaseManager;
  * Represents a stored QR code record linking an invitation group to a
  * 16-character confirmation code and the PNG file path on disk.
  *
- * File naming convention: group_{group_id}.png
+ * File naming convention: event_{event_id}_group_{group_id}.svg
  */
 final class QrCode
 {

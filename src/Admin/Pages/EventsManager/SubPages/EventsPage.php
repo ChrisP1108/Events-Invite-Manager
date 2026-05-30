@@ -65,6 +65,7 @@ final class EventsPage extends AbstractAdminPage
             'bulk_remove_groups_from_event' => $this->handleBulkRemoveGroupsFromEvent(),
             'send_event_invite'         => $this->handleSendEventInvite(),
             'send_all_event_invites'    => $this->handleSendAllEventInvites(),
+            'generate_all_qr_codes'     => $this->handleGenerateAllQrCodes(),
             'add_gift_to_event'         => $this->handleAddGiftToEvent(),
             'remove_gift_from_event'    => $this->handleRemoveGiftFromEvent(),
             'bulk_remove_gifts_from_event' => $this->handleBulkRemoveGiftsFromEvent(),
@@ -1099,6 +1100,40 @@ final class EventsPage extends AbstractAdminPage
             'id'          => $eventId,
             'eim_message' => 'invites_sent',
             'count'       => $sentCount,
+        ]) . '#eim-etab-invitees');
+        exit;
+    }
+
+    /**
+     * Generates QR code images for every invitation group in an event without
+     * sending any emails. Useful for testing the RSVP flow before invites go out.
+     */
+    private function handleGenerateAllQrCodes(): void
+    {
+        $eventId = (int) ($_GET['event_id'] ?? 0);
+        $nonce   = (string) ($_GET['_wpnonce'] ?? '');
+
+        if (!wp_verify_nonce($nonce, 'eim_generate_all_qr_codes_' . $eventId)) {
+            wp_die('Security check failed.');
+        }
+
+        $event     = Event::find($eventId);
+        $generated = 0;
+
+        if ($event) {
+            foreach (InvitationGroup::forEvent($eventId) as $group) {
+                $qrCode = $this->qrCodeService->getOrCreateForGroup($event, $group);
+                if ($qrCode !== null) {
+                    $generated++;
+                }
+            }
+        }
+
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
+            'action'      => 'edit',
+            'id'          => $eventId,
+            'eim_message' => 'qr_codes_generated',
+            'count'       => $generated,
         ]) . '#eim-etab-invitees');
         exit;
     }
@@ -3877,6 +3912,23 @@ final class EventsPage extends AbstractAdminPage
             </tbody>
         </table>
         <?php $this->renderPaginationBar('eim-event-groups-search'); ?>
+
+        <?php if (!empty($groups)):
+            $generateQrUrl = wp_nonce_url(
+                AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'generate_all_qr_codes', 'event_id' => $event->id]),
+                'eim_generate_all_qr_codes_' . $event->id
+            );
+        ?>
+        <p style="margin-top:20px;margin-bottom:0;">
+            <a href="<?= esc_url($generateQrUrl); ?>" class="button"
+               onclick="return confirm('Generate QR codes for all invitation groups? No emails will be sent.');">
+                Generate All QR Codes (No Email)
+            </a>
+            <span style="margin-left:10px;color:#646970;font-size:12px;">
+                Creates or restores QR code images for every group — useful for testing the RSVP flow before sending invites.
+            </span>
+        </p>
+        <?php endif; ?>
 
         <?php $this->renderEventRequestedInviteesSection($event); ?>
 

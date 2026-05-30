@@ -11,7 +11,7 @@ use Endroid\QrCode\Color\Color;
 use Endroid\QrCode\Encoding\Encoding;
 use Endroid\QrCode\ErrorCorrectionLevel;
 use Endroid\QrCode\RoundBlockSizeMode;
-use Endroid\QrCode\Writer\PngWriter;
+use Endroid\QrCode\Writer\SvgWriter;
 use EventsInviteManager\Models\Event;
 use EventsInviteManager\Models\InvitationGroup;
 use EventsInviteManager\Models\QrCode;
@@ -19,7 +19,7 @@ use EventsInviteManager\Models\QrCode;
 /**
  * Generates, stores, and retrieves QR codes for invitation groups.
  *
- * QR code PNGs are saved to {wp_upload_dir}/eim-qr-codes/group_{group_id}.png
+ * QR code SVGs are saved to {wp_upload_dir}/eim-qr-codes/event_{event_id}_group_{group_id}.svg
  * and tracked in the eim_qr_codes database table.
  *
  * Each QR code encodes a URL of the form: {home_url}/?eim_confirmation={16-char-code}
@@ -99,7 +99,7 @@ final class QrCodeService
         $url     = $this->buildInviteUrl($code);
         $upload  = wp_upload_dir();
         $dir     = $upload['basedir'] . '/' . self::QR_SUBDIR;
-        $file    = 'group_' . $groupId . '.png';
+        $file    = 'event_' . $eventId . '_group_' . $groupId . '.svg';
         $absPath = $dir . '/' . $file;
         $relPath = self::QR_SUBDIR . '/' . $file;
 
@@ -109,7 +109,7 @@ final class QrCodeService
 
         try {
             $result = Builder::create()
-                ->writer(new PngWriter())
+                ->writer(new SvgWriter())
                 ->data($url)
                 ->encoding(new Encoding('UTF-8'))
                 ->errorCorrectionLevel(ErrorCorrectionLevel::Medium)
@@ -129,7 +129,7 @@ final class QrCodeService
     }
 
     /**
-     * Rewrites the QR code PNG for an existing DB record using its stored confirmation code.
+     * Rewrites the QR code SVG for an existing DB record using its stored confirmation code.
      *
      * Called when the file is missing but the record still exists — preserves the
      * confirmation code so printed cards and sent emails stay valid.
@@ -149,18 +149,57 @@ final class QrCodeService
 
         try {
             $result = Builder::create()
-                ->writer(new PngWriter())
+                ->writer(new SvgWriter())
+                ->writerOptions([
+                    SvgWriter::WRITER_OPTION_COMPACT => true,
+                    SvgWriter::WRITER_OPTION_EXCLUDE_XML_DECLARATION => true,
+                ])
                 ->data($url)
                 ->encoding(new Encoding('UTF-8'))
                 ->errorCorrectionLevel(ErrorCorrectionLevel::Medium)
                 ->size(self::QR_SIZE)
                 ->roundBlockSizeMode(RoundBlockSizeMode::Margin)
-                ->foregroundColor(new Color(0, 0, 0))
                 ->backgroundColor(new Color(0, 0, 0, 127))
                 ->margin(0)
                 ->build();
 
-            $result->saveToFile($absPath);
+            $svg = $result->getString();
+
+            $dom = new \DOMDocument();
+
+            libxml_use_internal_errors(true);
+
+            if (!$dom->loadXML($svg)) {
+                libxml_clear_errors();
+                return null;
+            }
+
+            libxml_clear_errors();
+
+            $xpath = new \DOMXPath($dom);
+
+            // Remove direct <rect> children of the root <svg>.
+            foreach ($xpath->query('/*[local-name()="svg"]/*[local-name()="rect"]') as $rect) {
+                $rect->parentNode?->removeChild($rect);
+            }
+
+            // Make the QR <path> inherit its fill color.
+            foreach ($xpath->query('/*[local-name()="svg"]/*[local-name()="path"]') as $path) {
+                if ($path instanceof \DOMElement) {
+                    $path->setAttribute('fill', 'inherit');
+                    $path->removeAttribute('fill-opacity');
+                }
+            }
+
+            $cleanSvg = $dom->saveXML($dom->documentElement);
+
+            if ($cleanSvg === false) {
+                return null;
+            }
+
+            // This is the key missing step.
+            file_put_contents($absPath, $cleanSvg);
+
         } catch (\Throwable) {
             return null;
         }
