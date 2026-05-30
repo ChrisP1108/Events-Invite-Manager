@@ -111,7 +111,9 @@ final class BudgetPage extends AbstractAdminPage
             'save_budget_line_item'   => $this->handleSaveLineItem(),
             'delete_budget_line_item' => $this->handleDeleteLineItem(),
             'bulk_delete_budget_line_items' => $this->handleBulkDeleteLineItems(),
-            default                   => null,
+            'export_budget_csv'             => $this->handleExportBudgetCsv(),
+            'export_budget_json'            => $this->handleExportBudgetJson(),
+            default                         => null,
         };
     }
 
@@ -420,6 +422,179 @@ final class BudgetPage extends AbstractAdminPage
 
         wp_redirect($redirectUrl . '&eim_message=bulk_deleted#eim-btab-line-items');
         exit;
+    }
+
+    /** Streams a CSV export of a budget plan and all its line items. */
+    private function handleExportBudgetCsv(): void
+    {
+        $planId = (int) ($_GET['plan_id'] ?? 0);
+        if (!wp_verify_nonce((string) ($_GET['_wpnonce'] ?? ''), 'eim_export_budget_' . $planId)) {
+            wp_die('Security check failed.');
+        }
+
+        $plan = BudgetPlan::find($planId);
+        if ($plan === null) {
+            wp_die('Budget plan not found.');
+        }
+
+        $items      = BudgetLineItem::searchForPlan($planId, '', 'sort_order', 'asc');
+        $events     = $plan->events();
+        $vendorMap  = $this->buildVendorMapForItems($items);
+
+        $filename = sanitize_file_name('budget-plan-' . $planId . '-' . $plan->name . '-export.csv');
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Pragma: no-cache');
+        header('Expires: 0');
+
+        $out = fopen('php://output', 'w');
+
+        // ── Plan Details ───────────────────────────────────────────────────────
+        fputcsv($out, ['SECTION', 'BUDGET PLAN']);
+        fputcsv($out, ['Plan Name',      $plan->name]);
+        fputcsv($out, ['Description',    $plan->description]);
+        fputcsv($out, ['Currency',       $plan->currency]);
+        fputcsv($out, ['Target Amount',  $plan->targetAmountCents > 0 ? $plan->formattedTarget() : '']);
+        fputcsv($out, ['Estimated Total', $plan->formattedEstimated()]);
+        fputcsv($out, ['Paid',           $plan->formattedPaid()]);
+        fputcsv($out, ['Remaining',      $plan->formattedRemaining()]);
+        fputcsv($out, ['Linked Events',  implode(', ', array_map(static fn(Event $e) => $e->name, $events))]);
+        fputcsv($out, []);
+
+        // ── Vendors ────────────────────────────────────────────────────────────
+        if (!empty($vendorMap)) {
+            fputcsv($out, ['SECTION', 'VENDORS']);
+            fputcsv($out, ['Vendor ID', 'Company Name', 'Contact Name', 'Email', 'Phone', 'Website URL']);
+            foreach ($vendorMap as $vid => $vendor) {
+                fputcsv($out, [$vid, $vendor->companyName, $vendor->contactName, $vendor->email, $vendor->phone, $vendor->websiteUrl]);
+            }
+            fputcsv($out, []);
+        }
+
+        // ── Line Items ─────────────────────────────────────────────────────────
+        fputcsv($out, ['SECTION', 'LINE ITEMS']);
+        fputcsv($out, [
+            'Label', 'Vendor ID', 'Vendor Name', 'Quantity', 'Quantity Mode',
+            'Unit Cost', 'Total Override', 'Estimated Cost',
+            'Paid Amount', 'Remaining', 'Payment Deadline', 'Notes',
+        ]);
+        foreach ($items as $item) {
+            $v = $item->vendorId ? ($vendorMap[$item->vendorId] ?? null) : null;
+            fputcsv($out, [
+                $item->label,
+                $item->vendorId ?? '',
+                $v?->companyName ?? '',
+                number_format($item->quantity, 2),
+                $item->quantityMode === BudgetLineItem::QUANTITY_MODE_PER_ATTENDING ? 'Per Attending Guest' : 'Fixed',
+                $item->unitCostCents   > 0 ? '$' . number_format($item->unitCostCents   / 100, 2) : '',
+                $item->totalOverrideCents !== null ? '$' . number_format($item->totalOverrideCents / 100, 2) : '',
+                $item->estimatedCents() > 0 ? '$' . number_format($item->estimatedCents() / 100, 2) : '',
+                $item->paidAmountCents  > 0 ? '$' . number_format($item->paidAmountCents  / 100, 2) : '',
+                '$' . number_format(max(0, $item->estimatedCents() - $item->paidAmountCents) / 100, 2),
+                $item->paymentDeadline ?? '',
+                $item->notes ?? '',
+            ]);
+        }
+
+        fclose($out);
+        exit;
+    }
+
+    /** Streams a JSON export of a budget plan and all its line items. */
+    private function handleExportBudgetJson(): void
+    {
+        $planId = (int) ($_GET['plan_id'] ?? 0);
+        if (!wp_verify_nonce((string) ($_GET['_wpnonce'] ?? ''), 'eim_export_budget_' . $planId)) {
+            wp_die('Security check failed.');
+        }
+
+        $plan = BudgetPlan::find($planId);
+        if ($plan === null) {
+            wp_die('Budget plan not found.');
+        }
+
+        $items     = BudgetLineItem::searchForPlan($planId, '', 'sort_order', 'asc');
+        $events    = $plan->events();
+        $vendorMap = $this->buildVendorMapForItems($items);
+
+        $payload = [
+            'exported_at' => current_time('mysql'),
+            'plan'        => [
+                'id'                  => $plan->id,
+                'name'                => $plan->name,
+                'description'         => $plan->description,
+                'currency'            => $plan->currency,
+                'target_amount_cents' => $plan->targetAmountCents,
+                'target_formatted'    => $plan->targetAmountCents > 0 ? $plan->formattedTarget() : null,
+                'estimated_cents'     => $plan->estimatedCents(),
+                'estimated_formatted' => $plan->formattedEstimated(),
+                'paid_cents'          => $plan->paidCents(),
+                'paid_formatted'      => $plan->formattedPaid(),
+                'remaining_cents'     => max(0, $plan->estimatedCents() - $plan->paidCents()),
+                'remaining_formatted' => $plan->formattedRemaining(),
+                'linked_events'       => array_map(static fn(Event $e): array => [
+                    'id'   => $e->id,
+                    'name' => $e->name,
+                ], $events),
+            ],
+            'vendors' => array_values(array_map(static fn(Vendor $v): array => [
+                'id'           => $v->id,
+                'company_name' => $v->companyName,
+                'contact_name' => $v->contactName,
+                'email'        => $v->email,
+                'phone'        => $v->phone,
+                'website_url'  => $v->websiteUrl,
+            ], $vendorMap)),
+            'line_items' => array_map(fn(BudgetLineItem $i): array => [
+                'id'                    => $i->id,
+                'label'                 => $i->label,
+                'vendor_id'             => $i->vendorId,
+                'vendor_name'           => $i->vendorId ? ($vendorMap[$i->vendorId]?->companyName ?? null) : null,
+                'quantity'              => $i->quantity,
+                'quantity_mode'         => $i->quantityMode,
+                'unit_cost_cents'       => $i->unitCostCents,
+                'unit_cost_formatted'   => $i->unitCostCents > 0 ? '$' . number_format($i->unitCostCents / 100, 2) : null,
+                'total_override_cents'  => $i->totalOverrideCents,
+                'estimated_cents'       => $i->estimatedCents(),
+                'estimated_formatted'   => $i->estimatedCents() > 0 ? '$' . number_format($i->estimatedCents() / 100, 2) : null,
+                'paid_amount_cents'     => $i->paidAmountCents,
+                'paid_formatted'        => $i->paidAmountCents > 0 ? '$' . number_format($i->paidAmountCents / 100, 2) : null,
+                'remaining_cents'       => max(0, $i->estimatedCents() - $i->paidAmountCents),
+                'payment_deadline'      => $i->paymentDeadline ?: null,
+                'notes'                 => $i->notes ?: null,
+            ], $items),
+        ];
+
+        $filename = sanitize_file_name('budget-plan-' . $planId . '-' . $plan->name . '-export.json');
+        header('Content-Type: application/json; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Pragma: no-cache');
+        echo wp_json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
+    /**
+     * Builds a [vendor_id => Vendor] map for a set of line items.
+     * Fetches all referenced vendors in a single query.
+     *
+     * @param BudgetLineItem[] $items
+     * @return array<int,Vendor>
+     */
+    private function buildVendorMapForItems(array $items): array
+    {
+        $vendorIds = array_values(array_unique(array_filter(
+            array_map(static fn(BudgetLineItem $i) => $i->vendorId, $items)
+        )));
+
+        if (empty($vendorIds)) {
+            return [];
+        }
+
+        $map = [];
+        foreach (Vendor::findMany($vendorIds) as $id => $vendor) {
+            $map[(int) $id] = $vendor;
+        }
+        return $map;
     }
 
     // =========================================================================
@@ -792,6 +967,15 @@ final class BudgetPage extends AbstractAdminPage
                 <?php endif; ?>
             </div>
 
+
+            <?php
+            $exportBudgetCsvUrl  = wp_nonce_url(AdminMenu::tabUrl(AdminMenu::TAB_BUDGET, ['action' => 'export_budget_csv',  'plan_id' => $plan->id]), 'eim_export_budget_' . $plan->id);
+            $exportBudgetJsonUrl = wp_nonce_url(AdminMenu::tabUrl(AdminMenu::TAB_BUDGET, ['action' => 'export_budget_json', 'plan_id' => $plan->id]), 'eim_export_budget_' . $plan->id);
+            ?>
+            <div style="display:flex;gap:8px;align-items:center;margin:12px 0 0;">
+                <a href="<?= esc_url($exportBudgetCsvUrl); ?>"  class="button button-secondary">⬇ Export to CSV</a>
+                <a href="<?= esc_url($exportBudgetJsonUrl); ?>" class="button button-secondary">⬇ Export to JSON</a>
+            </div>
 
             <?php /* ── Budget plan sub-tabs ─────────────────────────────── */ ?>
             <nav class="nav-tab-wrapper eim-budget-plan-tabs" data-plan-id="<?= esc_attr($plan->id); ?>" style="margin-top:16px;">

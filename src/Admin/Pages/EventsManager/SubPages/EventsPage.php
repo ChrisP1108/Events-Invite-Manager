@@ -19,6 +19,7 @@ use EventsInviteManager\Models\MenuItem;
 use EventsInviteManager\Models\InvitationGroup;
 use EventsInviteManager\Models\Invitee;
 use EventsInviteManager\Models\Location;
+use EventsInviteManager\Models\QrCode;
 use EventsInviteManager\Models\RequestedInviteeAddOn;
 use EventsInviteManager\Services\QrCodeService;
 
@@ -66,6 +67,8 @@ final class EventsPage extends AbstractAdminPage
             'send_event_invite'         => $this->handleSendEventInvite(),
             'send_all_event_invites'    => $this->handleSendAllEventInvites(),
             'generate_all_qr_codes'     => $this->handleGenerateAllQrCodes(),
+            'export_event_csv'          => $this->handleExportEventCsv(),
+            'export_event_json'         => $this->handleExportEventJson(),
             'add_gift_to_event'         => $this->handleAddGiftToEvent(),
             'remove_gift_from_event'    => $this->handleRemoveGiftFromEvent(),
             'bulk_remove_gifts_from_event' => $this->handleBulkRemoveGiftsFromEvent(),
@@ -1138,6 +1141,360 @@ final class EventsPage extends AbstractAdminPage
         exit;
     }
 
+    /** Streams a CSV export of all event data to the browser as a file download. */
+    private function handleExportEventCsv(): void
+    {
+        $eventId = (int) ($_GET['event_id'] ?? 0);
+        if (!wp_verify_nonce((string) ($_GET['_wpnonce'] ?? ''), 'eim_export_event_' . $eventId)) {
+            wp_die('Security check failed.');
+        }
+
+        $event = Event::find($eventId);
+        if ($event === null) {
+            wp_die('Event not found.');
+        }
+
+        [$groups, $foodById, $bevById, $lodgingById, $purchaseMap, $gifts, $allMessages]
+            = $this->collectEventExportData($event);
+
+        $filename = sanitize_file_name('event-' . $eventId . '-' . $event->name . '-export.csv');
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Pragma: no-cache');
+        header('Expires: 0');
+
+        $out = fopen('php://output', 'w');
+
+        // ── Event Details ──────────────────────────────────────────────────────
+        fputcsv($out, ['SECTION', 'EVENT DETAILS']);
+        fputcsv($out, ['Name',          $event->name]);
+        fputcsv($out, ['Description',   $event->description]);
+        fputcsv($out, ['Start Date',    $event->startDatetime ?? '']);
+        fputcsv($out, ['End Date',      $event->endDatetime   ?? '']);
+        fputcsv($out, ['Timezone',      $event->timezone]);
+        fputcsv($out, ['RSVP Deadline', $event->rsvpDeadline ?? '']);
+        fputcsv($out, ['Max Invitees',  $event->maxInvitees !== null ? (string) $event->maxInvitees : 'Unlimited']);
+        $venue = $event->venueId ? Location::find($event->venueId) : null;
+        fputcsv($out, ['Venue Name',    $venue ? $venue->name : '']);
+        fputcsv($out, ['Venue Address', $venue ? $venue->formattedAddress() : '']);
+        fputcsv($out, []);
+
+        // ── Invited Invitees ───────────────────────────────────────────────────
+        fputcsv($out, ['SECTION', 'INVITED INVITEES']);
+        fputcsv($out, [
+            'Group ID', 'Confirmation Code', 'QR Image URL', 'Is Primary',
+            'First Name', 'Last Name', 'Email', 'Phone',
+            'RSVP Status', 'Registered At',
+            'Food Selection', 'Beverage Selection', 'Dietary Notes', 'Lodging Selection',
+        ]);
+        foreach ($groups as [$group, $qrCode, $members]) {
+            foreach ($members as $member) {
+                $isPrimary = $member->id === $group->primaryInviteeId;
+                fputcsv($out, [
+                    $group->id,
+                    $qrCode?->confirmationCode ?? '',
+                    $qrCode?->imageUrl() ?? '',
+                    $isPrimary ? 'Yes' : 'No',
+                    $member->firstName,
+                    $member->lastName,
+                    $member->email,
+                    $member->phone,
+                    $member->rsvpStatus ?: 'pending',
+                    $member->registeredAt ?? '',
+                    $member->foodOptionId    ? ($foodById[$member->foodOptionId]    ?? $member->foodOptionId)    : '',
+                    $member->beverageOptionId ? ($bevById[$member->beverageOptionId] ?? $member->beverageOptionId) : '',
+                    $member->dietaryNotes ?? '',
+                    $this->lodgingLabelForMember($member, $lodgingById),
+                ]);
+            }
+        }
+        fputcsv($out, []);
+
+        // ── Messages ───────────────────────────────────────────────────────────
+        fputcsv($out, ['SECTION', 'MESSAGES']);
+        fputcsv($out, ['Group ID', 'Confirmation Code', 'Direction', 'Message', 'Is Read', 'Sent At']);
+        foreach ($allMessages as $msg) {
+            fputcsv($out, [
+                $msg['group_id'],
+                $msg['confirmation_code'],
+                $msg['is_admin_reply'] ? 'Admin Reply' : 'Invitee',
+                $msg['message'],
+                $msg['is_read'] ? 'Yes' : 'No',
+                $msg['created_at'],
+            ]);
+        }
+        fputcsv($out, []);
+
+        // ── Registry: Claimed ─────────────────────────────────────────────────
+        fputcsv($out, ['SECTION', 'REGISTRY - CLAIMED ITEMS']);
+        fputcsv($out, ['Gift Name', 'Description', 'Price', 'Purchased By (Group ID)', 'Purchased By (Confirmation Code)', 'Purchased At']);
+        foreach ($gifts as $gift) {
+            $p = $purchaseMap[$gift->id] ?? null;
+            if (empty($p['is_purchased'])) continue;
+            $ownerGroupId = (int) ($p['purchased_by_group_id'] ?? 0);
+            $ownerCode    = '';
+            foreach ($groups as [$g, $qr, $_m]) {
+                if ($g->id === $ownerGroupId) { $ownerCode = $qr?->confirmationCode ?? ''; break; }
+            }
+            fputcsv($out, [
+                $gift->name,
+                $gift->description,
+                $gift->formattedPrice(),
+                $ownerGroupId ?: '',
+                $ownerCode,
+                $p['purchased_at'] ?? '',
+            ]);
+        }
+        fputcsv($out, []);
+
+        // ── Registry: Available ────────────────────────────────────────────────
+        fputcsv($out, ['SECTION', 'REGISTRY - AVAILABLE ITEMS']);
+        fputcsv($out, ['Gift Name', 'Description', 'Price', 'Website URL']);
+        foreach ($gifts as $gift) {
+            $p = $purchaseMap[$gift->id] ?? null;
+            if (!empty($p['is_purchased'])) continue;
+            fputcsv($out, [$gift->name, $gift->description, $gift->formattedPrice(), $gift->websiteUrl]);
+        }
+
+        fclose($out);
+        exit;
+    }
+
+    /** Streams a JSON export of all event data to the browser as a file download. */
+    private function handleExportEventJson(): void
+    {
+        $eventId = (int) ($_GET['event_id'] ?? 0);
+        if (!wp_verify_nonce((string) ($_GET['_wpnonce'] ?? ''), 'eim_export_event_' . $eventId)) {
+            wp_die('Security check failed.');
+        }
+
+        $event = Event::find($eventId);
+        if ($event === null) {
+            wp_die('Event not found.');
+        }
+
+        [$groups, $foodById, $bevById, $lodgingById, $purchaseMap, $gifts, $allMessages]
+            = $this->collectEventExportData($event);
+
+        $venue  = $event->venueId ? Location::find($event->venueId) : null;
+        $lodgingOptions = EventLodging::forEvent($eventId);
+
+        $messagesByGroup = [];
+        foreach ($allMessages as $msg) {
+            $messagesByGroup[$msg['group_id']][] = $msg;
+        }
+
+        $groupsPayload = [];
+        foreach ($groups as [$group, $qrCode, $members]) {
+            $membersPayload = array_map(function (Invitee $m) use ($group, $foodById, $bevById, $lodgingById): array {
+                return [
+                    'invitee_id'       => $m->id,
+                    'is_primary'       => $m->id === $group->primaryInviteeId,
+                    'first_name'       => $m->firstName,
+                    'last_name'        => $m->lastName,
+                    'email'            => $m->email,
+                    'phone'            => $m->phone,
+                    'street_address'   => $m->streetAddress,
+                    'city'             => $m->city,
+                    'state'            => $m->state,
+                    'zip_code'         => $m->zipCode,
+                    'rsvp_status'      => $m->rsvpStatus ?: 'pending',
+                    'registered_at'    => $m->registeredAt,
+                    'food_option_id'   => $m->foodOptionId,
+                    'food_selection'   => $m->foodOptionId ? ($foodById[$m->foodOptionId] ?? null) : null,
+                    'beverage_option_id'  => $m->beverageOptionId,
+                    'beverage_selection'  => $m->beverageOptionId ? ($bevById[$m->beverageOptionId] ?? null) : null,
+                    'dietary_notes'    => $m->dietaryNotes,
+                    'lodging_selection'=> $this->lodgingLabelForMember($m, $lodgingById) ?: null,
+                    'lodging_confirmed_at' => $m->lodgingConfirmedAt,
+                ];
+            }, $members);
+
+            $msgs = array_map(static fn(array $m): array => [
+                'direction'  => $m['is_admin_reply'] ? 'admin' : 'invitee',
+                'message'    => $m['message'],
+                'is_read'    => (bool) $m['is_read'],
+                'sent_at'    => $m['created_at'],
+            ], $messagesByGroup[$group->id] ?? []);
+
+            $claimed = [];
+            foreach ($gifts as $gift) {
+                $p = $purchaseMap[$gift->id] ?? null;
+                if (!empty($p['is_purchased']) && (int) ($p['purchased_by_group_id'] ?? 0) === $group->id) {
+                    $claimed[] = [
+                        'gift_id'      => $gift->id,
+                        'gift_name'    => $gift->name,
+                        'formatted_price' => $gift->formattedPrice(),
+                        'website_url'  => $gift->websiteUrl,
+                        'purchased_at' => $p['purchased_at'] ?? null,
+                    ];
+                }
+            }
+
+            $groupsPayload[] = [
+                'invitation_group_id' => $group->id,
+                'invite_sent_at'      => $group->inviteSentAt,
+                'confirmation_code'   => $qrCode?->confirmationCode,
+                'qr_image_url'        => $qrCode?->imageUrl(),
+                'rsvp_notes'          => $group->rsvpNotes,
+                'lodging_booked'      => $group->lodgingBooked,
+                'lodging_notes'       => $group->lodgingNotes,
+                'members'             => $membersPayload,
+                'messages'            => $msgs,
+                'registry_claimed'    => $claimed,
+            ];
+        }
+
+        $registryClaimed   = [];
+        $registryAvailable = [];
+        foreach ($gifts as $gift) {
+            $p = $purchaseMap[$gift->id] ?? null;
+            $base = [
+                'gift_id'         => $gift->id,
+                'name'            => $gift->name,
+                'description'     => $gift->description,
+                'formatted_price' => $gift->formattedPrice(),
+                'price_cents'     => $gift->priceCents,
+                'website_url'     => $gift->websiteUrl,
+                'image_url'       => $gift->imageUrl('medium') ?: $gift->imageUrl('full'),
+            ];
+            if (!empty($p['is_purchased'])) {
+                $registryClaimed[] = $base + [
+                    'purchased_by_group_id' => $p['purchased_by_group_id'] ?? null,
+                    'purchased_at'          => $p['purchased_at'] ?? null,
+                ];
+            } else {
+                $registryAvailable[] = $base;
+            }
+        }
+
+        $payload = [
+            'exported_at' => current_time('mysql'),
+            'event'       => [
+                'id'           => $event->id,
+                'name'         => $event->name,
+                'description'  => $event->description,
+                'start_datetime' => $event->startDatetime,
+                'end_datetime'   => $event->endDatetime,
+                'timezone'     => $event->timezone,
+                'rsvp_deadline'=> $event->rsvpDeadline,
+                'max_invitees' => $event->maxInvitees,
+                'venue'        => $venue ? ['name' => $venue->name, 'address' => $venue->formattedAddress(), 'booking_url' => $venue->bookingUrl] : null,
+            ],
+            'lodging_options' => array_map(static fn(EventLodging $l): array => [
+                'id'          => $l->id,
+                'name'        => $l->name,
+                'address'     => $l->formattedAddress(),
+                'booking_url' => $l->bookingUrl,
+                'is_other'    => $l->isOther,
+            ], $lodgingOptions),
+            'menu_options' => [
+                'food'     => array_map(static fn(MenuItem $i): array => ['id' => $i->id, 'label' => $i->label, 'description' => $i->description], array_values($foodById ? MenuItem::forEventByType($eventId, MenuItem::TYPE_FOOD) : [])),
+                'beverage' => array_map(static fn(MenuItem $i): array => ['id' => $i->id, 'label' => $i->label, 'description' => $i->description], array_values($bevById ? MenuItem::forEventByType($eventId, MenuItem::TYPE_BEVERAGE) : [])),
+            ],
+            'invitation_groups' => $groupsPayload,
+            'registry' => [
+                'claimed'   => $registryClaimed,
+                'available' => $registryAvailable,
+            ],
+        ];
+
+        $filename = sanitize_file_name('event-' . $eventId . '-' . $event->name . '-export.json');
+        header('Content-Type: application/json; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Pragma: no-cache');
+        echo wp_json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
+    /**
+     * Collects all data needed for event export in one place.
+     *
+     * Returns: [groups[], foodById[], bevById[], lodgingById[], purchaseMap[], gifts[], allMessages[]]
+     * Each entry in groups is [InvitationGroup, ?QrCode, Invitee[]].
+     *
+     * @return array{0:array,1:array,2:array,3:array,4:array,5:array,6:array}
+     */
+    private function collectEventExportData(Event $event): array
+    {
+        $eventId = $event->id;
+
+        $foodById = [];
+        foreach (MenuItem::forEventByType($eventId, MenuItem::TYPE_FOOD) as $item) {
+            $foodById[$item->id] = $item->label;
+        }
+        $bevById = [];
+        foreach (MenuItem::forEventByType($eventId, MenuItem::TYPE_BEVERAGE) as $item) {
+            $bevById[$item->id] = $item->label;
+        }
+        $lodgingById = [];
+        foreach (EventLodging::forEvent($eventId) as $option) {
+            $lodgingById[$option->id] = $option->name;
+        }
+
+        $gifts       = Gift::forEvent($eventId, '', 'name', 'asc');
+        $purchaseMap = Gift::purchaseDetailsForEvent($eventId);
+
+        // Build per-group tuples: [InvitationGroup, ?QrCode, Invitee[]]
+        $groups = [];
+        foreach (InvitationGroup::forEvent($eventId) as $group) {
+            $groups[] = [$group, QrCode::findForGroup($group->id), $group->getMembers()];
+        }
+
+        // Collect all messages for the event, keyed by invitation group ID (via connection group).
+        global $wpdb;
+        $msgTable  = \EventsInviteManager\Database\DatabaseManager::eventMessagesTable();
+        $rawMsgs   = $wpdb->get_results(
+            $wpdb->prepare("SELECT * FROM {$msgTable} WHERE event_id = %d ORDER BY created_at ASC", $eventId),
+            ARRAY_A
+        ) ?? [];
+
+        // Build a map: connection_group_id → [invitation_group_id, confirmation_code]
+        $cgToGroup = [];
+        foreach ($groups as [$g, $qr, $_m]) {
+            $cgId = $this->resolveConnectionGroupIdForExport($g);
+            if ($cgId !== null) {
+                $cgToGroup[$cgId] = ['group_id' => $g->id, 'confirmation_code' => $qr?->confirmationCode ?? ''];
+            }
+        }
+
+        $allMessages = [];
+        foreach ($rawMsgs as $row) {
+            $cgId   = (int) $row['connection_group_id'];
+            $lookup = $cgToGroup[$cgId] ?? ['group_id' => $cgId, 'confirmation_code' => ''];
+            $allMessages[] = array_merge($row, $lookup);
+        }
+
+        return [$groups, $foodById, $bevById, $lodgingById, $purchaseMap, $gifts, $allMessages];
+    }
+
+    /** Returns a human-readable lodging label for a member's current selection. */
+    private function lodgingLabelForMember(Invitee $member, array $lodgingById): string
+    {
+        if ($member->lodgingUndisclosed) return 'Prefer not to disclose';
+        if ($member->lodgingIsOther)     return 'Other';
+        if ($member->lodgingId)          return $lodgingById[$member->lodgingId] ?? ('Option #' . $member->lodgingId);
+        return '';
+    }
+
+    /**
+     * Resolves the most appropriate connection group ID for an invitation group.
+     * Mirrors the logic in AbstractApiController::resolveConnectionGroupId().
+     */
+    private function resolveConnectionGroupIdForExport(InvitationGroup $group): ?int
+    {
+        $cgs = ConnectionGroup::forInvitee($group->primaryInviteeId);
+        if (empty($cgs)) return null;
+        if (count($cgs) === 1) return $cgs[0]->id;
+
+        $memberIds = array_map(static fn(Invitee $m): int => $m->id, $group->getMembers());
+        foreach ($cgs as $cg) {
+            $cgIds = array_map(static fn(Invitee $m): int => $m->id, $cg->getMembers());
+            if (empty(array_diff($memberIds, $cgIds))) return $cg->id;
+        }
+        return $cgs[0]->id;
+    }
+
     /**
      * AJAX: sends a test invite email for an event to a single address.
      *
@@ -1887,6 +2244,16 @@ final class EventsPage extends AbstractAdminPage
                     'eim_bulk_remove_lodging_from_event_' . $event->id,
                     ['event_id' => $event->id]
                 ); ?>
+            <?php endif; ?>
+
+            <?php if (!$isNew):
+                $exportCsvUrl  = wp_nonce_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'export_event_csv',  'event_id' => $event->id]), 'eim_export_event_' . $event->id);
+                $exportJsonUrl = wp_nonce_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'export_event_json', 'event_id' => $event->id]), 'eim_export_event_' . $event->id);
+            ?>
+            <div style="display:flex;gap:8px;align-items:center;margin:16px 0 0;">
+                <a href="<?= esc_url($exportCsvUrl); ?>"  class="button button-secondary">⬇ Export to CSV</a>
+                <a href="<?= esc_url($exportJsonUrl); ?>" class="button button-secondary">⬇ Export to JSON</a>
+            </div>
             <?php endif; ?>
 
             <nav class="nav-tab-wrapper eim-event-tabs" data-event-id="<?= esc_attr($isNew ? '0' : $event->id); ?>" style="margin-top:12px;">
