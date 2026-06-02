@@ -33,9 +33,6 @@ final class QrCodeService
     /** @var string Upload sub-directory where QR code files are stored. */
     private const QR_SUBDIR       = 'eim-qr-codes';
 
-    /** @var int Width and height in pixels of the generated QR code SVG. */
-    private const QR_SIZE         = 1024;
-
     /** @var int Width and height in pixels of the generated QR code PNG. */
     private const QR_PNG_SIZE     = 1024;
 
@@ -121,14 +118,56 @@ final class QrCodeService
                 ->data($url)
                 ->encoding(new Encoding('UTF-8'))
                 ->errorCorrectionLevel(ErrorCorrectionLevel::Medium)
-                ->size(self::QR_SIZE)
                 ->roundBlockSizeMode(RoundBlockSizeMode::Margin)
                 ->foregroundColor(new Color(0, 0, 0))
                 ->backgroundColor(new Color(0, 0, 0, 127))
                 ->margin(0)
                 ->build();
 
-            $result->saveToFile($absPath);
+            $svg = $result->getString();
+
+            $dom = new \DOMDocument();
+
+            libxml_use_internal_errors(true);
+
+            if (!$dom->loadXML($svg)) {
+                libxml_clear_errors();
+                $this->deleteGeneratedFiles($paths);
+                return null;
+            }
+
+            libxml_clear_errors();
+
+            $xpath = new \DOMXPath($dom);
+
+            // Remove width/height so the SVG scales via CSS.
+            $svgEl = $dom->documentElement;
+            if ($svgEl instanceof \DOMElement) {
+                $svgEl->removeAttribute('width');
+                $svgEl->removeAttribute('height');
+            }
+
+            // Remove direct <rect> children of the root <svg>.
+            foreach ($xpath->query('/*[local-name()="svg"]/*[local-name()="rect"]') as $rect) {
+                $rect->parentNode?->removeChild($rect);
+            }
+
+            // Make the QR <path> inherit its fill color.
+            foreach ($xpath->query('/*[local-name()="svg"]/*[local-name()="path"]') as $path) {
+                if ($path instanceof \DOMElement) {
+                    $path->setAttribute('fill', 'inherit');
+                    $path->removeAttribute('fill-opacity');
+                }
+            }
+
+            $cleanSvg = $dom->saveXML($dom->documentElement);
+
+            if ($cleanSvg === false) {
+                $this->deleteGeneratedFiles($paths);
+                return null;
+            }
+
+            file_put_contents($absPath, $cleanSvg);
             $this->writePng($url, $paths['png_abs']);
         } catch (\Throwable) {
             $this->deleteGeneratedFiles($paths);
@@ -191,6 +230,13 @@ final class QrCodeService
 
             $xpath = new \DOMXPath($dom);
 
+            // Remove width/height so the SVG scales via CSS.
+            $svgEl = $dom->documentElement;
+            if ($svgEl instanceof \DOMElement) {
+                $svgEl->removeAttribute('width');
+                $svgEl->removeAttribute('height');
+            }
+
             // Remove direct <rect> children of the root <svg>.
             foreach ($xpath->query('/*[local-name()="svg"]/*[local-name()="rect"]') as $rect) {
                 $rect->parentNode?->removeChild($rect);
@@ -210,7 +256,6 @@ final class QrCodeService
                 return null;
             }
 
-            // This is the key missing step.
             file_put_contents($absPath, $cleanSvg);
             $this->writePng($url, $paths['png_abs']);
 
