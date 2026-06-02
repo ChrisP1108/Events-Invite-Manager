@@ -113,6 +113,7 @@ final class EventsPage extends AbstractAdminPage
             'invite_email_subject'  => sanitize_text_field(wp_unslash($_POST['invite_email_subject'] ?? '')),
             'invite_email_template' => wp_kses_post(wp_unslash($_POST['invite_email_template'] ?? '')),
             'rsvp_page_id'          => (int) ($_POST['rsvp_page_id'] ?? 0),
+            'rsvp_before_start_page_id' => (int) ($_POST['rsvp_before_start_page_id'] ?? 0),
             'venue_id'              => (int) ($_POST['venue_library_id'] ?? 0),
             'start_datetime'        => $this->sanitizeDatetimeLocal($_POST['start_datetime'] ?? '', $timezone),
             'end_datetime'          => $this->sanitizeDatetimeLocal($_POST['end_datetime']   ?? '', $timezone),
@@ -123,6 +124,7 @@ final class EventsPage extends AbstractAdminPage
             'newsletter_page_id'       => (int) ($_POST['newsletter_page_id'] ?? 0),
             'dashboard_page_id'        => (int) ($_POST['dashboard_page_id'] ?? 0),
             'max_invitees'             => (int) ($_POST['max_invitees'] ?? 0),
+            'rsvp_start_datetime'      => $this->sanitizeDatetimeLocal($_POST['rsvp_start_datetime'] ?? '', $timezone),
             'rsvp_deadline'            => $this->sanitizeDatetimeLocal($_POST['rsvp_deadline'] ?? '', $timezone),
         ];
 
@@ -1201,7 +1203,9 @@ final class EventsPage extends AbstractAdminPage
         fputcsv($out, ['Start Date',    $event->startDatetime ?? '']);
         fputcsv($out, ['End Date',      $event->endDatetime   ?? '']);
         fputcsv($out, ['Timezone',      $event->timezone]);
+        fputcsv($out, ['RSVP Start',    $event->rsvpStartDatetime ?? '']);
         fputcsv($out, ['RSVP Deadline', $event->rsvpDeadline ?? '']);
+        fputcsv($out, ['Before RSVP Start Page ID', $event->rsvpBeforeStartPageId !== null ? (string) $event->rsvpBeforeStartPageId : '']);
         fputcsv($out, ['Max Invitees',  $event->maxInvitees !== null ? (string) $event->maxInvitees : 'Unlimited']);
         $venue = $event->venueId ? Location::find($event->venueId) : null;
         fputcsv($out, ['Venue Name',    $venue ? $venue->name : '']);
@@ -1211,7 +1215,7 @@ final class EventsPage extends AbstractAdminPage
         // ── Invited Invitees ───────────────────────────────────────────────────
         fputcsv($out, ['SECTION', 'INVITED INVITEES']);
         fputcsv($out, [
-            'Group ID', 'Confirmation Code', 'QR Image URL', 'Is Primary',
+            'Group ID', 'Confirmation Code', 'QR Image URL', 'QR SVG URL', 'QR PNG URL', 'Is Primary',
             'First Name', 'Last Name', 'Email', 'Phone',
             'RSVP Status', 'Registered At',
             'Food Selection', 'Beverage Selection', 'Dietary Notes', 'Lodging Selection',
@@ -1223,6 +1227,8 @@ final class EventsPage extends AbstractAdminPage
                     $group->id,
                     $qrCode?->confirmationCode ?? '',
                     $qrCode?->imageUrl() ?? '',
+                    $qrCode?->svgUrl() ?? '',
+                    $qrCode?->pngUrl() ?? '',
                     $isPrimary ? 'Yes' : 'No',
                     $member->firstName,
                     $member->lastName,
@@ -1365,6 +1371,8 @@ final class EventsPage extends AbstractAdminPage
                 'invite_sent_at'      => $group->inviteSentAt,
                 'confirmation_code'   => $qrCode?->confirmationCode,
                 'qr_image_url'        => $qrCode?->imageUrl(),
+                'qr_svg_url'          => $qrCode?->svgUrl(),
+                'qr_png_url'          => $qrCode?->pngUrl(),
                 'rsvp_notes'          => $group->rsvpNotes,
                 'lodging_booked'      => $group->lodgingBooked,
                 'lodging_notes'       => $group->lodgingNotes,
@@ -1406,7 +1414,9 @@ final class EventsPage extends AbstractAdminPage
                 'start_datetime' => $event->startDatetime,
                 'end_datetime'   => $event->endDatetime,
                 'timezone'     => $event->timezone,
+                'rsvp_start_datetime' => $event->rsvpStartDatetime,
                 'rsvp_deadline'=> $event->rsvpDeadline,
+                'rsvp_before_start_page_id' => $event->rsvpBeforeStartPageId,
                 'max_invitees' => $event->maxInvitees,
                 'venue'        => $venue ? ['name' => $venue->name, 'address' => $venue->formattedAddress(), 'booking_url' => $venue->bookingUrl] : null,
             ],
@@ -2256,6 +2266,10 @@ final class EventsPage extends AbstractAdminPage
         $venue           = (!$isNew && $event->venueId !== null) ? Location::find($event->venueId) : null;
         $venueLocationId = $venue ? $venue->id : 0;
         $venueAddress    = $venue ? $venue->formattedAddress() : '';
+        $pages           = get_pages(['sort_column' => 'post_title', 'sort_order' => 'ASC']);
+        $selectedPageId       = $isNew ? 0 : ($event->rsvpPageId ?? 0);
+        $selectedDashboard    = $isNew ? 0 : ($event->dashboardPageId ?? 0);
+        $selectedBeforeStart  = $isNew ? 0 : ($event->rsvpBeforeStartPageId ?? 0);
         ?>
         <div class="wrap">
             <h1><?= esc_html($title); ?></h1>
@@ -2372,6 +2386,33 @@ final class EventsPage extends AbstractAdminPage
                             </td>
                         </tr>
                         <tr>
+                            <th scope="row"><label for="eim_rsvp_start_datetime">RSVP Start</label></th>
+                            <td>
+                                <?php $rsvpStartVal = (!$isNew && $event->rsvpStartDatetime) ? $this->utcToDatetimeLocal($event->rsvpStartDatetime, $event->timezone) : ''; ?>
+                                <input type="datetime-local" id="eim_rsvp_start_datetime" name="rsvp_start_datetime" value="<?= esc_attr($rsvpStartVal); ?>">
+                                <p class="description">Invitees cannot submit RSVP flow changes before this date and time. Leave blank to open RSVPs immediately.</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="eim_rsvp_before_start_page_id">Before RSVP Start Page</label></th>
+                            <td>
+                                <select id="eim_rsvp_before_start_page_id" name="rsvp_before_start_page_id">
+                                    <option value="0">— No before-start page selected —</option>
+                                    <?php foreach ($pages as $page): ?>
+                                        <option value="<?= esc_attr($page->ID); ?>" <?php selected($selectedBeforeStart, $page->ID); ?>>
+                                            <?= esc_html($page->post_title); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <p class="description">
+                                    Guests are sent here when they scan or attempt to RSVP before the RSVP Start date and time.
+                                    <?php if ($selectedBeforeStart > 0): ?>
+                                        <br><a href="<?= esc_url(get_permalink($selectedBeforeStart)); ?>" target="_blank"><?= esc_html(get_the_title($selectedBeforeStart)); ?> ↗</a>
+                                    <?php endif; ?>
+                                </p>
+                            </td>
+                        </tr>
+                        <tr>
                             <th scope="row"><label for="eim_rsvp_deadline">RSVP Deadline</label></th>
                             <td>
                                 <?php $rsvpDeadlineVal = (!$isNew && $event->rsvpDeadline) ? $this->utcToDatetimeLocal($event->rsvpDeadline, $event->timezone) : ''; ?>
@@ -2416,6 +2457,9 @@ final class EventsPage extends AbstractAdminPage
                             <td>
                                 <input type="text" id="eim_venue_name" name="venue_name" class="regular-text"
                                        value="<?= esc_attr($venue ? $venue->name : ''); ?>" autocomplete="off">
+                                <?php if ($venue && $venue->imageAttachmentId > 0): ?>
+                                    <p style="margin-top:6px;"><?= $this->locationImageThumbnailMarkup($venue->imageAttachmentId, $venue->name); ?></p>
+                                <?php endif; ?>
                                 <p id="eim_venue_address_display" style="margin-top:6px;color:#3c434a;<?= $venueAddress ? '' : 'display:none;'; ?>">
                                     <?= esc_html($venueAddress); ?>
                                 </p>
@@ -2525,11 +2569,6 @@ final class EventsPage extends AbstractAdminPage
                         <tr>
                             <th scope="row"><label for="eim_rsvp_page_id">QR Code RSVP Page</label></th>
                             <td>
-                                <?php
-                                $pages             = get_pages(['sort_column' => 'post_title', 'sort_order' => 'ASC']);
-                                $selectedPageId    = $isNew ? 0 : ($event->rsvpPageId ?? 0);
-                                $selectedDashboard = $isNew ? 0 : ($event->dashboardPageId ?? 0);
-                                ?>
                                 <select id="eim_rsvp_page_id" name="rsvp_page_id">
                                     <option value="0">— No redirect page selected —</option>
                                     <?php foreach ($pages as $page): ?>
@@ -2647,6 +2686,7 @@ final class EventsPage extends AbstractAdminPage
 	                                                    <th class="eim-drag-column"><span class="screen-reader-text">Move</span></th>
 	                                                <?php endif; ?>
                                                     <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('event-lodging-' . $event->id); ?></th>
+	                                                <th class="eim-li-image-column">Image</th>
 	                                                <th style="width:8%;"><?= $this->clientSortLink('Order', 'order', 'order', 'asc'); ?></th>
 	                                                <th><?= $this->clientSortLink('Name / Address', 'name', 'order', 'asc'); ?></th>
 	                                                <th style="width:12%;">Actions</th>
@@ -2674,6 +2714,7 @@ final class EventsPage extends AbstractAdminPage
 	                                                        </td>
 	                                                    <?php endif; ?>
                                                         <?= $this->renderBulkSelectCell('eim-event-lodging-bulk-form', 'event-lodging-' . $event->id, $loc->id, $loc->name); ?>
+	                                                    <td><?= $this->locationImageThumbnailMarkup($loc->imageAttachmentId, $loc->name); ?></td>
 	                                                    <td class="eim-order-cell"><?= esc_html($displayOrder); ?></td>
 	                                                    <td>
 	                                                        <strong><?= esc_html($loc->name); ?></strong>
@@ -3710,7 +3751,7 @@ final class EventsPage extends AbstractAdminPage
     {
         if (empty($groups)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No invitees have been added to this event yet.';
-            echo '<tr><td colspan="8">' . esc_html($msg) . '</td></tr>';
+            echo '<tr><td colspan="9">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -3726,6 +3767,10 @@ final class EventsPage extends AbstractAdminPage
         foreach (EventLodging::forEvent($event->id) as $opt) {
             $lodgingById[$opt->id] = $opt->name;
         }
+
+        // Pre-fetch QR codes for all groups in one query.
+        $groupIds   = array_map(static fn(InvitationGroup $g): int => $g->id, $groups);
+        $qrByGroup  = QrCode::mapByGroupIds($groupIds);
 
         foreach ($groups as $group) {
             $members              = $group->getMembers();
@@ -3849,6 +3894,14 @@ final class EventsPage extends AbstractAdminPage
                         </span>
                     <?php endif; ?>
                 </td>
+                <td>
+                    <?php $groupQrCode = $qrByGroup[$group->id] ?? null; ?>
+                    <?php if ($groupQrCode): ?>
+                        <code style="font-size:11px;word-break:break-all;"><?= esc_html($groupQrCode->confirmationCode); ?></code>
+                    <?php else: ?>
+                        <span style="color:#999;">—</span>
+                    <?php endif; ?>
+                </td>
                 <td class="eim-rsvp-notes-cell">
                     <?php if (trim($group->rsvpNotes) !== ''): ?>
                         <div class="eim-rsvp-notes-preview"><?= esc_html($group->rsvpNotes); ?></div>
@@ -3879,7 +3932,7 @@ final class EventsPage extends AbstractAdminPage
             </tr>
             <?php $accordionGroupLabel = $primaryInvitee ? $primaryInvitee->fullName() : 'Group ' . $group->id; ?>
             <tr class="eim-seat-accordion-row" id="eim-seat-accordion-row-<?= esc_attr($group->id); ?>" style="display:none;" data-group-id="<?= esc_attr($group->id); ?>" data-group-label="<?= esc_attr($accordionGroupLabel); ?>">
-                <td colspan="8" style="background:#f6f7f7;padding:10px 16px;">
+                <td colspan="9" style="background:#f6f7f7;padding:10px 16px;">
                     <table class="wp-list-table widefat fixed striped eim-accordion-sortable">
                         <thead>
                             <tr>
@@ -3936,7 +3989,7 @@ final class EventsPage extends AbstractAdminPage
                 </td>
             </tr>
             <tr class="eim-add-member-row" id="eim-add-member-row-<?= esc_attr($group->id); ?>" style="display:none;">
-                <td colspan="8" class="eim-add-member-cell">
+                <td colspan="9" class="eim-add-member-cell">
                     <form method="post"
                           action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'add_member_to_group'])); ?>"
                           class="eim-add-member-form">
@@ -3966,7 +4019,7 @@ final class EventsPage extends AbstractAdminPage
             </tr>
             <?php if (!empty($uninvitedConnections)): ?>
             <tr class="eim-add-connection-row" id="eim-add-connection-row-<?= esc_attr($group->id); ?>" style="display:none;">
-                <td colspan="8" class="eim-add-member-cell">
+                <td colspan="9" class="eim-add-member-cell">
                     <form method="post"
                           action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'add_member_to_group'])); ?>"
                           class="eim-add-member-form">
@@ -4295,12 +4348,13 @@ final class EventsPage extends AbstractAdminPage
                 <tr>
                     <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('event-groups-' . $event->id); ?></th>
                     <th style="width:30px;" title="Seating"></th>
-                    <th style="width:22%;"><?= $this->sortLink('Group Members',   'name',        AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
-                    <th style="width:16%;"><?= $this->sortLink('Email (Primary)', 'email',       AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
-                    <th style="width:11%;"><?= $this->sortLink('Invite Sent',     'invite_sent', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
-                    <th style="width:10%;"><?= $this->sortLink('Registered',      'attending',   AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
-                    <th style="width:14%;"><?= $this->sortLink('RSVP Notes',      'rsvp_notes',  AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
-                    <th style="width:17%;">Actions</th>
+                    <th style="width:20%;"><?= $this->sortLink('Group Members',   'name',        AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:14%;"><?= $this->sortLink('Email (Primary)', 'email',       AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:10%;"><?= $this->sortLink('Invite Sent',     'invite_sent', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:9%;"><?= $this->sortLink('Registered',       'attending',   AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:12%;">Confirmation Code</th>
+                    <th style="width:12%;"><?= $this->sortLink('RSVP Notes',      'rsvp_notes',  AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:15%;">Actions</th>
                 </tr>
             </thead>
             <tbody id="eim-event-groups-table-body">

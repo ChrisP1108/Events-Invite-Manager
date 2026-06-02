@@ -18,7 +18,7 @@ final class DatabaseManager
     /**
      * The current database schema version.
      */
-    private const SCHEMA_VERSION = '39';
+    private const SCHEMA_VERSION = '41';
 
     /**
      * The database table names.
@@ -118,6 +118,7 @@ final class DatabaseManager
                 from_name                 VARCHAR(255)        NOT NULL DEFAULT '',
                 from_email                VARCHAR(255)        NOT NULL DEFAULT '',
                 rsvp_page_id              BIGINT(20) UNSIGNED NULL DEFAULT NULL,
+                rsvp_before_start_page_id BIGINT(20) UNSIGNED NULL DEFAULT NULL,
                 venue_id                  BIGINT(20) UNSIGNED NULL DEFAULT NULL,
                 start_datetime            DATETIME,
                 end_datetime              DATETIME,
@@ -128,6 +129,7 @@ final class DatabaseManager
                 newsletter_page_id        BIGINT(20) UNSIGNED NULL DEFAULT NULL,
                 dashboard_page_id         BIGINT(20) UNSIGNED NULL DEFAULT NULL,
                 max_invitees              SMALLINT UNSIGNED   NULL DEFAULT NULL,
+                rsvp_start_datetime       DATETIME            NULL DEFAULT NULL,
                 rsvp_deadline             DATETIME            NULL DEFAULT NULL,
                 created_at                DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at                DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -162,16 +164,17 @@ final class DatabaseManager
                 KEY invitee_id (invitee_id)
             ) ENGINE=InnoDB {$charset};
             CREATE TABLE {$locationsTable} (
-                id             BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-                name           VARCHAR(255)        NOT NULL,
-                street_address VARCHAR(255)        NOT NULL DEFAULT '',
-                city           VARCHAR(100)        NOT NULL DEFAULT '',
-                state          VARCHAR(50)         NOT NULL DEFAULT '',
-                zip_code       VARCHAR(20)         NOT NULL DEFAULT '',
-                is_other       TINYINT(1)          NOT NULL DEFAULT 0,
-                has_lodging    TINYINT(1)          NOT NULL DEFAULT 0,
-                booking_url    VARCHAR(500)        NOT NULL DEFAULT '',
-                created_at     DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                id                   BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                name                 VARCHAR(255)        NOT NULL,
+                street_address       VARCHAR(255)        NOT NULL DEFAULT '',
+                city                 VARCHAR(100)        NOT NULL DEFAULT '',
+                state                VARCHAR(50)         NOT NULL DEFAULT '',
+                zip_code             VARCHAR(20)         NOT NULL DEFAULT '',
+                is_other             TINYINT(1)          NOT NULL DEFAULT 0,
+                has_lodging          TINYINT(1)          NOT NULL DEFAULT 0,
+                booking_url          VARCHAR(500)        NOT NULL DEFAULT '',
+                image_attachment_id  BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+                created_at           DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (id)
             ) ENGINE=InnoDB {$charset};
             CREATE TABLE {$eventLodgingTable} (

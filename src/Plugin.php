@@ -73,17 +73,26 @@ final class Plugin
     }
 
     /**
-     * Intercepts any page request that carries ?eim_confirmation={code} and redirects
-     * to the event's configured RSVP page, preserving the confirmation code in the URL.
+     * Intercepts page requests carrying ?eim_confirmation={code} and routes them
+     * to the correct front-end page for the current RSVP state.
      *
      * Flow:
-     *   1. Invitee scans QR code → lands on {site_url}/?eim_confirmation={code}
-     *   2. This hook fires, looks up the code in eim_qr_codes
-     *   3. Fetches the event and its rsvp_page_id
-     *   4. Redirects to {rsvp_page_url}?eim_confirmation={code}
+     *   1. Invitee scans QR code and lands on {site_url}/?eim_confirmation={code}.
+     *   2. This hook looks up the QR code, event, and current RSVP flow state.
+     *   3. If RSVP has not opened yet and a before-start page is configured,
+     *      redirects to {before_start_page_url}?eim_confirmation={code}.
+     *   4. If the RSVP flow is complete, redirects to the dashboard page unless
+     *      the request explicitly asks to edit the RSVP.
+     *   5. Otherwise redirects to the configured RSVP page, preserving the
+     *      confirmation code and edit flag when present.
      *
-     * If the code is unknown, the event has no RSVP page configured, or the page no
-     * longer exists, the request is allowed to continue loading normally.
+     * Deadline behavior is intentionally enforced by the RSVP REST API. This QR
+     * redirect still sends visitors to the RSVP/dashboard experience after the
+     * deadline so the front end can show the existing RSVP state and API-provided
+     * deadline flags, while write attempts are rejected server-side.
+     *
+     * If the code is unknown, the event is missing, no target page is configured,
+     * or the selected page no longer exists, the request continues normally.
      *
      * @return void
      */
@@ -120,7 +129,19 @@ final class Plugin
             return;
         }
 
+        if ($event->rsvpBeforeStartPageId !== null && $currentPageId === $event->rsvpBeforeStartPageId) {
+            return;
+        }
+
         $flowResult = (new RsvpFlowResolver())->resolve($code);
+
+        // Redirect to the holding page before RSVPs open.
+        if ($flowResult->success && $flowResult->rsvpStartPending && $flowResult->rsvpBeforeStartUrl !== null) {
+            wp_safe_redirect($flowResult->rsvpBeforeStartUrl, 302);
+            exit;
+        }
+
+        // Redirect to the dashboard if the flow is complete
         if (
             !$isEditRequest
             &&
@@ -132,6 +153,7 @@ final class Plugin
             exit;
         }
 
+        // Redirect to the RSVP page
         if ($event->rsvpPageId === null) {
             return;
         }
@@ -144,6 +166,7 @@ final class Plugin
 
         $pageUrl = get_permalink($event->rsvpPageId);
 
+        // If the RSVP page no longer exists, let the page load normally
         if (!$pageUrl) {
             return;
         }

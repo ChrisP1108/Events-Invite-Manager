@@ -136,14 +136,15 @@ final class LocationsPage extends AbstractAdminPage
         $isOther = !empty($_POST['is_other']);
 
         $data = [
-            'name'           => sanitize_text_field(wp_unslash($_POST['name'] ?? '')),
-            'is_other'       => $isOther,
-            'street_address' => sanitize_text_field(wp_unslash($_POST['street_address'] ?? '')),
-            'city'           => sanitize_text_field(wp_unslash($_POST['city'] ?? '')),
-            'state'          => sanitize_text_field(wp_unslash($_POST['state'] ?? '')),
-            'zip_code'       => sanitize_text_field(wp_unslash($_POST['zip_code'] ?? '')),
-            'has_lodging'    => !empty($_POST['has_lodging']),
-            'booking_url'    => esc_url_raw(wp_unslash($_POST['booking_url'] ?? '')),
+            'name'                => sanitize_text_field(wp_unslash($_POST['name'] ?? '')),
+            'is_other'            => $isOther,
+            'street_address'      => sanitize_text_field(wp_unslash($_POST['street_address'] ?? '')),
+            'city'                => sanitize_text_field(wp_unslash($_POST['city'] ?? '')),
+            'state'               => sanitize_text_field(wp_unslash($_POST['state'] ?? '')),
+            'zip_code'            => sanitize_text_field(wp_unslash($_POST['zip_code'] ?? '')),
+            'has_lodging'         => !empty($_POST['has_lodging']),
+            'booking_url'         => esc_url_raw(wp_unslash($_POST['booking_url'] ?? '')),
+            'image_attachment_id' => $this->sanitizeImageAttachmentId((int) ($_POST['image_attachment_id'] ?? 0)),
         ];
 
         if (empty($data['name'])) {
@@ -285,13 +286,14 @@ final class LocationsPage extends AbstractAdminPage
                 <thead>
                     <tr>
                         <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('locations'); ?></th>
-                        <th style="width:28%;"><?= $this->sortLink('Name', 'name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_LOCATIONS]); ?></th>
-                        <th style="width:14%;"><?= $this->sortLink('Type', 'is_other', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_LOCATIONS]); ?></th>
-                        <th style="width:12%;"><?= $this->sortLink('Lodging', 'has_lodging', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_LOCATIONS]); ?></th>
-                        <th style="width:22%;">Address / Booking</th>
-                        <th style="width:18%;">Used In</th>
-                        <th style="width:12%;">Categories</th>
-                        <th style="width:14%;">Actions</th>
+                        <th class="eim-li-image-column">Image</th>
+                        <th style="width:24%;"><?= $this->sortLink('Name', 'name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_LOCATIONS]); ?></th>
+                        <th style="width:12%;"><?= $this->sortLink('Type', 'is_other', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_LOCATIONS]); ?></th>
+                        <th style="width:10%;"><?= $this->sortLink('Lodging', 'has_lodging', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_LOCATIONS]); ?></th>
+                        <th style="width:20%;">Address / Booking</th>
+                        <th style="width:16%;">Used In</th>
+                        <th style="width:10%;">Categories</th>
+                        <th style="width:12%;">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="eim-locations-table-body">
@@ -317,7 +319,7 @@ final class LocationsPage extends AbstractAdminPage
     {
         if (empty($locations)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No locations found.';
-            echo '<tr class="eim-no-results"><td colspan="8">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="9">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -334,6 +336,7 @@ final class LocationsPage extends AbstractAdminPage
             ?>
             <tr>
                 <?= $this->renderBulkSelectCell('eim-locations-bulk-form', 'locations', $loc->id, $loc->name); ?>
+                <td><?= $this->locationImageThumbnailMarkup($loc->imageAttachmentId, $loc->name); ?></td>
                 <td><strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($loc->name); ?></a></strong></td>
                 <td>
                     <?php if ($loc->isOther): ?>
@@ -445,7 +448,6 @@ final class LocationsPage extends AbstractAdminPage
                 <?php wp_nonce_field('eim_save_location'); ?>
                 <input type="hidden" name="eim_action" value="save_location">
                 <input type="hidden" name="location_id" value="<?= esc_attr($isNew ? 0 : $location->id); ?>">
-
                 <table class="form-table" role="presentation">
                     <tr>
                         <th scope="row">
@@ -486,6 +488,45 @@ final class LocationsPage extends AbstractAdminPage
                                    value="<?= esc_attr($isNew ? '' : $location->bookingUrl); ?>"
                                    placeholder="https://…">
                             <p class="description">Optional URL where invitees can book their stay.</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Image</th>
+                        <td>
+                            <?php
+                            $thumbUrl = (!$isNew && $location->imageAttachmentId > 0)
+                                ? (wp_get_attachment_image_url($location->imageAttachmentId, 'thumbnail') ?: '')
+                                : '';
+                            $fullUrl  = (!$isNew && $location->imageAttachmentId > 0)
+                                ? (wp_get_attachment_image_url($location->imageAttachmentId, 'full') ?: '')
+                                : '';
+                            ?>
+                            <input type="hidden" id="eim_loc_image_attachment_id" name="image_attachment_id"
+                                   value="<?= esc_attr((string) ($isNew ? 0 : $location->imageAttachmentId)); ?>">
+                            <div class="eim-li-image-picker" id="eim-loc-image-picker">
+                                <div id="eim_loc_image_preview" class="eim-li-image-preview">
+                                    <?php if ($thumbUrl): ?>
+                                        <button type="button" class="button-link eim-li-image-thumb"
+                                                data-full-src="<?= esc_attr($fullUrl); ?>"
+                                                data-caption="<?= esc_attr($isNew ? '' : $location->name); ?>"
+                                                aria-label="View full-size image">
+                                            <img src="<?= esc_attr($thumbUrl); ?>" alt="" loading="lazy">
+                                        </button>
+                                    <?php else: ?>
+                                        <span class="description">No image selected.</span>
+                                    <?php endif; ?>
+                                </div>
+                                <p class="eim-li-image-actions">
+                                    <button type="button" id="eim_loc_image_select" class="button"
+                                            data-select-label="Select Image"
+                                            data-change-label="Change Image">
+                                        <?= $thumbUrl ? 'Change Image' : 'Select Image'; ?>
+                                    </button>
+                                    <button type="button" id="eim_loc_image_remove" class="button"
+                                            <?= $thumbUrl ? '' : 'hidden'; ?>>Remove Image</button>
+                                </p>
+                            </div>
+                            <p class="description" style="margin-top:6px;">Optional thumbnail from the WordPress Media Library. Shown in the location list and on event venue/lodging panels.</p>
                         </td>
                     </tr>
                 </table>
@@ -551,6 +592,84 @@ final class LocationsPage extends AbstractAdminPage
                 <?php submit_button($isNew ? 'Add Location' : 'Update Location'); ?>
             </form>
         </div>
+        <script>
+        (() => {
+            'use strict';
+            document.addEventListener('DOMContentLoaded', () => {
+                const field   = document.getElementById('eim_loc_image_attachment_id');
+                const preview = document.getElementById('eim_loc_image_preview');
+                const select  = document.getElementById('eim_loc_image_select');
+                const remove  = document.getElementById('eim_loc_image_remove');
+                if (!field || !preview || !select || !window.wp?.media) return;
+
+                let frame = null;
+
+                select.addEventListener('click', () => {
+                    if (!frame) {
+                        frame = window.wp.media({
+                            title: 'Select Location Image',
+                            button: { text: 'Use This Image' },
+                            library: { type: 'image' },
+                            multiple: false,
+                        });
+                        frame.on('select', () => {
+                            const att = frame.state().get('selection').first()?.toJSON();
+                            if (!att) return;
+                            renderSelection({
+                                id:       att.id || 0,
+                                title:    att.title || att.filename || '',
+                                thumbUrl: att.sizes?.thumbnail?.url || att.sizes?.medium?.url || att.url || '',
+                                fullUrl:  att.sizes?.full?.url || att.url || '',
+                            });
+                        });
+                    }
+                    frame.open();
+                });
+
+                if (remove) {
+                    remove.addEventListener('click', () => renderSelection(null));
+                }
+
+                function renderSelection(image) {
+                    const hasImage = image && Number(image.id) > 0 && image.thumbUrl;
+                    field.value = hasImage ? String(image.id) : '0';
+                    preview.replaceChildren();
+                    if (hasImage) {
+                        const btn = document.createElement('button');
+                        btn.type = 'button';
+                        btn.className = 'button-link eim-location-image-thumb';
+                        btn.dataset.fullSrc = image.fullUrl || image.thumbUrl;
+                        btn.dataset.caption = image.title || '';
+                        btn.setAttribute('aria-label', 'View full-size image');
+                        const img = document.createElement('img');
+                        img.src = image.thumbUrl;
+                        img.alt = '';
+                        img.loading = 'lazy';
+                        btn.appendChild(img);
+                        preview.appendChild(btn);
+                    } else {
+                        const empty = document.createElement('span');
+                        empty.className = 'description';
+                        empty.textContent = 'No image selected.';
+                        preview.appendChild(empty);
+                    }
+                    if (remove) remove.hidden = !hasImage;
+                    select.textContent = hasImage
+                        ? (select.dataset.changeLabel || 'Change Image')
+                        : (select.dataset.selectLabel || 'Select Image');
+                }
+            });
+        })();
+        </script>
         <?php
+    }
+
+    private function sanitizeImageAttachmentId(int $attachmentId): int
+    {
+        if ($attachmentId <= 0) {
+            return 0;
+        }
+        $post = get_post($attachmentId);
+        return ($post && $post->post_type === 'attachment') ? $attachmentId : 0;
     }
 }

@@ -71,6 +71,8 @@ final class RsvpFlowResult
      * @param bool             $requiresBeverage    True when the event has beverage options enabled with active items.
      * @param string|null      $dashboardUrl        Public URL of the invitee dashboard page, or null if not configured.
      * @param string|null      $message             Human-readable error description, or null on success.
+     * @param bool             $rsvpStartPending    True when rsvp_start_datetime is set and is still in the future.
+     * @param string|null      $rsvpBeforeStartUrl  Public URL of the before-start page, or null if not configured.
      * @param bool             $rsvpDeadlinePassed  True when rsvp_deadline is set and has already elapsed.
      */
     public function __construct(
@@ -84,6 +86,8 @@ final class RsvpFlowResult
         public readonly bool             $requiresBeverage,
         public readonly ?string          $dashboardUrl,
         public readonly ?string          $message,
+        public readonly bool             $rsvpStartPending = false,
+        public readonly ?string          $rsvpBeforeStartUrl = null,
         public readonly bool             $rsvpDeadlinePassed = false,
     ) {}
 

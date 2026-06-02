@@ -148,7 +148,70 @@
         }
     }
 
+    class LocationImageModal {
+        #overlay = null;
+        #image   = null;
+        #caption = null;
+
+        constructor() {
+            document.addEventListener('click', (event) => {
+                if (!(event.target instanceof Element)) return;
+                const trigger = event.target.closest('.eim-location-image-thumb');
+                if (!trigger) return;
+                const fullSrc = trigger.dataset.fullSrc || '';
+                if (!fullSrc) return;
+                event.preventDefault();
+                this.#open(fullSrc, trigger.dataset.caption || 'Location image');
+            });
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape') this.#close();
+            });
+        }
+
+        #ensureModal() {
+            if (this.#overlay) return;
+            this.#overlay = document.createElement('div');
+            this.#overlay.className = 'eim-invitee-image-modal-backdrop';
+            this.#overlay.hidden = true;
+            const modal = document.createElement('div');
+            modal.className = 'eim-invitee-image-modal';
+            modal.setAttribute('role', 'dialog');
+            modal.setAttribute('aria-modal', 'true');
+            const close = document.createElement('button');
+            close.type = 'button';
+            close.className = 'button-link eim-invitee-image-modal-close';
+            close.setAttribute('aria-label', 'Close image preview');
+            close.textContent = 'x';
+            this.#image = document.createElement('img');
+            this.#image.alt = '';
+            this.#caption = document.createElement('div');
+            this.#caption.className = 'eim-invitee-image-modal-caption';
+            modal.append(close, this.#image, this.#caption);
+            this.#overlay.appendChild(modal);
+            document.body.appendChild(this.#overlay);
+            close.addEventListener('click', () => this.#close());
+            this.#overlay.addEventListener('click', (e) => { if (e.target === this.#overlay) this.#close(); });
+        }
+
+        #open(src, caption) {
+            this.#ensureModal();
+            if (!this.#overlay || !this.#image || !this.#caption) return;
+            this.#image.src = src;
+            this.#caption.textContent = caption;
+            this.#overlay.hidden = false;
+            document.body.classList.add('eim-invitee-image-modal-open');
+        }
+
+        #close() {
+            if (!this.#overlay || this.#overlay.hidden) return;
+            this.#overlay.hidden = true;
+            if (this.#image) this.#image.removeAttribute('src');
+            document.body.classList.remove('eim-invitee-image-modal-open');
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
         if (config.table?.enabled) new LocationTable();
+        new LocationImageModal();
     });
 })();

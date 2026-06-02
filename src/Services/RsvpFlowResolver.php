@@ -69,6 +69,8 @@ final class RsvpFlowResolver
 
         $requiresLodging             = $this->resolveLodgingRequirement($event);
         [$requiresFood, $requiresBeverage] = $this->resolveMenuRequirements($event);
+        $rsvpStartPending            = $event->isRsvpStartPending();
+        $rsvpBeforeStartUrl          = $event->rsvpBeforeStartUrl($code);
         $deadlinePassed              = $event->isRsvpDeadlinePassed();
 
         if (!empty($pendingMembers)) {
@@ -83,6 +85,8 @@ final class RsvpFlowResolver
                 requiresBeverage:   $requiresBeverage,
                 dashboardUrl:       null,
                 message:            null,
+                rsvpStartPending:   $rsvpStartPending,
+                rsvpBeforeStartUrl: $rsvpBeforeStartUrl,
                 rsvpDeadlinePassed: $deadlinePassed,
             );
         }
@@ -100,6 +104,8 @@ final class RsvpFlowResolver
                 requiresBeverage:   false,
                 dashboardUrl:       $event->dashboardUrl($code),
                 message:            null,
+                rsvpStartPending:   $rsvpStartPending,
+                rsvpBeforeStartUrl: $rsvpBeforeStartUrl,
                 rsvpDeadlinePassed: $deadlinePassed,
             );
         }
@@ -120,6 +126,8 @@ final class RsvpFlowResolver
                         requiresBeverage:   $requiresBeverage,
                         dashboardUrl:       $event->dashboardUrl($code),
                         message:            null,
+                        rsvpStartPending:   $rsvpStartPending,
+                        rsvpBeforeStartUrl: $rsvpBeforeStartUrl,
                         rsvpDeadlinePassed: $deadlinePassed,
                     );
                 }
@@ -135,6 +143,8 @@ final class RsvpFlowResolver
                         requiresBeverage:   $requiresBeverage,
                         dashboardUrl:       $event->dashboardUrl($code),
                         message:            null,
+                        rsvpStartPending:   $rsvpStartPending,
+                        rsvpBeforeStartUrl: $rsvpBeforeStartUrl,
                         rsvpDeadlinePassed: $deadlinePassed,
                     );
                 }
@@ -163,6 +173,8 @@ final class RsvpFlowResolver
                     requiresBeverage:   $requiresBeverage,
                     dashboardUrl:       $event->dashboardUrl($code),
                     message:            null,
+                    rsvpStartPending:   $rsvpStartPending,
+                    rsvpBeforeStartUrl: $rsvpBeforeStartUrl,
                     rsvpDeadlinePassed: $deadlinePassed,
                 );
             }
@@ -180,6 +192,8 @@ final class RsvpFlowResolver
             requiresBeverage:   $requiresBeverage,
             dashboardUrl:       $event->dashboardUrl($code),
             message:            null,
+            rsvpStartPending:   $rsvpStartPending,
+            rsvpBeforeStartUrl: $rsvpBeforeStartUrl,
             rsvpDeadlinePassed: $deadlinePassed,
         );
     }

@@ -401,16 +401,20 @@ final class AdminMenu
             ]);
         }
 
-        if ($tab === self::TAB_LOCATIONS && !in_array($action, ['add', 'edit'], true)) {
-            wp_enqueue_script('eim-admin-locations', EIM_PLUGIN_URL . 'assets/js/admin-locations.js', [], EIM_VERSION, true);
-            wp_localize_script('eim-admin-locations', 'eimLocationsAdmin', [
-                'searchNonce' => wp_create_nonce('eim_search_locations_list_nonce'),
-                'table'       => [
-                    'enabled' => true,
-                    'sort'    => sanitize_key($_GET['sort'] ?? 'name'),
-                    'order'   => strtolower((string) ($_GET['order'] ?? 'asc')) === 'desc' ? 'desc' : 'asc',
-                ],
-            ]);
+        if ($tab === self::TAB_LOCATIONS) {
+            if (!in_array($action, ['add', 'edit'], true)) {
+                wp_enqueue_script('eim-admin-locations', EIM_PLUGIN_URL . 'assets/js/admin-locations.js', [], EIM_VERSION, true);
+                wp_localize_script('eim-admin-locations', 'eimLocationsAdmin', [
+                    'searchNonce' => wp_create_nonce('eim_search_locations_list_nonce'),
+                    'table'       => [
+                        'enabled' => true,
+                        'sort'    => sanitize_key($_GET['sort'] ?? 'name'),
+                        'order'   => strtolower((string) ($_GET['order'] ?? 'asc')) === 'desc' ? 'desc' : 'asc',
+                    ],
+                ]);
+            } else {
+                wp_enqueue_media();
+            }
         }
 
         if ($tab === self::TAB_VENDORS) {

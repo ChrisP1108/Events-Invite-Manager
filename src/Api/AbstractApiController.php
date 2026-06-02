@@ -128,6 +128,8 @@ abstract class AbstractApiController
             'start_datetime' => $event->startDatetime,
             'end_datetime'   => $event->endDatetime,
             'timezone'       => $event->timezone,
+            'rsvp_start_datetime' => $event->rsvpStartDatetime,
+            'rsvp_deadline'       => $event->rsvpDeadline,
             'venue'          => $event->venueId ? $this->venuePayload($event->venueId) : null,
         ];
     }
@@ -209,6 +211,12 @@ abstract class AbstractApiController
             'event_id'              => $event->id,
             'invitation_group_id'   => $result->group->id,
             'edit_rsvp_url'         => $this->buildRsvpEditUrl($event, $code),
+            'rsvp_start_datetime'   => $event->rsvpStartDatetime,
+            'rsvp_start_pending'    => $result->rsvpStartPending,
+            'rsvp_before_start_url' => $result->rsvpBeforeStartUrl,
+            'rsvp_deadline'         => $event->rsvpDeadline,
+            'rsvp_deadline_passed'  => $result->rsvpDeadlinePassed,
+            'can_rsvp'              => !$result->rsvpStartPending && !$result->rsvpDeadlinePassed,
             'rsvp_notes'            => $result->group->rsvpNotes,
             'rsvp_notes_updated_at' => $result->group->rsvpNotesUpdatedAt,
             'lodging_booked'        => $result->group->lodgingBooked,

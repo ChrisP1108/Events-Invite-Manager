@@ -29,6 +29,7 @@ final class Event
      * @param string  $name                   Event name.
      * @param string  $description            Optional free-text description.
      * @param ?int    $rsvpPageId             WordPress page ID for the front-end RSVP page, or null if not set.
+     * @param ?int    $rsvpBeforeStartPageId  WordPress page ID used before RSVPs open, or null if not set.
      * @param ?int    $venueId                FK to eim_locations for the event venue, or null if not set.
      * @param string  $fromName               Display name used in the From header of outgoing emails.
      * @param string  $fromEmail              Email address used in the From header of outgoing emails.
@@ -43,6 +44,7 @@ final class Event
      * @param ?int    $newsletterPageId       WordPress page ID for the post-RSVP newsletter page, or null if not set.
      * @param ?int    $dashboardPageId        WordPress page ID for the invitee dashboard redirect after RSVP, or null if not set.
      * @param ?int    $maxInvitees            Maximum number of invitees allowed, or null for unlimited.
+     * @param ?string $rsvpStartDatetime      MySQL DATETIME string for when RSVP opens, or null if not set.
      * @param ?string $rsvpDeadline           MySQL DATETIME string for the RSVP deadline, or null if not set.
      * @param string  $createdAt              MySQL datetime string.
      * @param string  $updatedAt              MySQL datetime string.
@@ -52,6 +54,7 @@ final class Event
         public readonly string  $name,
         public readonly string  $description,
         public readonly ?int    $rsvpPageId,
+        public readonly ?int    $rsvpBeforeStartPageId,
         public readonly ?int    $venueId,
         public readonly string  $fromName,
         public readonly string  $fromEmail,
@@ -66,6 +69,7 @@ final class Event
         public readonly ?int    $newsletterPageId,
         public readonly ?int    $dashboardPageId,
         public readonly ?int    $maxInvitees,
+        public readonly ?string $rsvpStartDatetime,
         public readonly ?string $rsvpDeadline,
         public readonly string  $createdAt,
         public readonly string  $updatedAt,
@@ -184,6 +188,7 @@ final class Event
             'invite_email_subject'  => $data['invite_email_subject'] ?? '',
             'invite_email_template' => $data['invite_email_template'] ?? '',
             'rsvp_page_id'          => isset($data['rsvp_page_id']) && (int) $data['rsvp_page_id'] > 0 ? (int) $data['rsvp_page_id'] : null,
+            'rsvp_before_start_page_id' => isset($data['rsvp_before_start_page_id']) && (int) $data['rsvp_before_start_page_id'] > 0 ? (int) $data['rsvp_before_start_page_id'] : null,
             'venue_id'              => isset($data['venue_id']) && (int) $data['venue_id'] > 0 ? (int) $data['venue_id'] : null,
             'start_datetime'        => !empty($data['start_datetime']) ? $data['start_datetime'] : null,
             'end_datetime'          => !empty($data['end_datetime'])   ? $data['end_datetime']   : null,
@@ -194,6 +199,7 @@ final class Event
             'newsletter_page_id'       => isset($data['newsletter_page_id']) && (int) $data['newsletter_page_id'] > 0 ? (int) $data['newsletter_page_id'] : null,
             'dashboard_page_id'        => isset($data['dashboard_page_id']) && (int) $data['dashboard_page_id'] > 0 ? (int) $data['dashboard_page_id'] : null,
             'max_invitees'             => isset($data['max_invitees']) && $data['max_invitees'] > 0 ? (int) $data['max_invitees'] : null,
+            'rsvp_start_datetime'      => !empty($data['rsvp_start_datetime']) ? $data['rsvp_start_datetime'] : null,
             'rsvp_deadline'            => !empty($data['rsvp_deadline']) ? $data['rsvp_deadline'] : null,
         ]);
 
@@ -225,6 +231,7 @@ final class Event
                 'invite_email_subject'  => $data['invite_email_subject'] ?? '',
                 'invite_email_template' => $data['invite_email_template'] ?? '',
                 'rsvp_page_id'          => isset($data['rsvp_page_id']) && (int) $data['rsvp_page_id'] > 0 ? (int) $data['rsvp_page_id'] : null,
+                'rsvp_before_start_page_id' => isset($data['rsvp_before_start_page_id']) && (int) $data['rsvp_before_start_page_id'] > 0 ? (int) $data['rsvp_before_start_page_id'] : null,
                 'venue_id'              => isset($data['venue_id']) && (int) $data['venue_id'] > 0 ? (int) $data['venue_id'] : null,
                 'start_datetime'        => !empty($data['start_datetime']) ? $data['start_datetime'] : null,
                 'end_datetime'          => !empty($data['end_datetime'])   ? $data['end_datetime']   : null,
@@ -235,6 +242,7 @@ final class Event
                 'newsletter_page_id'       => isset($data['newsletter_page_id']) && (int) $data['newsletter_page_id'] > 0 ? (int) $data['newsletter_page_id'] : null,
                 'dashboard_page_id'        => isset($data['dashboard_page_id']) && (int) $data['dashboard_page_id'] > 0 ? (int) $data['dashboard_page_id'] : null,
                 'max_invitees'             => isset($data['max_invitees']) && $data['max_invitees'] > 0 ? (int) $data['max_invitees'] : null,
+                'rsvp_start_datetime'      => !empty($data['rsvp_start_datetime']) ? $data['rsvp_start_datetime'] : null,
                 'rsvp_deadline'            => !empty($data['rsvp_deadline']) ? $data['rsvp_deadline'] : null,
             ],
             ['id' => $id]
@@ -286,6 +294,26 @@ final class Event
     public function isRsvpDeadlinePassed(): bool
     {
         return $this->rsvpDeadline !== null && strtotime($this->rsvpDeadline) < time();
+    }
+
+    /**
+     * Returns true when an RSVP start time is set and has not been reached yet.
+     *
+     * @return bool
+     */
+    public function isRsvpStartPending(): bool
+    {
+        return $this->rsvpStartDatetime !== null && strtotime($this->rsvpStartDatetime) > time();
+    }
+
+    /**
+     * Returns true when invitees can submit RSVP flow changes right now.
+     *
+     * @return bool
+     */
+    public function canRsvp(): bool
+    {
+        return !$this->isRsvpStartPending() && !$this->isRsvpDeadlinePassed();
     }
 
     /**
@@ -568,6 +596,31 @@ final class Event
         return $url;
     }
 
+    /**
+     * Returns the public permalink of the page shown before RSVPs open.
+     *
+     * @param string $confirmationCode When non-empty, appended as ?eim_confirmation={code}.
+     * @return string|null Null when no before-start page is configured.
+     */
+    public function rsvpBeforeStartUrl(string $confirmationCode = ''): ?string
+    {
+        if ($this->rsvpBeforeStartPageId === null || $this->rsvpBeforeStartPageId <= 0) {
+            return null;
+        }
+
+        $url = get_permalink($this->rsvpBeforeStartPageId);
+
+        if ($url === false || $url === '') {
+            return null;
+        }
+
+        if ($confirmationCode !== '') {
+            $url = add_query_arg('eim_confirmation', rawurlencode($confirmationCode), $url);
+        }
+
+        return $url;
+    }
+
     private static function fromRow(object $row): self
     {
         return new self(
@@ -575,6 +628,7 @@ final class Event
             name:                      $row->name,
             description:               $row->description           ?? '',
             rsvpPageId:          isset($row->rsvp_page_id) && $row->rsvp_page_id !== null ? (int) $row->rsvp_page_id : null,
+            rsvpBeforeStartPageId: isset($row->rsvp_before_start_page_id) && $row->rsvp_before_start_page_id !== null ? (int) $row->rsvp_before_start_page_id : null,
             venueId:             isset($row->venue_id)     && $row->venue_id     !== null ? (int) $row->venue_id     : null,
             fromName:                  $row->from_name             ?? '',
             fromEmail:                 $row->from_email            ?? '',
@@ -589,6 +643,7 @@ final class Event
             newsletterPageId:    isset($row->newsletter_page_id) && $row->newsletter_page_id !== null ? (int) $row->newsletter_page_id : null,
             dashboardPageId:     isset($row->dashboard_page_id) && $row->dashboard_page_id !== null ? (int) $row->dashboard_page_id : null,
             maxInvitees:              isset($row->max_invitees) && $row->max_invitees !== null ? (int) $row->max_invitees : null,
+            rsvpStartDatetime:         $row->rsvp_start_datetime  ?? null,
             rsvpDeadline:              $row->rsvp_deadline         ?? null,
             createdAt:                 $row->created_at            ?? '',
             updatedAt:                 $row->updated_at            ?? '',

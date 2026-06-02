@@ -31,6 +31,7 @@ final class Location
         public readonly bool   $isOther,
         public readonly bool   $hasLodging,
         public readonly string $bookingUrl,
+        public readonly int    $imageAttachmentId,
         public readonly string $createdAt,
     ) {}
 
@@ -313,17 +314,22 @@ final class Location
                 $row->zip_code,
             ]));
 
+            $imageId    = (int) ($row->image_attachment_id ?? 0);
+            $imageThumb = $imageId > 0 ? (wp_get_attachment_image_url($imageId, 'thumbnail') ?: '') : '';
+
             return [
-                'id'             => (int)  $row->id,
-                'name'           =>        $row->name,
-                'street_address' =>        $row->street_address ?? '',
-                'city'           =>        $row->city           ?? '',
-                'state'          =>        $row->state          ?? '',
-                'zip_code'       =>        $row->zip_code       ?? '',
-                'is_other'       => $isOther,
-                'has_lodging'    => (bool) ($row->has_lodging   ?? false),
-                'booking_url'    =>        $row->booking_url    ?? '',
-                'label'          => $isOther
+                'id'              => (int)  $row->id,
+                'name'            =>        $row->name,
+                'street_address'  =>        $row->street_address      ?? '',
+                'city'            =>        $row->city                ?? '',
+                'state'           =>        $row->state               ?? '',
+                'zip_code'        =>        $row->zip_code            ?? '',
+                'is_other'        => $isOther,
+                'has_lodging'     => (bool) ($row->has_lodging        ?? false),
+                'booking_url'     =>        $row->booking_url         ?? '',
+                'image_id'        => $imageId,
+                'image_thumb_url' => $imageThumb,
+                'label'           => $isOther
                     ? $row->name . ' (Other)'
                     : ($address ? $row->name . ' — ' . $address : $row->name),
             ];
@@ -343,14 +349,15 @@ final class Location
         $isOther = !empty($data['is_other']);
 
         $result = $wpdb->insert(DatabaseManager::locationsTable(), [
-            'name'           => $data['name']           ?? '',
-            'street_address' => $isOther ? '' : ($data['street_address'] ?? ''),
-            'city'           => $isOther ? '' : ($data['city']           ?? ''),
-            'state'          => $isOther ? '' : ($data['state']          ?? ''),
-            'zip_code'       => $isOther ? '' : ($data['zip_code']       ?? ''),
-            'is_other'       => $isOther ? 1 : 0,
-            'has_lodging'    => !empty($data['has_lodging']) ? 1 : 0,
-            'booking_url'    => $data['booking_url'] ?? '',
+            'name'                => $data['name']           ?? '',
+            'street_address'      => $isOther ? '' : ($data['street_address'] ?? ''),
+            'city'                => $isOther ? '' : ($data['city']           ?? ''),
+            'state'               => $isOther ? '' : ($data['state']          ?? ''),
+            'zip_code'            => $isOther ? '' : ($data['zip_code']       ?? ''),
+            'is_other'            => $isOther ? 1 : 0,
+            'has_lodging'         => !empty($data['has_lodging']) ? 1 : 0,
+            'booking_url'         => $data['booking_url']         ?? '',
+            'image_attachment_id' => (int) ($data['image_attachment_id'] ?? 0),
         ]);
 
         $id = $result ? (int) $wpdb->insert_id : false;
@@ -376,14 +383,15 @@ final class Location
         $result = $wpdb->update(
             DatabaseManager::locationsTable(),
             [
-                'name'           => $data['name']           ?? '',
-                'street_address' => $isOther ? '' : ($data['street_address'] ?? ''),
-                'city'           => $isOther ? '' : ($data['city']           ?? ''),
-                'state'          => $isOther ? '' : ($data['state']          ?? ''),
-                'zip_code'       => $isOther ? '' : ($data['zip_code']       ?? ''),
-                'is_other'       => $isOther ? 1 : 0,
-                'has_lodging'    => !empty($data['has_lodging']) ? 1 : 0,
-                'booking_url'    => $data['booking_url'] ?? '',
+                'name'                => $data['name']           ?? '',
+                'street_address'      => $isOther ? '' : ($data['street_address'] ?? ''),
+                'city'                => $isOther ? '' : ($data['city']           ?? ''),
+                'state'               => $isOther ? '' : ($data['state']          ?? ''),
+                'zip_code'            => $isOther ? '' : ($data['zip_code']       ?? ''),
+                'is_other'            => $isOther ? 1 : 0,
+                'has_lodging'         => !empty($data['has_lodging']) ? 1 : 0,
+                'booking_url'         => $data['booking_url']         ?? '',
+                'image_attachment_id' => (int) ($data['image_attachment_id'] ?? 0),
             ],
             ['id' => $id]
         );
@@ -452,16 +460,17 @@ final class Location
     private static function fromRow(object $row): self
     {
         return new self(
-            id:            (int)  $row->id,
-            name:                 $row->name,
-            streetAddress:        $row->street_address ?? '',
-            city:                 $row->city           ?? '',
-            state:                $row->state          ?? '',
-            zipCode:              $row->zip_code       ?? '',
-            isOther:       (bool) ($row->is_other      ?? false),
-            hasLodging:    (bool) ($row->has_lodging   ?? false),
-            bookingUrl:           $row->booking_url    ?? '',
-            createdAt:            $row->created_at     ?? '',
+            id:                  (int)  $row->id,
+            name:                       $row->name,
+            streetAddress:              $row->street_address       ?? '',
+            city:                       $row->city                 ?? '',
+            state:                      $row->state                ?? '',
+            zipCode:                    $row->zip_code             ?? '',
+            isOther:             (bool) ($row->is_other            ?? false),
+            hasLodging:          (bool) ($row->has_lodging         ?? false),
+            bookingUrl:                 $row->booking_url          ?? '',
+            imageAttachmentId:   (int)  ($row->image_attachment_id ?? 0),
+            createdAt:                  $row->created_at           ?? '',
         );
     }
 }

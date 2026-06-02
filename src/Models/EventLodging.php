@@ -19,18 +19,19 @@ use EventsInviteManager\Models\Location;
 final class EventLodging
 {
     /**
-     * @param int    $id            Primary key of the eim_event_lodging row.
-     * @param int    $eventId       Parent event ID.
-     * @param int    $locationId    FK to eim_locations.
-     * @param int    $sortOrder     Display order (ascending).
-     * @param string $createdAt     MySQL datetime of row creation.
-     * @param string $name          Location name (from JOIN).
-     * @param string $streetAddress Location street address (from JOIN).
-     * @param string $city          Location city (from JOIN).
-     * @param string $state         Location state (from JOIN).
-     * @param string $zipCode       Location ZIP code (from JOIN).
-     * @param bool   $isOther       True for the "Other" option with no fixed address (from JOIN).
-     * @param string $bookingUrl    Optional booking URL (from JOIN).
+     * @param int    $id                 Primary key of the eim_event_lodging row.
+     * @param int    $eventId            Parent event ID.
+     * @param int    $locationId         FK to eim_locations.
+     * @param int    $sortOrder          Display order (ascending).
+     * @param string $createdAt          MySQL datetime of row creation.
+     * @param string $name               Location name (from JOIN).
+     * @param string $streetAddress      Location street address (from JOIN).
+     * @param string $city               Location city (from JOIN).
+     * @param string $state              Location state (from JOIN).
+     * @param string $zipCode            Location ZIP code (from JOIN).
+     * @param bool   $isOther            True for the "Other" option with no fixed address (from JOIN).
+     * @param string $bookingUrl         Optional booking URL (from JOIN).
+     * @param int    $imageAttachmentId  WordPress attachment ID for the location thumbnail (from JOIN).
      */
     public function __construct(
         public readonly int    $id,
@@ -45,6 +46,7 @@ final class EventLodging
         public readonly string $zipCode,
         public readonly bool   $isOther,
         public readonly string $bookingUrl,
+        public readonly int    $imageAttachmentId,
     ) {}
 
     /**
@@ -63,7 +65,8 @@ final class EventLodging
         $rows = $wpdb->get_results(
             $wpdb->prepare(
                 "SELECT el.id, el.event_id, el.location_id, el.sort_order, el.created_at,
-                        l.name, l.street_address, l.city, l.state, l.zip_code, l.is_other, l.booking_url
+                        l.name, l.street_address, l.city, l.state, l.zip_code, l.is_other, l.booking_url,
+                        l.image_attachment_id
                  FROM {$el} el
                  INNER JOIN {$loc} l ON l.id = el.location_id
                  WHERE el.event_id = %d
@@ -239,18 +242,19 @@ final class EventLodging
     private static function fromRow(object $row): self
     {
         return new self(
-            id:            (int)  $row->id,
-            eventId:       (int)  $row->event_id,
-            locationId:    (int)  $row->location_id,
-            sortOrder:     (int)  $row->sort_order,
-            createdAt:            $row->created_at     ?? '',
-            name:                 $row->name,
-            streetAddress:        $row->street_address ?? '',
-            city:                 $row->city           ?? '',
-            state:                $row->state          ?? '',
-            zipCode:              $row->zip_code       ?? '',
-            isOther:       (bool) ($row->is_other      ?? false),
-            bookingUrl:           $row->booking_url    ?? '',
+            id:                 (int)  $row->id,
+            eventId:            (int)  $row->event_id,
+            locationId:         (int)  $row->location_id,
+            sortOrder:          (int)  $row->sort_order,
+            createdAt:                 $row->created_at          ?? '',
+            name:                      $row->name,
+            streetAddress:             $row->street_address      ?? '',
+            city:                      $row->city                ?? '',
+            state:                     $row->state               ?? '',
+            zipCode:                   $row->zip_code            ?? '',
+            isOther:            (bool) ($row->is_other           ?? false),
+            bookingUrl:                $row->booking_url         ?? '',
+            imageAttachmentId:  (int)  ($row->image_attachment_id ?? 0),
         );
     }
 }

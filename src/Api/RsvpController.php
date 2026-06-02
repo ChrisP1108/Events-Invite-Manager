@@ -86,6 +86,20 @@ class RsvpController extends AbstractApiController
             );
         }
 
+        if ($currentFlow->rsvpStartPending) {
+            return new WP_REST_Response(
+                [
+                    'success'               => false,
+                    'message'               => 'RSVPs for this event are not open yet.',
+                    'rsvp_start_pending'    => true,
+                    'rsvp_start_datetime'   => $event->rsvpStartDatetime,
+                    'rsvp_before_start_url' => $currentFlow->rsvpBeforeStartUrl,
+                    'can_rsvp'              => false,
+                ],
+                422
+            );
+        }
+
         $memberStatusById = [];
         foreach ($members as $m) {
             $memberStatusById[$m->id] = $m->rsvpStatus;
@@ -481,6 +495,7 @@ class RsvpController extends AbstractApiController
             'requires_food'         => $result->requiresFood,
             'requires_beverage'     => $result->requiresBeverage,
             'dashboard_url'         => $result->dashboardUrl,
+            'rsvp_before_start_url' => $result->rsvpBeforeStartUrl,
             'rsvp_notes'            => $group->rsvpNotes,
             'rsvp_notes_updated_at' => $group->rsvpNotesUpdatedAt,
             'lodging_booked'        => $group->lodgingBooked,
@@ -490,9 +505,11 @@ class RsvpController extends AbstractApiController
                 'name'                 => $event->name,
                 'description'          => $event->description,
                 'date'                 => $event->formattedDateTimeRange(),
+                'rsvp_start_datetime'  => $event->rsvpStartDatetime,
+                'rsvp_start_pending'   => $result->rsvpStartPending,
                 'rsvp_deadline'        => $event->rsvpDeadline,
                 'rsvp_deadline_passed' => $result->rsvpDeadlinePassed,
-                'can_rsvp'             => !$result->rsvpDeadlinePassed,
+                'can_rsvp'             => !$result->rsvpStartPending && !$result->rsvpDeadlinePassed,
                 'venue'                => $venue ? [
                     'name'    => $venue->name,
                     'address' => $venue->formattedAddress(),

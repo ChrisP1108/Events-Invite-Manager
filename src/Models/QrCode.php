@@ -10,9 +10,12 @@ use EventsInviteManager\Database\DatabaseManager;
 
 /**
  * Represents a stored QR code record linking an invitation group to a
- * 16-character confirmation code and the PNG file path on disk.
+ * 16-character confirmation code and the SVG file path on disk.
  *
- * File naming convention: event_{event_id}_group_{group_id}.svg
+ * File naming convention:
+ * eim-qr-codes/event_{event_id}_group_{group_id}/event_{event_id}_group_{group_id}.svg
+ *
+ * The companion PNG lives beside the SVG with the same basename.
  */
 final class QrCode
 {
@@ -21,7 +24,7 @@ final class QrCode
      * @param int    $eventId          Associated event ID.
      * @param int    $groupId          Associated invitation group ID.
      * @param string $confirmationCode Random 16-character alphanumeric code embedded in the QR URL.
-     * @param string $qrCodePath       Uploads-relative path to the stored PNG (e.g. eim-qr-codes/group_5.png).
+     * @param string $qrCodePath       Uploads-relative path to the stored SVG.
      * @param string $createdAt        MySQL datetime string.
      * @param string $updatedAt        MySQL datetime string.
      */
@@ -72,6 +75,43 @@ final class QrCode
     }
 
     /**
+     * Returns a map of group_id → QrCode for all supplied group IDs in one query.
+     *
+     * Groups without a QR code are omitted from the returned array.
+     *
+     * @param int[] $groupIds
+     * @return array<int, self>
+     */
+    public static function mapByGroupIds(array $groupIds): array
+    {
+        global $wpdb;
+
+        $groupIds = array_values(array_unique(array_filter(array_map('intval', $groupIds))));
+        if (empty($groupIds)) {
+            return [];
+        }
+
+        $table        = DatabaseManager::qrCodesTable();
+        $placeholders = implode(', ', array_fill(0, count($groupIds), '%d'));
+
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+                "SELECT * FROM {$table} WHERE group_id IN ({$placeholders})",
+                ...$groupIds
+            )
+        );
+
+        $map = [];
+        foreach ($rows ?? [] as $row) {
+            $qr                    = self::fromRow($row);
+            $map[$qr->groupId] = $qr;
+        }
+
+        return $map;
+    }
+
+    /**
      * Inserts a new QR code record and returns the hydrated model, or null on failure.
      *
      * @param int    $eventId
@@ -95,7 +135,25 @@ final class QrCode
     }
 
     /**
-     * Deletes QR code records for events whose end time has passed, and removes PNG files.
+     * Updates the stored SVG path for an existing QR code record.
+     *
+     * @param int    $id
+     * @param string $qrCodePath Uploads-relative path to the stored SVG.
+     * @return bool
+     */
+    public static function updatePath(int $id, string $qrCodePath): bool
+    {
+        global $wpdb;
+
+        return $wpdb->update(
+            DatabaseManager::qrCodesTable(),
+            ['qr_code_path' => $qrCodePath],
+            ['id' => $id]
+        ) !== false;
+    }
+
+    /**
+     * Deletes QR code records for events whose end time has passed, and removes image files.
      *
      * @return int Number of QR code records removed.
      */
@@ -158,7 +216,7 @@ final class QrCode
     }
 
     /**
-     * Deletes the QR code record for a specific invitation group and removes its PNG.
+     * Deletes the QR code record for a specific invitation group and removes its images.
      *
      * @param int $groupId
      * @return void
@@ -174,40 +232,117 @@ final class QrCode
     }
 
     /**
-     * Returns the public URL to the stored QR code PNG.
+     * Returns the public URL to the stored QR code SVG.
      *
      * @return string
      */
     public function imageUrl(): string
     {
-        if (str_starts_with($this->qrCodePath, 'assets/')) {
-            return EIM_PLUGIN_URL . $this->qrCodePath;
-        }
-
-        return wp_upload_dir()['baseurl'] . '/' . $this->qrCodePath;
+        return $this->urlForRelativePath($this->svgRelativePath());
     }
 
     /**
-     * Returns the absolute server path to the stored QR code PNG.
+     * Returns the public URL to the stored QR code SVG.
+     *
+     * @return string
+     */
+    public function svgUrl(): string
+    {
+        return $this->imageUrl();
+    }
+
+    /**
+     * Returns the public URL to the companion QR code PNG.
+     *
+     * @return string
+     */
+    public function pngUrl(): string
+    {
+        return $this->urlForRelativePath($this->pngRelativePath());
+    }
+
+    /**
+     * Returns the absolute server path to the stored QR code SVG.
      *
      * @return string
      */
     public function absolutePath(): string
     {
-        if (str_starts_with($this->qrCodePath, 'assets/')) {
-            return EIM_PLUGIN_DIR . $this->qrCodePath;
+        return $this->absolutePathForRelativePath($this->svgRelativePath());
+    }
+
+    /**
+     * Returns the absolute server path to the companion QR code PNG.
+     *
+     * @return string
+     */
+    public function pngAbsolutePath(): string
+    {
+        return $this->absolutePathForRelativePath($this->pngRelativePath());
+    }
+
+    /**
+     * Returns the uploads-relative path to the stored QR code SVG.
+     *
+     * @return string
+     */
+    public function svgRelativePath(): string
+    {
+        return preg_replace('/\.(png|svg)$/i', '.svg', $this->qrCodePath) ?: $this->qrCodePath;
+    }
+
+    /**
+     * Returns the uploads-relative path to the companion QR code PNG.
+     *
+     * @return string
+     */
+    public function pngRelativePath(): string
+    {
+        return preg_replace('/\.(png|svg)$/i', '.png', $this->qrCodePath) ?: $this->qrCodePath . '.png';
+    }
+
+    /**
+     * Returns the absolute server path to the stored QR code SVG.
+     *
+     * @return string
+     */
+    private function absolutePathForRelativePath(string $relativePath): string
+    {
+        if (str_starts_with($relativePath, 'assets/')) {
+            return EIM_PLUGIN_DIR . $relativePath;
         }
 
-        return wp_upload_dir()['basedir'] . '/' . $this->qrCodePath;
+        return wp_upload_dir()['basedir'] . '/' . $relativePath;
+    }
+
+    /**
+     * Returns the public URL to a QR code asset path.
+     *
+     * @return string
+     */
+    private function urlForRelativePath(string $relativePath): string
+    {
+        if (str_starts_with($relativePath, 'assets/')) {
+            return EIM_PLUGIN_URL . $relativePath;
+        }
+
+        return wp_upload_dir()['baseurl'] . '/' . $relativePath;
     }
 
     private static function deleteFiles(array $qrCodes): void
     {
         foreach ($qrCodes as $qrCode) {
-            $path = $qrCode->absolutePath();
+            $paths = array_unique([$qrCode->absolutePath(), $qrCode->pngAbsolutePath()]);
 
-            if ($path !== '' && file_exists($path)) {
-                @unlink($path); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+            foreach ($paths as $path) {
+                if ($path !== '' && file_exists($path)) {
+                    @unlink($path); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+                }
+            }
+
+            $dir = dirname($qrCode->absolutePath());
+            if ($dir !== '' && is_dir($dir)) {
+                @rmdir($dir); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
             }
         }
     }

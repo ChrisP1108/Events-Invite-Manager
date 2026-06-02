@@ -122,6 +122,7 @@ final class AboutPage extends AbstractAdminPage
                         <p>
                             Go to <strong>Locations</strong> and add every venue, hotel, and lodging option you plan to use.
                             Venue and lodging fields on events only accept validated library entries — free-text is blocked.
+                            Each location supports an optional thumbnail image from the Media Library; it appears in the Locations list and on the event edit screen wherever that location is shown.
                             <a href="<?= esc_url($locationsUrl); ?>">Add your first location →</a>
                         </p>
                     </div>
@@ -290,7 +291,7 @@ final class AboutPage extends AbstractAdminPage
             [
                 'icon'  => 'dashicons-location',
                 'title' => 'Location Library',
-                'body'  => 'A centralised library of reusable locations maintained independently of any event. Locations are created once and selected by name across events via live autocomplete. The Locations table has AJAX live search with a column-filter dropdown (Name, Type, Lodging, Address, Used In) and sortable columns.',
+                'body'  => 'A centralised library of reusable locations maintained independently of any event. Locations are created once and selected by name across events via live autocomplete. Each location supports an optional thumbnail image from the WordPress Media Library — the image appears in the Locations list table and wherever the location is shown on the event edit screen (venue and lodging panels). The Locations table has AJAX live search with a column-filter dropdown (Name, Type, Lodging, Address, Used In) and sortable columns.',
             ],
             [
                 'icon'  => 'dashicons-food',
@@ -305,7 +306,7 @@ final class AboutPage extends AbstractAdminPage
             [
                 'icon'  => 'dashicons-admin-home',
                 'title' => 'Venue & Lodging Assignment',
-                'body'  => 'Assign a venue and one or more lodging options to each event by searching the location library. The formatted address appears as read-only confirmation text. Lodging entries can be added and removed on the event edit screen.',
+                'body'  => 'Assign a venue and one or more lodging options to each event by searching the location library. The formatted address appears as read-only confirmation text. If the selected location has a thumbnail image, it is displayed alongside the venue name and in the lodging table. Lodging entries can be added, removed, and reordered on the event edit screen.',
             ],
             [
                 'icon'  => 'dashicons-carrot',
@@ -325,7 +326,7 @@ final class AboutPage extends AbstractAdminPage
             [
                 'icon'  => 'dashicons-email-alt',
                 'title' => 'Invitation Groups',
-                'body'  => 'When adding invitees to an event, connected people can be checked into the same event-specific invitation group. One email and QR code are sent per group to the primary invitee. The Invited Invitees list supports AJAX live search and a column-filter dropdown (Group Members, Email, Invite Sent, Registered).',
+                'body'  => 'When adding invitees to an event, connected people can be checked into the same event-specific invitation group. One email and QR code are sent per group to the primary invitee. The Invited Invitees list supports AJAX live search and a column-filter dropdown (Group Members, Email, Invite Sent, Registered). A Confirmation Code column displays each group\'s unique 16-character QR code at a glance — useful for cross-referencing exports without opening them.',
             ],
             [
                 'icon'  => 'dashicons-edit',
@@ -426,7 +427,7 @@ final class AboutPage extends AbstractAdminPage
                     <tr><td><code>{{ last_name }}</code></td><td>Primary invitee's last name</td></tr>
                     <tr><td><code>{{ full_name }}</code></td><td>First and last name combined</td></tr>
                     <tr><td><code>{{ email }}</code></td><td>Primary invitee's email address</td></tr>
-                    <tr><td><code>{{ qr_code }}</code></td><td>An <code>&lt;img&gt;</code> tag containing the invitation group's unique QR code image (300 × 300 px)</td></tr>
+                    <tr><td><code>{{ qr_code }}</code></td><td>An <code>&lt;img&gt;</code> tag containing the invitation group's unique PNG QR code image, displayed at 480 × 480 px</td></tr>
                     <tr><td><code>{{ invite_url }}</code></td><td>The personalised RSVP URL encoded in the QR code — useful as a text fallback when email clients block images</td></tr>
                     <tr><td><code>{{ group_names }}</code></td><td>Comma-separated names of every invitee in the invitation group</td></tr>
                     <tr><td><code>{{ invitee_names }}</code></td><td>Alias of <code>{{ group_names }}</code></td></tr>
