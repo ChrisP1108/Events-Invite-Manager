@@ -3751,7 +3751,7 @@ final class EventsPage extends AbstractAdminPage
     {
         if (empty($groups)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No invitees have been added to this event yet.';
-            echo '<tr><td colspan="9">' . esc_html($msg) . '</td></tr>';
+            echo '<tr><td colspan="10">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -3898,6 +3898,15 @@ final class EventsPage extends AbstractAdminPage
                     <?php $groupQrCode = $qrByGroup[$group->id] ?? null; ?>
                     <?php if ($groupQrCode): ?>
                         <code style="font-size:11px;word-break:break-all;"><?= esc_html($groupQrCode->confirmationCode); ?></code>
+                    <?php else: ?>
+                        <span style="color:#999;">—</span>
+                    <?php endif; ?>
+                </td>
+                <td>
+                    <?php if ($groupQrCode): ?>
+                        <a href="<?= esc_url($groupQrCode->svgUrl()); ?>" download style="font-size:12px;">SVG</a>
+                        <span class="eim-action-sep">|</span>
+                        <a href="<?= esc_url($groupQrCode->pngUrl()); ?>" download style="font-size:12px;">PNG</a>
                     <?php else: ?>
                         <span style="color:#999;">—</span>
                     <?php endif; ?>
@@ -4352,8 +4361,9 @@ final class EventsPage extends AbstractAdminPage
                     <th style="width:14%;"><?= $this->sortLink('Email (Primary)', 'email',       AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
                     <th style="width:10%;"><?= $this->sortLink('Invite Sent',     'invite_sent', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
                     <th style="width:9%;"><?= $this->sortLink('Registered',       'attending',   AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
-                    <th style="width:12%;">Confirmation Code</th>
-                    <th style="width:12%;"><?= $this->sortLink('RSVP Notes',      'rsvp_notes',  AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:10%;">Confirmation Code</th>
+                    <th style="width:8%;">QR Codes</th>
+                    <th style="width:10%;"><?= $this->sortLink('RSVP Notes',      'rsvp_notes',  AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
                     <th style="width:15%;">Actions</th>
                 </tr>
             </thead>
