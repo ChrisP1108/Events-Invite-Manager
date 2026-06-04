@@ -5,7 +5,8 @@
     "license": "GPL-2.0-or-later",
     "require": {
         "php": ">=8.1",
-        "endroid/qr-code": "^5.1"
+        "endroid/qr-code": "^5.1",
+        "spatie/calendar-links": "1.11.1"
     },
     "autoload": {
         "psr-4": {

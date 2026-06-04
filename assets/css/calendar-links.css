@@ -1,0 +1,75 @@
+/* eim-calendar-links — styles applied only when styled="true" (the default) */
+
+.eim-calendar-links--styled {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 16px 0;
+}
+
+.eim-calendar-links--styled .eim-calendar-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-decoration: none;
+    line-height: 1;
+    transition: opacity 0.15s ease, box-shadow 0.15s ease;
+    white-space: nowrap;
+}
+
+.eim-calendar-links--styled .eim-calendar-link:hover {
+    opacity: 0.85;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+/* Google */
+.eim-calendar-links--styled .eim-calendar-link--google {
+    background-color: #fff;
+    color: #3c4043;
+    border: 1px solid #dadce0;
+}
+
+/* Apple iCal */
+.eim-calendar-links--styled .eim-calendar-link--ical {
+    background-color: #000;
+    color: #fff;
+    border: 1px solid #000;
+}
+
+/* Outlook */
+.eim-calendar-links--styled .eim-calendar-link--outlook {
+    background-color: #0078d4;
+    color: #fff;
+    border: 1px solid #0078d4;
+}
+
+/* Icons — inline SVG via CSS mask-image for full colour control */
+
+.eim-calendar-links--styled .eim-calendar-link__icon {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
+}
+
+/* Google Calendar icon (multicolour logo as data URI) */
+.eim-calendar-links--styled .eim-calendar-link__icon--google {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect x='6' y='6' width='36' height='36' rx='3' fill='%23fff' stroke='%23dadce0' stroke-width='2'/%3E%3Ctext x='24' y='34' text-anchor='middle' font-family='Arial,sans-serif' font-size='20' font-weight='bold' fill='%231a73e8'%3E%3C/text%3E%3Cpath d='M14 22h20v2H14zm0 4h14v2H14z' fill='%235f6368'/%3E%3Crect x='14' y='14' width='20' height='6' rx='1' fill='%231a73e8'/%3E%3C/svg%3E");
+}
+
+/* Apple Calendar icon */
+.eim-calendar-links--styled .eim-calendar-link__icon--ical {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect x='4' y='8' width='40' height='36' rx='4' fill='%23fff'/%3E%3Crect x='4' y='8' width='40' height='12' rx='4' fill='%23f04'/%3E%3Crect x='4' y='16' width='40' height='4' fill='%23f04'/%3E%3Ctext x='24' y='38' text-anchor='middle' font-family='Arial,sans-serif' font-size='16' font-weight='bold' fill='%23000'%3E%3C/text%3E%3C/svg%3E");
+}
+
+/* Outlook icon */
+.eim-calendar-links--styled .eim-calendar-link__icon--outlook {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect x='4' y='4' width='40' height='40' rx='4' fill='%230078d4'/%3E%3Crect x='10' y='14' width='28' height='22' rx='2' fill='%23fff'/%3E%3Crect x='10' y='14' width='28' height='7' rx='2' fill='%230078d4'/%3E%3Cline x1='10' y1='25' x2='38' y2='25' stroke='%23e0e0e0' stroke-width='1'/%3E%3Cline x1='10' y1='30' x2='38' y2='30' stroke='%23e0e0e0' stroke-width='1'/%3E%3C/svg%3E");
+}

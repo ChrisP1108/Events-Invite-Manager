@@ -269,6 +269,20 @@ final class AboutPage extends AbstractAdminPage
                     </div>
                 </div>
 
+                <div class="eim-about-step">
+                    <div class="eim-about-step-num">13</div>
+                    <div>
+                        <h3>Add "Add to Calendar" buttons <em style="font-weight:400;color:#646970;">(optional)</em></h3>
+                        <p>
+                            Place <code>[eim_calendar_links]</code> anywhere in the content of your RSVP page, dashboard page, or any other page that receives the <code>?eim_confirmation</code> URL parameter. The shortcode resolves the event automatically and renders buttons for Google Calendar, Apple iCal, and Outlook.
+                        </p>
+                        <p>
+                            Use <code>styled="false"</code> to suppress the bundled stylesheet and apply your own CSS (class names are always emitted).
+                            Use <code>includes="google,ical"</code> to limit which calendar types appear — accepted values are <code>google</code>, <code>ical</code>, and <code>outlook</code>.
+                        </p>
+                    </div>
+                </div>
+
             </div>
         </div>
         <?php
@@ -382,6 +396,11 @@ final class AboutPage extends AbstractAdminPage
                 'icon'  => 'dashicons-download',
                 'title' => 'Data Exports (CSV & JSON)',
                 'body'  => 'Export buttons appear above the tab navigation on every event and budget plan edit screen. Event exports include all invited invitees with QR confirmation codes and image URLs, food/beverage/lodging selections, registry items (claimed and available), and invitee/admin messages. Budget exports include plan totals, a vendors section with database IDs, and line items with vendor_id references. Both formats are available: multi-section CSV for spreadsheet use, and structured JSON for programmatic use.',
+            ],
+            [
+                'icon'  => 'dashicons-calendar',
+                'title' => 'Add to Calendar Shortcode',
+                'body'  => 'The [eim_calendar_links] shortcode renders "Add to Calendar" buttons on any WordPress page that receives a ?eim_confirmation URL parameter. It resolves the event from the confirmation code and generates links for Google Calendar, Apple iCal, and Outlook using the event\'s name, description, start/end datetime, and timezone. The styled attribute (default true) controls whether the bundled stylesheet is loaded; the includes attribute accepts a comma-separated list of calendar types (google, ical, outlook) to limit which buttons appear.',
             ],
         ];
         ?>

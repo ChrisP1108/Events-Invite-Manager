@@ -7,6 +7,10 @@ namespace Composer\Autoload;
 class ComposerStaticInitdb5d785e09ab704154910eb654f0ab3e
 {
     public static $prefixLengthsPsr4 = array (
+        'S' =>
+        array (
+            'Spatie\\CalendarLinks\\' => 21,
+        ),
         'E' =>
         array (
             'EventsInviteManager\\' => 20,
@@ -23,6 +27,10 @@ class ComposerStaticInitdb5d785e09ab704154910eb654f0ab3e
     );
 
     public static $prefixDirsPsr4 = array (
+        'Spatie\\CalendarLinks\\' =>
+        array (
+            0 => __DIR__ . '/..' . '/spatie/calendar-links/src',
+        ),
         'EventsInviteManager\\' =>
         array (
             0 => __DIR__ . '/../..' . '/src',

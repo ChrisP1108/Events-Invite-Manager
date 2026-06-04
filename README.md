@@ -139,6 +139,27 @@ JSON endpoints powering the front-end RSVP experience, invitee dashboard, regist
 | `GET`  | `/wp-json/eim/v1/messages`          | Returns all messages in the event/group conversation thread |
 | `POST` | `/wp-json/eim/v1/messages`          | Sends a new message from the invitee to the admin for a specific event |
 
+### Add to Calendar Shortcode
+A `[eim_calendar_links]` shortcode that renders "Add to Calendar" buttons on any WordPress page. It reads the `?eim_confirmation` query parameter from the URL, looks up the matching event, and generates calendar links for Google Calendar, Apple iCal, and Outlook using the event's name, description, start/end datetime, and timezone. Requires the `spatie/calendar-links` Composer package.
+
+**Attributes**
+
+| Attribute | Default | Description |
+|-----------|---------|-------------|
+| `styled` | `true` | Set to `false` to suppress the bundled stylesheet. CSS class names are always emitted so custom styles can target them. |
+| `includes` | `google,ical,outlook` | Comma-separated list of calendar types to render. Accepted values: `google`, `ical`, `outlook`. |
+
+**Examples**
+
+```
+[eim_calendar_links]
+[eim_calendar_links includes="google,ical"]
+[eim_calendar_links includes="outlook"]
+[eim_calendar_links styled="false"]
+```
+
+The shortcode outputs nothing when no valid confirmation code is in the URL, or when the event has no start datetime set.
+
 ### Admin Calendar
 The events list includes a monthly calendar grid. Events with a date appear as linked blocks on their respective days. Month navigation arrows and a jump-to-event dropdown are provided for quick navigation.
 
@@ -239,6 +260,15 @@ Navigate to **Events Invite Manager → Newsletters** to create newsletter posts
 ### 13 — Track your budget (optional)
 
 Navigate to **Events Invite Manager → Budget** to create a budget plan. Add line items with vendor, quantity, unit cost, and optional total overrides. Plans can span multiple events and the totals row shows estimated, paid, and remaining amounts at a glance.
+
+### 14 — Add a calendar link widget (optional)
+
+Place `[eim_calendar_links]` in the content of your RSVP page, dashboard page, or any other page that receives the `?eim_confirmation` URL parameter. The shortcode automatically resolves the event from the confirmation code and renders "Add to Calendar" buttons for Google Calendar, Apple iCal, and Outlook.
+
+| Attribute | Default | Description |
+|-----------|---------|-------------|
+| `styled` | `true` | Set to `false` to suppress the bundled stylesheet (CSS class names are still emitted for custom styling) |
+| `includes` | `google,ical,outlook` | Comma-separated list of calendar types — e.g. `includes="google,ical"` to show only those two |
 
 ---
 

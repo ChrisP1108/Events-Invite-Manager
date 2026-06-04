@@ -12,7 +12,7 @@ use EventsInviteManager\Database\DatabaseManager;
 use EventsInviteManager\Models\Event;
 use EventsInviteManager\Models\QrCode;
 use EventsInviteManager\Services\RsvpFlowResolver;
-use EventsInviteManager\Services\RsvpFlowResult;
+use EventsInviteManager\Shortcodes\CalendarLinksShortcode;
 use EventsInviteManager\Updates\GitHubUpdater;
 
 /**
@@ -67,6 +67,7 @@ final class Plugin
         $this->adminMenu->register();
         $this->restController->register();
         GitHubUpdater::init();
+        (new CalendarLinksShortcode())->register();
 
         add_action('template_redirect',    [$this, 'handleQrConfirmationRedirect']);
         add_action('eim_daily_qr_cleanup', [$this, 'runDailyQrCleanup']);
