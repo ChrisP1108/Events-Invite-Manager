@@ -22,10 +22,12 @@ use Spatie\CalendarLinks\Link;
  *                                CSS class names are always emitted.
  *   includes (default "google,ical,outlook") – comma-separated list of
  *            calendar types to render. Accepted values: google, ical, outlook.
+ *   mode     (default "event") – accepted values: event, save_the_date, both.
  */
 final class CalendarLinksShortcode
 {
     private const VALID_TYPES = ['google', 'ical', 'outlook'];
+    private const VALID_MODES = ['event', 'save_the_date', 'both'];
 
     public function register(): void
     {
@@ -35,13 +37,21 @@ final class CalendarLinksShortcode
     public function render(array|string $attrs): string
     {
         $attrs = shortcode_atts(
-            ['styled' => 'true', 'includes' => '', 'before_text' => '', 'after_text' => '', 'no_pretext' => ''],
+            [
+                'styled'     => 'true',
+                'includes'   => '',
+                'mode'       => 'event',
+                'before_text' => '',
+                'after_text' => '',
+                'no_pretext' => '',
+            ],
             is_array($attrs) ? $attrs : [],
             'eim_calendar_links'
         );
 
         $styled     = strtolower(trim((string) $attrs['styled'])) !== 'false';
         $types      = $this->parseIncludes((string) $attrs['includes']);
+        $mode       = $this->parseMode((string) $attrs['mode']);
         $beforeText = trim((string) $attrs['before_text']);
         $afterText  = trim((string) $attrs['after_text']);
         $noPretext  = trim((string) $attrs['no_pretext']) !== '';
@@ -56,13 +66,9 @@ final class CalendarLinksShortcode
             return '';
         }
 
-        if ($event->startDatetime === null) {
-            return '';
-        }
+        $linkSets = $this->buildLinkSets($event, $mode);
 
-        $link = $this->buildLink($event);
-
-        if ($link === null) {
+        if (empty($linkSets)) {
             return '';
         }
 
@@ -75,7 +81,7 @@ final class CalendarLinksShortcode
             );
         }
 
-        return $this->renderHtml($link, $types, $styled, $beforeText, $afterText, $noPretext);
+        return $this->renderHtml($linkSets, $types, $styled, $beforeText, $afterText, $noPretext);
     }
 
     // -------------------------------------------------------------------------
@@ -96,6 +102,20 @@ final class CalendarLinksShortcode
         $requested = array_map('trim', explode(',', strtolower($raw)));
 
         return array_values(array_filter($requested, static fn(string $t) => in_array($t, self::VALID_TYPES, true)));
+    }
+
+    /**
+     * Parses the "mode" attribute into a supported calendar-link mode.
+     */
+    private function parseMode(string $raw): string
+    {
+        $mode = str_replace('-', '_', strtolower(trim($raw)));
+
+        if ($mode === '') {
+            return 'event';
+        }
+
+        return in_array($mode, self::VALID_MODES, true) ? $mode : 'event';
     }
 
     /**
@@ -121,13 +141,43 @@ final class CalendarLinksShortcode
     }
 
     /**
+     * Builds the requested calendar link set(s).
+     *
+     * @return array<int, array{key:string,label:string,link:Link}>
+     */
+    private function buildLinkSets(Event $event, string $mode): array
+    {
+        $sets = [];
+
+        if ($mode === 'save_the_date' || $mode === 'both') {
+            $link = $this->buildCalendarSpanLink($event);
+            if ($link !== null) {
+                $sets[] = ['key' => 'save-the-date', 'label' => 'Save the Date', 'link' => $link];
+            }
+        }
+
+        if ($mode === 'event' || $mode === 'both') {
+            $link = $this->buildEventLink($event);
+            if ($link !== null) {
+                $sets[] = ['key' => 'event', 'label' => 'Event', 'link' => $link];
+            }
+        }
+
+        return $sets;
+    }
+
+    /**
      * Converts the event's UTC datetime strings to \DateTime objects in the
      * event's own timezone and builds a Spatie Link.
      *
      * Returns null when the start datetime cannot be parsed.
      */
-    private function buildLink(Event $event): ?Link
+    private function buildEventLink(Event $event): ?Link
     {
+        if ($event->startDatetime === null) {
+            return null;
+        }
+
         try {
             $tz    = $event->timezone !== '' ? new \DateTimeZone($event->timezone) : new \DateTimeZone('UTC');
             $from  = (new \DateTime($event->startDatetime, new \DateTimeZone('UTC')))->setTimezone($tz);
@@ -145,8 +195,49 @@ final class CalendarLinksShortcode
 
         $link = Link::create($event->name, $from, $to);
 
-        if ($event->description !== '') {
-            $link = $link->description($event->description);
+        return $this->decorateLink($link, $event, $event->description);
+    }
+
+    /**
+     * Builds an all-day calendar span link from the optional event metadata.
+     */
+    private function buildCalendarSpanLink(Event $event): ?Link
+    {
+        if ($event->calendarSpanStartDate === null || $event->calendarSpanStartDate === '') {
+            return null;
+        }
+
+        $endDate = ($event->calendarSpanEndDate !== null && $event->calendarSpanEndDate !== '')
+            ? $event->calendarSpanEndDate
+            : $event->calendarSpanStartDate;
+
+        try {
+            $tz   = $event->timezone !== '' ? new \DateTimeZone($event->timezone) : new \DateTimeZone('UTC');
+            $from = new \DateTime($event->calendarSpanStartDate . ' 00:00:00', $tz);
+            $to   = new \DateTime($endDate . ' 00:00:00', $tz);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if ($to < $from) {
+            return null;
+        }
+
+        $days        = ((int) $from->diff($to)->days) + 1;
+        $title       = $event->calendarSpanTitle !== '' ? $event->calendarSpanTitle : $event->name;
+        $description = $event->calendarSpanDescription !== '' ? $event->calendarSpanDescription : $event->description;
+        $link        = Link::createAllDay($title, $from, $days);
+
+        return $this->decorateLink($link, $event, $description);
+    }
+
+    /**
+     * Adds event description and venue details to a calendar link.
+     */
+    private function decorateLink(Link $link, Event $event, string $description): Link
+    {
+        if ($description !== '') {
+            $link = $link->description($description);
         }
 
         if ($event->venueId !== null) {
@@ -165,25 +256,50 @@ final class CalendarLinksShortcode
     /**
      * Renders the HTML wrapper and individual calendar anchor tags.
      *
+     * @param array<int, array{key:string,label:string,link:Link}> $linkSets
      * @param string[] $types
      */
-    private function renderHtml(Link $link, array $types, bool $styled, string $beforeText = '', string $afterText = '', bool $noPretext = false): string
+    private function renderHtml(array $linkSets, array $types, bool $styled, string $beforeText = '', string $afterText = '', bool $noPretext = false): string
     {
-        $items = '';
+        $groups = [];
 
-        foreach ($types as $type) {
-            $items .= $this->renderItem($link, $type, $beforeText, $afterText, $noPretext);
+        foreach ($linkSets as $set) {
+            $items = '';
+            foreach ($types as $type) {
+                $items .= $this->renderItem($set['link'], $type, $beforeText, $afterText, $noPretext);
+            }
+
+            if ($items !== '') {
+                $groups[] = ['key' => $set['key'], 'label' => $set['label'], 'items' => $items];
+            }
         }
 
-        if ($items === '') {
+        if (empty($groups)) {
             return '';
         }
 
         $styledClass = $styled ? ' eim-calendar-links--styled' : '';
+        $multiClass  = count($groups) > 1 ? ' eim-calendar-links--multiple' : '';
+        $items       = '';
+
+        foreach ($groups as $group) {
+            if (count($groups) === 1) {
+                $items .= $group['items'];
+                continue;
+            }
+
+            $items .= sprintf(
+                '<div class="eim-calendar-link-group eim-calendar-link-group--%s"><span class="eim-calendar-link-group-label">%s</span>%s</div>',
+                esc_attr($group['key']),
+                esc_html($group['label']),
+                $group['items']
+            );
+        }
 
         return sprintf(
-            '<div class="eim-calendar-links%s">%s</div>',
+            '<div class="eim-calendar-links%s%s">%s</div>',
             esc_attr($styledClass),
+            esc_attr($multiClass),
             $items
         );
     }

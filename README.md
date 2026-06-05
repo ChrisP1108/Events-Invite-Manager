@@ -25,7 +25,7 @@ A global library of food and beverage menu items, managed from the dedicated **F
 Each item has a **label** (required), optional **description**, an optional **vendor** linked from the vendor library via an autocomplete picker, an optional per-person **price** (used in budget calculations), and a **categories** assignment. Categories can be assigned both when creating an item inline and on the standalone edit screen.
 
 ### Events
-Create and manage events with full details: name, description, date, start and end time, time zone, RSVP start/deadline windows, linked WordPress RSVP and before-start pages, and an optional **maximum invitee cap**. A calendar view in the admin shows all dated events at a glance with month navigation and a jump-to-event dropdown.
+Create and manage events with full details: name, description, date, start and end time, time zone, optional **Save the Date calendar span** for all-day destination/weekend holds, RSVP start/deadline windows, linked WordPress RSVP and before-start pages, and an optional **maximum invitee cap**. A calendar view in the admin shows all dated events at a glance with month navigation and a jump-to-event dropdown.
 
 Below the calendar, the events list supports **AJAX live search** with a **column-filter dropdown** (Name, Description), sortable columns (Name, Date/Time), and pagination — filtering and sorting happen without a page reload.
 
@@ -89,7 +89,7 @@ A **Budget** tab provides financial planning and tracking across one or more eve
 Both events and budget plans can be exported directly from the admin in two formats. Export buttons appear above the tab navigation on each event and budget plan edit screen — no separate page needed.
 
 **Event export** includes:
-- **Event details** — name, description, start/end date & time, timezone, RSVP start/deadline, max invitees, venue name and address
+- **Event details** — name, description, start/end date & time, timezone, optional Save the Date calendar span, RSVP start/deadline, max invitees, venue name and address
 - **Invited invitees** — one row per group member with group ID, QR confirmation code, QR image URL, is-primary flag, full contact details (name, email, phone, address), RSVP status, registration timestamp, food and beverage selections, dietary notes, and lodging selection
 - **Messages** — every invitee message and admin reply for the event, with group ID, confirmation code, direction (invitee/admin), message text, read status, and timestamp
 - **Registry: claimed items** — gift name, description, price, the purchasing group's ID and confirmation code, and purchase timestamp
@@ -140,7 +140,7 @@ JSON endpoints powering the front-end RSVP experience, invitee dashboard, regist
 | `POST` | `/wp-json/eim/v1/messages`          | Sends a new message from the invitee to the admin for a specific event |
 
 ### Add to Calendar Shortcode
-A `[eim_calendar_links]` shortcode that renders "Add to Calendar" buttons on any WordPress page. It reads the `?eim_confirmation` query parameter from the URL, looks up the matching event, and generates calendar links for Google Calendar, Apple iCal, and Outlook using the event's name, description, start/end datetime, and timezone. Requires the `spatie/calendar-links` Composer package.
+A `[eim_calendar_links]` shortcode that renders "Add to Calendar" buttons on any WordPress page. It reads the `?eim_confirmation` query parameter from the URL, looks up the matching event, and generates calendar links for Google Calendar, Apple iCal, and Outlook. By default it uses the event's timed start/end datetime; it can also render an all-day Save the Date span for destination weekends or output both sets. Requires the `spatie/calendar-links` Composer package.
 
 **Attributes**
 
@@ -148,6 +148,7 @@ A `[eim_calendar_links]` shortcode that renders "Add to Calendar" buttons on any
 |-----------|---------|-------------|
 | `styled` | `true` | Set to `false` to suppress the bundled stylesheet. CSS class names are always emitted so custom styles can target them. |
 | `includes` | `google,ical,outlook` | Comma-separated list of calendar types to render. Accepted values: `google`, `ical`, `outlook`. |
+| `mode` | `event` | Calendar data to render. Accepted values: `event` (timed event start/end), `save_the_date` (optional all-day span from the event Details tab), or `both`. |
 
 **Examples**
 
@@ -156,9 +157,11 @@ A `[eim_calendar_links]` shortcode that renders "Add to Calendar" buttons on any
 [eim_calendar_links includes="google,ical"]
 [eim_calendar_links includes="outlook"]
 [eim_calendar_links styled="false"]
+[eim_calendar_links mode="save_the_date"]
+[eim_calendar_links mode="both"]
 ```
 
-The shortcode outputs nothing when no valid confirmation code is in the URL, or when the event has no start datetime set.
+The shortcode outputs nothing when no valid confirmation code is in the URL. `mode="event"` requires an event start datetime; `mode="save_the_date"` requires a Save the Date span start date.
 
 ### Admin Calendar
 The events list includes a monthly calendar grid. Events with a date appear as linked blocks on their respective days. Month navigation arrows and a jump-to-event dropdown are provided for quick navigation.
@@ -220,7 +223,7 @@ Navigate to **Events Invite Manager → Gifts & Registry** and add the gifts you
 
 Navigate to **Events Invite Manager → Events → Add New Event** and fill in the fields across the tabbed interface:
 
-- **Details tab** — Event Name *(required)*, Description, Start/End Date & Time, Time Zone, Maximum Invitees, RSVP Deadline
+- **Details tab** — Event Name *(required)*, Description, Start/End Date & Time, optional Save the Date calendar span, Time Zone, Maximum Invitees, RSVP Deadline
 - **Venue/Location tab** — search the location library to assign a venue
 - **Invite Email tab** — From name, From email, subject line, and body template (use `{{ qr_code }}` and `{{ invite_url }}` to embed the QR image or RSVP link)
 - **QR Code & RSVP tab** — select the WordPress RSVP page and Dashboard page for recipients
@@ -263,12 +266,13 @@ Navigate to **Events Invite Manager → Budget** to create a budget plan. Add li
 
 ### 14 — Add a calendar link widget (optional)
 
-Place `[eim_calendar_links]` in the content of your RSVP page, dashboard page, or any other page that receives the `?eim_confirmation` URL parameter. The shortcode automatically resolves the event from the confirmation code and renders "Add to Calendar" buttons for Google Calendar, Apple iCal, and Outlook.
+Place `[eim_calendar_links]` in the content of your RSVP page, dashboard page, or any other page that receives the `?eim_confirmation` URL parameter. The shortcode automatically resolves the event from the confirmation code and renders "Add to Calendar" buttons for Google Calendar, Apple iCal, and Outlook. It defaults to the event's timed start/end calendar entry; use `mode="save_the_date"` for the all-day span configured on the event Details tab, or `mode="both"` to render both groups.
 
 | Attribute | Default | Description |
 |-----------|---------|-------------|
 | `styled` | `true` | Set to `false` to suppress the bundled stylesheet (CSS class names are still emitted for custom styling) |
 | `includes` | `google,ical,outlook` | Comma-separated list of calendar types — e.g. `includes="google,ical"` to show only those two |
+| `mode` | `event` | Calendar data to render: `event`, `save_the_date`, or `both` |
 
 ---
 

@@ -453,6 +453,8 @@ abstract class AbstractAdminPage
             'lodging_name_required'      => 'Location name is required.',
             'location_name_required'     => 'Location name is required.',
             'venue_invalid_location'     => 'Please select the venue from the locations library — free-text entries are not allowed.',
+            'calendar_span_start_required' => 'Save the Date span requires a start date when an end date is set.',
+            'calendar_span_invalid_range' => 'Save the Date span end date must be the same as or after the start date.',
             'lodging_invalid_location'   => 'Please select each lodging location from the locations library — free-text entries are not allowed.',
             'lodging_duplicate_location' => 'Each lodging location can only be added once per event.',
             'required_fields'            => 'First name, last name, and email address are all required.',

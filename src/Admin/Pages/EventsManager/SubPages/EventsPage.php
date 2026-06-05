@@ -118,6 +118,10 @@ final class EventsPage extends AbstractAdminPage
             'start_datetime'        => $this->sanitizeDatetimeLocal($_POST['start_datetime'] ?? '', $timezone),
             'end_datetime'          => $this->sanitizeDatetimeLocal($_POST['end_datetime']   ?? '', $timezone),
             'timezone'              => $timezone,
+            'calendar_span_start_date'  => $this->sanitizeDateInput($_POST['calendar_span_start_date'] ?? ''),
+            'calendar_span_end_date'    => $this->sanitizeDateInput($_POST['calendar_span_end_date'] ?? ''),
+            'calendar_span_title'       => sanitize_text_field(wp_unslash($_POST['calendar_span_title'] ?? '')),
+            'calendar_span_description' => sanitize_textarea_field(wp_unslash($_POST['calendar_span_description'] ?? '')),
             'lodging_enabled'          => !empty($_POST['lodging_enabled']) ? 1 : 0,
             'food_options_enabled'     => !empty($_POST['food_options_enabled']) ? 1 : 0,
             'beverage_options_enabled' => !empty($_POST['beverage_options_enabled']) ? 1 : 0,
@@ -133,6 +137,28 @@ final class EventsPage extends AbstractAdminPage
                 'action'    => $id ? 'edit' : 'add',
                 'id'        => $id ?: null,
                 'eim_error' => 'name_required',
+            ]));
+            exit;
+        }
+
+        if ($data['calendar_span_start_date'] === '' && $data['calendar_span_end_date'] !== '') {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
+                'action'    => $id ? 'edit' : 'add',
+                'id'        => $id ?: null,
+                'eim_error' => 'calendar_span_start_required',
+            ]));
+            exit;
+        }
+
+        if (
+            $data['calendar_span_start_date'] !== ''
+            && $data['calendar_span_end_date'] !== ''
+            && $data['calendar_span_end_date'] < $data['calendar_span_start_date']
+        ) {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
+                'action'    => $id ? 'edit' : 'add',
+                'id'        => $id ?: null,
+                'eim_error' => 'calendar_span_invalid_range',
             ]));
             exit;
         }
@@ -289,6 +315,25 @@ final class EventsPage extends AbstractAdminPage
         } catch (\Throwable) {
             return $local;
         }
+    }
+
+    /**
+     * Sanitizes a date input value.
+     *
+     * @param string $value Raw POST value in 'Y-m-d' format.
+     * @return string Date in 'Y-m-d' format, or '' if empty/invalid.
+     */
+    private function sanitizeDateInput(string $value): string
+    {
+        $value = sanitize_text_field(wp_unslash($value));
+
+        if ($value === '') {
+            return '';
+        }
+
+        $dt = \DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+
+        return $dt !== false && $dt->format('Y-m-d') === $value ? $value : '';
     }
 
     /**
@@ -1203,6 +1248,10 @@ final class EventsPage extends AbstractAdminPage
         fputcsv($out, ['Start Date',    $event->startDatetime ?? '']);
         fputcsv($out, ['End Date',      $event->endDatetime   ?? '']);
         fputcsv($out, ['Timezone',      $event->timezone]);
+        fputcsv($out, ['Calendar Span Start Date', $event->calendarSpanStartDate ?? '']);
+        fputcsv($out, ['Calendar Span End Date',   $event->calendarSpanEndDate   ?? '']);
+        fputcsv($out, ['Calendar Span Title',      $event->calendarSpanTitle]);
+        fputcsv($out, ['Calendar Span Description', $event->calendarSpanDescription]);
         fputcsv($out, ['RSVP Start',    $event->rsvpStartDatetime ?? '']);
         fputcsv($out, ['RSVP Deadline', $event->rsvpDeadline ?? '']);
         fputcsv($out, ['Before RSVP Start Page ID', $event->rsvpBeforeStartPageId !== null ? (string) $event->rsvpBeforeStartPageId : '']);
@@ -1414,6 +1463,10 @@ final class EventsPage extends AbstractAdminPage
                 'start_datetime' => $event->startDatetime,
                 'end_datetime'   => $event->endDatetime,
                 'timezone'     => $event->timezone,
+                'calendar_span_start_date'  => $event->calendarSpanStartDate,
+                'calendar_span_end_date'    => $event->calendarSpanEndDate,
+                'calendar_span_title'       => $event->calendarSpanTitle,
+                'calendar_span_description' => $event->calendarSpanDescription,
                 'rsvp_start_datetime' => $event->rsvpStartDatetime,
                 'rsvp_deadline'=> $event->rsvpDeadline,
                 'rsvp_before_start_page_id' => $event->rsvpBeforeStartPageId,
@@ -2347,6 +2400,47 @@ final class EventsPage extends AbstractAdminPage
                                 <?php $endVal = (!$isNew && $event->endDatetime) ? $this->utcToDatetimeLocal($event->endDatetime, $event->timezone) : ''; ?>
                                 <input type="datetime-local" id="eim_end_datetime" name="end_datetime" value="<?= esc_attr($endVal); ?>">
                                 <p class="description">Leave blank if the event has no fixed end time.</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="eim_calendar_span_start_date">Save the Date Span Start</label></th>
+                            <td>
+                                <input type="date"
+                                       id="eim_calendar_span_start_date"
+                                       name="calendar_span_start_date"
+                                       value="<?= esc_attr($isNew ? '' : ($event->calendarSpanStartDate ?? '')); ?>">
+                                <p class="description">Optional all-day calendar span for destination weekends or travel holds.</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="eim_calendar_span_end_date">Save the Date Span End</label></th>
+                            <td>
+                                <input type="date"
+                                       id="eim_calendar_span_end_date"
+                                       name="calendar_span_end_date"
+                                       value="<?= esc_attr($isNew ? '' : ($event->calendarSpanEndDate ?? '')); ?>">
+                                <p class="description">Inclusive end date. Leave blank to use a single all-day date.</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="eim_calendar_span_title">Save the Date Title</label></th>
+                            <td>
+                                <input type="text"
+                                       id="eim_calendar_span_title"
+                                       name="calendar_span_title"
+                                       class="regular-text"
+                                       value="<?= esc_attr($isNew ? '' : $event->calendarSpanTitle); ?>">
+                                <p class="description">Optional. Defaults to the event name.</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="eim_calendar_span_description">Save the Date Description</label></th>
+                            <td>
+                                <textarea id="eim_calendar_span_description"
+                                          name="calendar_span_description"
+                                          class="large-text"
+                                          rows="3"><?= esc_textarea($isNew ? '' : $event->calendarSpanDescription); ?></textarea>
+                                <p class="description">Optional. Defaults to the event description.</p>
                             </td>
                         </tr>
                         <tr>

@@ -38,6 +38,10 @@ final class Event
      * @param ?string $startDatetime          MySQL DATETIME string (Y-m-d H:i:s) for the event start, or null.
      * @param ?string $endDatetime            MySQL DATETIME string (Y-m-d H:i:s) for the event end, or null.
      * @param string  $timezone               IANA timezone identifier (e.g. "America/New_York"), or empty string.
+     * @param ?string $calendarSpanStartDate  Date-only start (Y-m-d) for the optional all-day calendar span, or null.
+     * @param ?string $calendarSpanEndDate    Date-only end (Y-m-d) for the optional all-day calendar span, or null.
+     * @param string  $calendarSpanTitle      Optional title override for the all-day calendar span.
+     * @param string  $calendarSpanDescription Optional description override for the all-day calendar span.
      * @param bool    $lodgingEnabled         Whether lodging options are offered for this event.
      * @param bool    $foodOptionsEnabled     Whether food menu options are enabled for this event.
      * @param bool    $beverageOptionsEnabled Whether beverage menu options are enabled for this event.
@@ -63,6 +67,10 @@ final class Event
         public readonly ?string $startDatetime,
         public readonly ?string $endDatetime,
         public readonly string  $timezone,
+        public readonly ?string $calendarSpanStartDate,
+        public readonly ?string $calendarSpanEndDate,
+        public readonly string  $calendarSpanTitle,
+        public readonly string  $calendarSpanDescription,
         public readonly bool    $lodgingEnabled,
         public readonly bool    $foodOptionsEnabled,
         public readonly bool    $beverageOptionsEnabled,
@@ -193,6 +201,10 @@ final class Event
             'start_datetime'        => !empty($data['start_datetime']) ? $data['start_datetime'] : null,
             'end_datetime'          => !empty($data['end_datetime'])   ? $data['end_datetime']   : null,
             'timezone'              => $data['timezone'] ?? '',
+            'calendar_span_start_date'  => !empty($data['calendar_span_start_date']) ? $data['calendar_span_start_date'] : null,
+            'calendar_span_end_date'    => !empty($data['calendar_span_end_date'])   ? $data['calendar_span_end_date']   : null,
+            'calendar_span_title'       => $data['calendar_span_title']       ?? '',
+            'calendar_span_description' => $data['calendar_span_description'] ?? '',
             'lodging_enabled'          => isset($data['lodging_enabled']) ? (int) $data['lodging_enabled'] : 0,
             'food_options_enabled'     => isset($data['food_options_enabled']) ? (int) $data['food_options_enabled'] : 0,
             'beverage_options_enabled' => isset($data['beverage_options_enabled']) ? (int) $data['beverage_options_enabled'] : 0,
@@ -236,6 +248,10 @@ final class Event
                 'start_datetime'        => !empty($data['start_datetime']) ? $data['start_datetime'] : null,
                 'end_datetime'          => !empty($data['end_datetime'])   ? $data['end_datetime']   : null,
                 'timezone'              => $data['timezone'] ?? '',
+                'calendar_span_start_date'  => !empty($data['calendar_span_start_date']) ? $data['calendar_span_start_date'] : null,
+                'calendar_span_end_date'    => !empty($data['calendar_span_end_date'])   ? $data['calendar_span_end_date']   : null,
+                'calendar_span_title'       => $data['calendar_span_title']       ?? '',
+                'calendar_span_description' => $data['calendar_span_description'] ?? '',
                 'lodging_enabled'          => isset($data['lodging_enabled']) ? (int) $data['lodging_enabled'] : 0,
                 'food_options_enabled'     => isset($data['food_options_enabled']) ? (int) $data['food_options_enabled'] : 0,
                 'beverage_options_enabled' => isset($data['beverage_options_enabled']) ? (int) $data['beverage_options_enabled'] : 0,
@@ -637,6 +653,10 @@ final class Event
             startDatetime:             $row->start_datetime        ?? null,
             endDatetime:               $row->end_datetime          ?? null,
             timezone:                  $row->timezone              ?? '',
+            calendarSpanStartDate:      $row->calendar_span_start_date ?? null,
+            calendarSpanEndDate:        $row->calendar_span_end_date   ?? null,
+            calendarSpanTitle:          $row->calendar_span_title       ?? '',
+            calendarSpanDescription:    $row->calendar_span_description ?? '',
             lodgingEnabled:          (bool) ($row->lodging_enabled           ?? false),
             foodOptionsEnabled:      (bool) ($row->food_options_enabled      ?? false),
             beverageOptionsEnabled:  (bool) ($row->beverage_options_enabled  ?? false),

@@ -18,7 +18,7 @@ final class DatabaseManager
     /**
      * The current database schema version.
      */
-    private const SCHEMA_VERSION = '41';
+    private const SCHEMA_VERSION = '42';
 
     /**
      * The database table names.
@@ -123,6 +123,10 @@ final class DatabaseManager
                 start_datetime            DATETIME,
                 end_datetime              DATETIME,
                 timezone                  VARCHAR(64)         NOT NULL DEFAULT '',
+                calendar_span_start_date  DATE                NULL DEFAULT NULL,
+                calendar_span_end_date    DATE                NULL DEFAULT NULL,
+                calendar_span_title       VARCHAR(255)        NOT NULL DEFAULT '',
+                calendar_span_description TEXT,
                 lodging_enabled           TINYINT(1)          NOT NULL DEFAULT 0,
                 food_options_enabled      TINYINT(1)          NOT NULL DEFAULT 0,
                 beverage_options_enabled  TINYINT(1)          NOT NULL DEFAULT 0,
