@@ -92,10 +92,11 @@
 
             this.#sort    = this.#table.dataset.sort  || 'name';
             this.#order   = this.#table.dataset.order || 'asc';
-            this.#perPage = Number(this.#perPageSel?.value || 10);
+            this.#perPage = window.eimRestorePerPage(this.#perPageSel, 'eim_per_page_budget_plans', 10, () => this.#refresh());
 
             this.#perPageSel?.addEventListener('change', () => {
                 this.#perPage = Number(this.#perPageSel.value);
+                window.eimPersistPerPage('eim_per_page_budget_plans', this.#perPage);
                 this.#page = 1;
                 this.#refresh();
             });
@@ -219,10 +220,11 @@
             this.#planId  = Number(this.#table.dataset.planId || config.planId || 0);
             this.#sort    = this.#table.dataset.sort  || config.lineItems?.sort  || 'sort_order';
             this.#order   = this.#table.dataset.order || config.lineItems?.order || 'asc';
-            this.#perPage = Number(this.#perPageSel?.value || 10);
+            this.#perPage = window.eimRestorePerPage(this.#perPageSel, 'eim_per_page_budget_line_items', 10, () => this.#refresh());
 
             this.#perPageSel?.addEventListener('change', () => {
                 this.#perPage = Number(this.#perPageSel.value);
+                window.eimPersistPerPage('eim_per_page_budget_line_items', this.#perPage);
                 this.#page = 1;
                 this.#refresh();
             });
@@ -1251,6 +1253,8 @@
 
             if (!this.#toggle || !this.#body) return;
 
+            this.#perPage = window.eimRestorePerPage(this.#perPageSel, 'eim_per_page_budget_payments_' + this.#status, 10);
+
             this.#toggle.addEventListener('click', () => this.#toggleAccordion());
 
             this.#search?.addEventListener('input', debounce(() => { this.#page = 1; this.#refresh(); }, 250));
@@ -1268,6 +1272,7 @@
             });
             this.#perPageSel?.addEventListener('change', () => {
                 this.#perPage = Number(this.#perPageSel.value);
+                window.eimPersistPerPage('eim_per_page_budget_payments_' + this.#status, this.#perPage);
                 this.#page = 1;
                 this.#refresh();
             });

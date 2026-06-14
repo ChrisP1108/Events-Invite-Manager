@@ -61,10 +61,11 @@
 
             this.#sort    = this.#table.dataset.sort  || 'label';
             this.#order   = this.#table.dataset.order || 'asc';
-            this.#perPage = Number(this.#perPageSel?.value || 10);
+            this.#perPage = window.eimRestorePerPage(this.#perPageSel, 'eim_per_page_budget_items', 10, () => this.#refresh());
 
             this.#perPageSel?.addEventListener('change', () => {
                 this.#perPage = Number(this.#perPageSel.value);
+                window.eimPersistPerPage('eim_per_page_budget_items', this.#perPage);
                 this.#page = 1;
                 this.#refresh();
             });

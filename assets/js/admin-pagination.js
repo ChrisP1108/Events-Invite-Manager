@@ -88,4 +88,42 @@
 
         nav.replaceChildren(frag);
     };
+
+    /**
+     * Restores a persisted "rows per page" value from localStorage into a
+     * per-page <select>, then returns the resolved number.
+     *
+     * If the restored value differs from the select's initial value, the
+     * server-rendered table was built with the old per-page count, so
+     * onChange (if given) is called to trigger a re-fetch at the new size.
+     *
+     * @param {HTMLSelectElement|null} selectEl   The per-page <select> element.
+     * @param {string}                 storageKey localStorage key unique to this table.
+     * @param {number}                 fallback   Value to use when nothing is stored.
+     * @param {Function}               [onChange] Called with the restored value if it differs from the select's initial value.
+     * @returns {number}
+     */
+    window.eimRestorePerPage = (selectEl, storageKey, fallback = 10, onChange) => {
+        try {
+            const stored = window.localStorage.getItem(storageKey);
+            if (stored && selectEl && [...selectEl.options].some((opt) => opt.value === stored) && selectEl.value !== stored) {
+                selectEl.value = stored;
+                onChange?.(Number(stored));
+            }
+        } catch { /* localStorage unavailable */ }
+        return Number(selectEl?.value || fallback);
+    };
+
+    /**
+     * Persists a "rows per page" selection to localStorage.
+     *
+     * @param {string} storageKey localStorage key unique to this table.
+     * @param {number} value      Selected rows-per-page value.
+     * @returns {void}
+     */
+    window.eimPersistPerPage = (storageKey, value) => {
+        try {
+            window.localStorage.setItem(storageKey, String(value));
+        } catch { /* localStorage unavailable */ }
+    };
 })();

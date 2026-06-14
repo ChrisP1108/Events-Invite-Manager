@@ -74,10 +74,11 @@
 
             this.#sort    = this.#table.dataset.sort  || config.table?.sort  || 'created_at';
             this.#order   = this.#table.dataset.order || config.table?.order || 'desc';
-            this.#perPage = Number(this.#perPageSel?.value || 10);
+            this.#perPage = window.eimRestorePerPage(this.#perPageSel, 'eim_per_page_messages', 10, () => this.#refresh());
 
             this.#perPageSel?.addEventListener('change', () => {
                 this.#perPage = Number(this.#perPageSel.value);
+                window.eimPersistPerPage('eim_per_page_messages', this.#perPage);
                 this.#page = 1;
                 this.#refresh();
             });

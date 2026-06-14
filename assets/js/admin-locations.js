@@ -69,10 +69,11 @@
 
             this.#sort    = this.#table.dataset.sort  || config.table?.sort  || 'name';
             this.#order   = this.#table.dataset.order || config.table?.order || 'asc';
-            this.#perPage = Number(this.#perPageSel?.value || 10);
+            this.#perPage = window.eimRestorePerPage(this.#perPageSel, 'eim_per_page_locations', 10, () => this.#refresh());
 
             this.#perPageSel?.addEventListener('change', () => {
                 this.#perPage = Number(this.#perPageSel.value);
+                window.eimPersistPerPage('eim_per_page_locations', this.#perPage);
                 this.#page = 1;
                 this.#refresh();
             });

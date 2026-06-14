@@ -895,7 +895,7 @@ final class BudgetPage extends AbstractAdminPage
             $liAll,
             static fn(BudgetLineItem $i): bool =>
                 $i->paidAmountCents < $i->estimatedCents() &&
-                $i->paymentDeadline !== '' &&
+                !empty($i->paymentDeadline) &&
                 strtotime($i->paymentDeadline) <= $thirtyDaysFromNow
         ));
 
@@ -1439,7 +1439,7 @@ final class BudgetPage extends AbstractAdminPage
             ? count(array_filter(
                 $filtered,
                 static fn(BudgetLineItem $i): bool =>
-                    $i->paymentDeadline !== '' && strtotime($i->paymentDeadline) <= $thirtyDaysFromNow
+                    !empty($i->paymentDeadline) && strtotime($i->paymentDeadline) <= $thirtyDaysFromNow
             ))
             : 0;
 
@@ -1590,7 +1590,7 @@ final class BudgetPage extends AbstractAdminPage
                 }
             }
             $deadlinePast  = $item->paymentDeadline && strtotime($item->paymentDeadline) < time();
-            $dueSoon       = $status === 'needs_payment' && $item->paymentDeadline !== '' && strtotime($item->paymentDeadline) <= strtotime('+30 days');
+            $dueSoon       = $status === 'needs_payment' && !empty($item->paymentDeadline) && strtotime($item->paymentDeadline) <= strtotime('+30 days');
             $catsJson      = wp_json_encode(array_values(array_map(static fn(Category $c): array => [
                 'id'          => $c->id,
                 'name'        => $c->name,

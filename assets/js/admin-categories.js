@@ -264,10 +264,11 @@
             this.#sort  = this.#table.dataset.sort  ?? 'name';
             this.#order = this.#table.dataset.order ?? 'asc';
             this.#nonce = config.searchNonce ?? '';
-            this.#perPage = Number(this.#perPageSel?.value || 10);
+            this.#perPage = window.eimRestorePerPage(this.#perPageSel, 'eim_per_page_categories', 10, () => this.#fetch());
 
             this.#perPageSel?.addEventListener('change', () => {
                 this.#perPage = Number(this.#perPageSel.value);
+                window.eimPersistPerPage('eim_per_page_categories', this.#perPage);
                 this.#page = 1;
                 this.#fetch();
             });

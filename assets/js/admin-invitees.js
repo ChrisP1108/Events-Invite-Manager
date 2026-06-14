@@ -568,10 +568,11 @@
 
             this.#sort    = this.#table.dataset.sort  || config.table?.sort  || 'last_name';
             this.#order   = this.#table.dataset.order || config.table?.order || 'asc';
-            this.#perPage = Number(this.#perPageSel?.value || 10);
+            this.#perPage = window.eimRestorePerPage(this.#perPageSel, 'eim_per_page_invitees', 10, () => this.#refresh());
 
             this.#perPageSel?.addEventListener('change', () => {
                 this.#perPage = Number(this.#perPageSel.value);
+                window.eimPersistPerPage('eim_per_page_invitees', this.#perPage);
                 this.#page = 1;
                 this.#refresh();
             });
@@ -691,10 +692,11 @@
 
             this.#sort    = this.#table?.dataset.sort  || config.connectionGroupTable?.sort  || 'name';
             this.#order   = this.#table?.dataset.order || config.connectionGroupTable?.order || 'asc';
-            this.#perPage = Number(this.#perPageSel?.value || 10);
+            this.#perPage = window.eimRestorePerPage(this.#perPageSel, 'eim_per_page_connection_groups', 10, () => this.#refresh());
 
             this.#perPageSel?.addEventListener('change', () => {
                 this.#perPage = Number(this.#perPageSel.value);
+                window.eimPersistPerPage('eim_per_page_connection_groups', this.#perPage);
                 this.#page = 1;
                 this.#refresh();
             });
@@ -1413,10 +1415,11 @@
 
             this.#sort    = this.#table.dataset.sort  || 'name';
             this.#order   = this.#table.dataset.order || 'asc';
-            this.#perPage = Number(this.#perPageSel?.value || 10);
+            this.#perPage = window.eimRestorePerPage(this.#perPageSel, 'eim_per_page_event_groups', 10, () => this.#refresh());
 
             this.#perPageSel?.addEventListener('change', () => {
                 this.#perPage = Number(this.#perPageSel.value);
+                window.eimPersistPerPage('eim_per_page_event_groups', this.#perPage);
                 this.#page = 1;
                 this.#refresh();
             });
@@ -2276,12 +2279,13 @@
 
             if (!this.#tbody) return;
 
-            this.#perPage = Number(this.#perPageSel?.value || 10);
+            this.#perPage = window.eimRestorePerPage(this.#perPageSel, 'eim_per_page_seating', 10);
 
             this.#search?.addEventListener('input', () => { this.#page = 1; this.#update(); });
             this.#field?.addEventListener('change', () => { this.#page = 1; this.#update(); });
             this.#perPageSel?.addEventListener('change', () => {
                 this.#perPage = Number(this.#perPageSel.value);
+                window.eimPersistPerPage('eim_per_page_seating', this.#perPage);
                 this.#page = 1;
                 this.#update();
             });
