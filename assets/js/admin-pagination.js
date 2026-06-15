@@ -108,7 +108,9 @@
             const stored = window.localStorage.getItem(storageKey);
             if (stored && selectEl && [...selectEl.options].some((opt) => opt.value === stored) && selectEl.value !== stored) {
                 selectEl.value = stored;
-                onChange?.(Number(stored));
+                // Defer so the caller's `this.#perPage = eimRestorePerPage(...)` assignment
+                // completes before onChange (which re-fetches using that field) runs.
+                if (onChange) queueMicrotask(() => onChange(Number(stored)));
             }
         } catch { /* localStorage unavailable */ }
         return Number(selectEl?.value || fallback);
