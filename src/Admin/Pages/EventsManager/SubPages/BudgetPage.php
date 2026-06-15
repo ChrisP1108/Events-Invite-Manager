@@ -951,6 +951,12 @@ final class BudgetPage extends AbstractAdminPage
                     <div style="font-size:11px;color:#646970;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px;">Estimated Total</div>
                     <div style="font-size:20px;font-weight:600;"><?= esc_html($plan->formattedEstimated()); ?></div>
                 </div>
+                <?php if ($plan->targetAmountCents > 0): ?>
+                    <div>
+                        <div style="font-size:11px;color:#646970;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px;">Difference</div>
+                        <div style="font-size:20px;font-weight:600;color:<?= $plan->differenceCents() < 0 ? '#d63638' : '#00a32a'; ?>;"><?= esc_html($plan->formattedDifference()); ?></div>
+                    </div>
+                <?php endif; ?>
                 <div>
                     <div style="font-size:11px;color:#646970;text-transform:uppercase;letter-spacing:.04em;margin-bottom:2px;">Paid</div>
                     <div style="font-size:20px;font-weight:600;color:#00a32a;"><?= esc_html($plan->formattedPaid()); ?></div>

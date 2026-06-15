@@ -379,6 +379,18 @@ final class BudgetPlan
     }
 
     /**
+     * Returns the difference between the target budget and the estimated total, in cents.
+     *
+     * Positive when the estimate is under target, negative when over target.
+     *
+     * @return int Difference amount in cents.
+     */
+    public function differenceCents(): int
+    {
+        return $this->targetAmountCents - $this->estimatedCents();
+    }
+
+    /**
      * Returns the formatted target amount (e.g. "$5,000.00").
      *
      * @return string
@@ -405,6 +417,19 @@ final class BudgetPlan
      * @return string
      */
     public function formattedRemaining(): string { return self::formatCents($this->remainingCents()); }
+
+    /**
+     * Returns the formatted target/estimated difference, with a leading "-" for negative values
+     * (e.g. "$1,800.00" when under target, "-$300.00" when over target).
+     *
+     * @return string
+     */
+    public function formattedDifference(): string
+    {
+        $cents = $this->differenceCents();
+
+        return ($cents < 0 ? '-' : '') . self::formatCents(abs($cents));
+    }
 
     /**
      * Converts an integer cent amount to a formatted dollar string.
