@@ -35,6 +35,7 @@ final class AboutPage extends AbstractAdminPage
             <?php $this->renderHeader(); ?>
             <?php $this->renderGettingStarted(); ?>
             <?php $this->renderFeatures(); ?>
+            <?php $this->renderActionHookReference(); ?>
             <?php $this->renderTemplateTags(); ?>
             <?php $this->renderRestApi(); ?>
 
@@ -61,6 +62,16 @@ final class AboutPage extends AbstractAdminPage
         .eim-about-card h3{margin:0 0 8px;font-size:13px;display:flex;align-items:center;gap:8px;color:#1d2327;}
         .eim-about-card h3 .dashicons{color:#2271b1;font-size:18px;width:18px;height:18px;}
         .eim-about-card p{margin:0;color:#50575e;font-size:13px;line-height:1.6;}
+
+        .eim-about-hook-layout{display:grid;grid-template-columns:repeat(auto-fit, minmax(min(480px, 100%), 1fr));gap:16px;}
+        .eim-about-hook-panel{background:#fff;border:1px solid #dcdcde;border-radius:4px;padding:18px 20px;}
+        .eim-about-hook-panel h3{margin:0 0 8px;font-size:13px;color:#1d2327;}
+        .eim-about-hook-panel p{margin:0 0 12px;color:#50575e;font-size:13px;line-height:1.6;}
+        .eim-about-hook-panel p:last-child{margin-bottom:0;}
+        .eim-about-hook-flow{display:grid;gap:8px;margin-top:12px;}
+        .eim-about-hook-flow span{display:block;background:#f6f7f7;border-left:3px solid #2271b1;padding:8px 10px;color:#3c434a;font-size:12px;line-height:1.5;}
+        .eim-about-code-block{background:#1d2327;color:#f6f7f7;border-radius:4px;margin:0;overflow:auto;padding:14px 16px;font-size:12px;line-height:1.55;}
+        .eim-about-code-block code{color:inherit;background:transparent;padding:0;font-size:inherit;white-space:pre;}
 
         .eim-about-table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #dcdcde;border-radius:4px;overflow:hidden;}
         .eim-about-table th{background:#f6f7f7;padding:10px 14px;text-align:left;font-size:12px;font-weight:600;color:#1d2327;border-bottom:1px solid #dcdcde;text-transform:uppercase;letter-spacing:.04em;}
@@ -92,7 +103,7 @@ final class AboutPage extends AbstractAdminPage
                     Events Invite Manager
                     <span class="eim-about-version">v<?= esc_html(EIM_VERSION); ?></span>
                 </h1>
-                <p>Manage private event invitations, grouped RSVPs, attendee registration, venue and lodging assignments, a global food &amp; beverage menu library with vendor linkage, a gifts &amp; registry system, invitee messaging, a guest-request workflow, budget tracking, newsletter posts, a unified category taxonomy, and automated email workflows — all from the WordPress admin.</p>
+                <p>Manage private event invitations, grouped RSVPs, attendee registration, venue and lodging assignments (with event-specific notes), a global food &amp; beverage menu library with vendor linkage, a gifts &amp; registry system, invitee messaging, a guest-request workflow, budget tracking, newsletter posts, a unified category taxonomy, and automated email workflows — all from the WordPress admin.</p>
             </div>
         </div>
         <?php
@@ -122,7 +133,8 @@ final class AboutPage extends AbstractAdminPage
                         <p>
                             Go to <strong>Locations</strong> and add every venue, hotel, and lodging option you plan to use.
                             Venue and lodging fields on events only accept validated library entries — free-text is blocked.
-                            Each location supports an optional thumbnail image from the Media Library; it appears in the Locations list and on the event edit screen wherever that location is shown.
+                            Each location supports an optional thumbnail image from the Media Library, a <strong>Booking Website</strong> URL, and an optional <strong>Description</strong> for admin notes.
+                            Images appear in the Locations list and on the event edit screen wherever that location is shown.
                             <a href="<?= esc_url($locationsUrl); ?>">Add your first location →</a>
                         </p>
                     </div>
@@ -241,7 +253,9 @@ final class AboutPage extends AbstractAdminPage
                             RSVP form → menu selections → lodging → dashboard redirect.
                             Submit each step via <code>POST /eim/v1/register</code> with per-member RSVP statuses,
                             food/beverage selections, dietary notes, and lodging choice.
-                            Optionally set a <strong>Dashboard Page</strong> — invitees land there after completing the flow.
+                            Optionally set a <strong>Before RSVP Start Page</strong> (redirects guests who arrive before RSVPs open),
+                            an <strong>After RSVP Deadline Page</strong> (redirects first-time RSVP attempts after the deadline has passed),
+                            and a <strong>Dashboard Page</strong> — invitees land there after completing the flow.
                             Call <code>GET /eim/v1/dashboard</code> to load upcoming events, RSVP summaries, newsletters, and registry.
                         </p>
                     </div>
@@ -306,7 +320,7 @@ final class AboutPage extends AbstractAdminPage
             [
                 'icon'  => 'dashicons-location',
                 'title' => 'Location Library',
-                'body'  => 'A centralised library of reusable locations maintained independently of any event. Locations are created once and selected by name across events via live autocomplete. Each location supports an optional thumbnail image from the WordPress Media Library — the image appears in the Locations list table and wherever the location is shown on the event edit screen (venue and lodging panels). The Locations table has AJAX live search with a column-filter dropdown (Name, Type, Lodging, Address, Used In) and sortable columns.',
+                'body'  => 'A centralised library of reusable locations maintained independently of any event. Locations are created once and selected by name across events via live autocomplete. Each location supports an optional Booking Website URL, an optional Description for admin notes, and an optional thumbnail image from the WordPress Media Library — the image appears in the Locations list table and wherever the location is shown on the event edit screen (venue and lodging panels). The Locations table has AJAX live search with a column-filter dropdown (Name, Type, Lodging, Address, Used In) and sortable columns.',
             ],
             [
                 'icon'  => 'dashicons-food',
@@ -316,12 +330,12 @@ final class AboutPage extends AbstractAdminPage
             [
                 'icon'  => 'dashicons-calendar-alt',
                 'title' => 'Event Management',
-                'body'  => 'Create events with name, description, date, start/end time, time zone, an optional all-day Save the Date calendar span with title/description overrides, an optional invitee cap, RSVP deadline, and food/beverage option flags. The edit screen is organised into eight tabs — Details, Venue/Location, Invite Email, QR Code & RSVP, Lodging, Food & Beverage, Gifts & Registry, and Invited Invitees — with tab state persisted via localStorage and URL hash. A monthly calendar grid gives a visual overview of all dated events. The events list below the calendar supports AJAX live search, sortable columns, and pagination.',
+                'body'  => 'Create events with name, description, date, start/end time, time zone, an optional all-day Save the Date calendar span with title/description overrides, an optional invitee cap, RSVP start/deadline, and food/beverage option flags. The QR Code & RSVP tab lets you configure a Before RSVP Start Page (redirects early visitors) and an After RSVP Deadline Page (redirects first-time RSVP attempts after the deadline). The edit screen is organised into eight tabs — Details, Venue/Location, Invite Email, QR Code & RSVP, Lodging, Food & Beverage, Gifts & Registry, and Invited Invitees — with tab state persisted via localStorage and URL hash. A monthly calendar grid gives a visual overview of all dated events. The events list below the calendar supports AJAX live search, sortable columns, and pagination.',
             ],
             [
                 'icon'  => 'dashicons-admin-home',
                 'title' => 'Venue & Lodging Assignment',
-                'body'  => 'Assign a venue and one or more lodging options to each event by searching the location library. The formatted address appears as read-only confirmation text. If the selected location has a thumbnail image, it is displayed alongside the venue name and in the lodging table. Lodging entries can be added, removed, and reordered on the event edit screen.',
+                'body'  => 'Assign a venue and one or more lodging options to each event by searching the location library. The formatted address appears as read-only confirmation text. If the selected location has a thumbnail image, it is displayed alongside the venue name and in the lodging table. Lodging entries can be added, removed, and reordered. Each lodging assignment supports event-specific notes — a free-text field unique to that event/location pairing, saved automatically via AJAX and included in the REST API response.',
             ],
             [
                 'icon'  => 'dashicons-carrot',
@@ -422,6 +436,73 @@ final class AboutPage extends AbstractAdminPage
         <?php
     }
 
+    /** Renders the developer-facing action hook reference. */
+    private function renderActionHookReference(): void
+    {
+        $example = <<<'PHP'
+use EventsInviteManager\Hooks\EimChangeEvent;
+
+add_action('eim_change', static function (EimChangeEvent $event): void {
+    if ($event->type !== EimChangeEvent::TYPE_INVITEE) {
+        return;
+    }
+
+    $invitee = $event->data;
+
+    if (!is_object($invitee)) {
+        return;
+    }
+
+    $name = trim(($invitee->firstName ?? '') . ' ' . ($invitee->lastName ?? ''));
+
+    error_log(sprintf(
+        'EIM invitee %s: #%d %s <%s>',
+        $event->change_type,
+        $invitee->id ?? 0,
+        $name !== '' ? $name : 'Unknown invitee',
+        $invitee->email ?? ''
+    ));
+});
+PHP;
+        ?>
+        <div class="eim-about-section">
+            <h2>Action Hook: eim_change</h2>
+            <div class="eim-about-hook-layout">
+                <div class="eim-about-hook-panel">
+                    <h3>When it fires</h3>
+                    <p>
+                        Every successful create, edit, or delete operation dispatches
+                        <code>eim_change</code> with an
+                        <code>EventsInviteManager\Hooks\EimChangeEvent</code> object.
+                        Failed database writes do not trigger the hook.
+                    </p>
+                    <div class="eim-about-hook-flow" aria-label="eim_change hook flow">
+                        <span>Admin save, REST write, or delete action</span>
+                        <span>Database write succeeds</span>
+                        <span><code>EimChangeEvent</code> is dispatched</span>
+                        <span>Your listener handles the change</span>
+                    </div>
+                    <p style="margin-top:12px;">
+                        Read <code>$event->type</code> to identify the entity,
+                        <code>$event->change_type</code> for added, edited, or deleted,
+                        and <code>$event->data</code> for the affected model. Deletes pass
+                        the record snapshot captured before removal.
+                    </p>
+                </div>
+
+                <div class="eim-about-hook-panel">
+                    <h3>Example listener</h3>
+                    <p>
+                        Add code like this to a site-specific plugin, an MU plugin, or your theme's
+                        <code>functions.php</code>. This example logs invitee profile changes.
+                    </p>
+                    <pre class="eim-about-code-block"><code><?= esc_html($example); ?></code></pre>
+                </div>
+            </div>
+        </div>
+        <?php
+    }
+
     /** Renders the email template-tag reference table. */
     private function renderTemplateTags(): void
     {
@@ -492,7 +573,7 @@ final class AboutPage extends AbstractAdminPage
                     <code>/wp-json/eim/v1/rsvp?confirmation_code={code}</code>
                 </div>
                 <div class="eim-about-endpoint-body">
-                    <p>Returns the current RSVP flow state: event details, food/beverage options, lodging options, all group members, and a <code>next_action</code> field (<code>rsvp_required</code>, <code>menu_required</code>, <code>lodging_required</code>, <code>dashboard_redirect</code>, or <code>declined</code>) that tells the frontend exactly what to present next. Call this on every RSVP page load.</p>
+                    <p>Returns the current RSVP flow state: event details, food/beverage options, lodging options (each with an optional <code>notes</code> field for event-specific context), all group members, and a <code>next_action</code> field (<code>rsvp_required</code>, <code>menu_required</code>, <code>lodging_required</code>, <code>dashboard_redirect</code>, or <code>declined</code>) that tells the frontend exactly what to present next. The event payload includes <code>rsvp_before_start_url</code> (redirect when RSVPs haven't opened yet) and <code>rsvp_after_deadline_url</code> (redirect when a pending invitee attempts to RSVP after the deadline). Call this on every RSVP page load.</p>
                 </div>
             </div>
 

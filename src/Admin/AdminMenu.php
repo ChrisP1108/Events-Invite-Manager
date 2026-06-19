@@ -204,6 +204,7 @@ final class AdminMenu
         add_action('wp_ajax_eim_search_connection_groups', [$this->connectionGroupsPage, 'handleAjaxSearchGroups']);
         add_action('wp_ajax_eim_sort_event_groups',        [$this->eventsPage,            'handleAjaxSortGroups']);
         add_action('wp_ajax_eim_sort_event_lodging',       [$this->eventsPage,            'handleAjaxSortLodging']);
+        add_action('wp_ajax_eim_save_lodging_notes',       [$this->eventsPage,            'handleAjaxSaveLodgingNotes']);
         add_action('wp_ajax_eim_sort_event_menu_items',    [$this->eventsPage,            'handleAjaxSortMenuItems']);
         add_action('wp_ajax_eim_suggest_cg_members',    [$this->connectionGroupsPage, 'handleAjaxSuggestMembers']);
         add_action('wp_ajax_eim_suggest_events',           [$this->eventsPage, 'handleAjaxSuggestEvents']);
@@ -469,6 +470,7 @@ final class AdminMenu
                     'id'                  => (int) ($_GET['id'] ?? 0),
                     'groupsSortNonce'     => wp_create_nonce('eim_event_groups_sort_nonce'),
                     'assignmentSortNonce' => wp_create_nonce('eim_event_assignment_sort_nonce'),
+                    'lodgingNotesNonce'   => wp_create_nonce('eim_save_lodging_notes_nonce'),
                     'seatNonce'           => wp_create_nonce('eim_save_seat_assignment_nonce'),
                     'inviteTestNonce'     => wp_create_nonce('eim_send_invite_test_nonce'),
                     'inviteAllNonce'      => wp_create_nonce('eim_send_all_invites_nonce'),

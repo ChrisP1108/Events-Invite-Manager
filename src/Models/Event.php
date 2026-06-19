@@ -29,7 +29,8 @@ final class Event
      * @param string  $name                   Event name.
      * @param string  $description            Optional free-text description.
      * @param ?int    $rsvpPageId             WordPress page ID for the front-end RSVP page, or null if not set.
-     * @param ?int    $rsvpBeforeStartPageId  WordPress page ID used before RSVPs open, or null if not set.
+     * @param ?int    $rsvpBeforeStartPageId   WordPress page ID used before RSVPs open, or null if not set.
+     * @param ?int    $rsvpAfterDeadlinePageId WordPress page ID shown when a first-time RSVP attempt is made after the deadline, or null if not set.
      * @param ?int    $venueId                FK to eim_locations for the event venue, or null if not set.
      * @param string  $fromName               Display name used in the From header of outgoing emails.
      * @param string  $fromEmail              Email address used in the From header of outgoing emails.
@@ -59,6 +60,7 @@ final class Event
         public readonly string  $description,
         public readonly ?int    $rsvpPageId,
         public readonly ?int    $rsvpBeforeStartPageId,
+        public readonly ?int    $rsvpAfterDeadlinePageId,
         public readonly ?int    $venueId,
         public readonly string  $fromName,
         public readonly string  $fromEmail,
@@ -196,7 +198,8 @@ final class Event
             'invite_email_subject'  => $data['invite_email_subject'] ?? '',
             'invite_email_template' => $data['invite_email_template'] ?? '',
             'rsvp_page_id'          => isset($data['rsvp_page_id']) && (int) $data['rsvp_page_id'] > 0 ? (int) $data['rsvp_page_id'] : null,
-            'rsvp_before_start_page_id' => isset($data['rsvp_before_start_page_id']) && (int) $data['rsvp_before_start_page_id'] > 0 ? (int) $data['rsvp_before_start_page_id'] : null,
+            'rsvp_before_start_page_id'  => isset($data['rsvp_before_start_page_id'])  && (int) $data['rsvp_before_start_page_id']  > 0 ? (int) $data['rsvp_before_start_page_id']  : null,
+            'rsvp_after_deadline_page_id' => isset($data['rsvp_after_deadline_page_id']) && (int) $data['rsvp_after_deadline_page_id'] > 0 ? (int) $data['rsvp_after_deadline_page_id'] : null,
             'venue_id'              => isset($data['venue_id']) && (int) $data['venue_id'] > 0 ? (int) $data['venue_id'] : null,
             'start_datetime'        => !empty($data['start_datetime']) ? $data['start_datetime'] : null,
             'end_datetime'          => !empty($data['end_datetime'])   ? $data['end_datetime']   : null,
@@ -243,7 +246,8 @@ final class Event
                 'invite_email_subject'  => $data['invite_email_subject'] ?? '',
                 'invite_email_template' => $data['invite_email_template'] ?? '',
                 'rsvp_page_id'          => isset($data['rsvp_page_id']) && (int) $data['rsvp_page_id'] > 0 ? (int) $data['rsvp_page_id'] : null,
-                'rsvp_before_start_page_id' => isset($data['rsvp_before_start_page_id']) && (int) $data['rsvp_before_start_page_id'] > 0 ? (int) $data['rsvp_before_start_page_id'] : null,
+                'rsvp_before_start_page_id'  => isset($data['rsvp_before_start_page_id'])  && (int) $data['rsvp_before_start_page_id']  > 0 ? (int) $data['rsvp_before_start_page_id']  : null,
+                'rsvp_after_deadline_page_id' => isset($data['rsvp_after_deadline_page_id']) && (int) $data['rsvp_after_deadline_page_id'] > 0 ? (int) $data['rsvp_after_deadline_page_id'] : null,
                 'venue_id'              => isset($data['venue_id']) && (int) $data['venue_id'] > 0 ? (int) $data['venue_id'] : null,
                 'start_datetime'        => !empty($data['start_datetime']) ? $data['start_datetime'] : null,
                 'end_datetime'          => !empty($data['end_datetime'])   ? $data['end_datetime']   : null,
@@ -637,6 +641,31 @@ final class Event
         return $url;
     }
 
+    /**
+     * Returns the public permalink of the page shown when a first-time RSVP is attempted after the deadline.
+     *
+     * @param string $confirmationCode When non-empty, appended as ?eim_confirmation={code}.
+     * @return string|null Null when no after-deadline page is configured.
+     */
+    public function rsvpAfterDeadlineUrl(string $confirmationCode = ''): ?string
+    {
+        if ($this->rsvpAfterDeadlinePageId === null || $this->rsvpAfterDeadlinePageId <= 0) {
+            return null;
+        }
+
+        $url = get_permalink($this->rsvpAfterDeadlinePageId);
+
+        if ($url === false || $url === '') {
+            return null;
+        }
+
+        if ($confirmationCode !== '') {
+            $url = add_query_arg('eim_confirmation', rawurlencode($confirmationCode), $url);
+        }
+
+        return $url;
+    }
+
     private static function fromRow(object $row): self
     {
         return new self(
@@ -644,7 +673,8 @@ final class Event
             name:                      $row->name,
             description:               $row->description           ?? '',
             rsvpPageId:          isset($row->rsvp_page_id) && $row->rsvp_page_id !== null ? (int) $row->rsvp_page_id : null,
-            rsvpBeforeStartPageId: isset($row->rsvp_before_start_page_id) && $row->rsvp_before_start_page_id !== null ? (int) $row->rsvp_before_start_page_id : null,
+            rsvpBeforeStartPageId:   isset($row->rsvp_before_start_page_id)  && $row->rsvp_before_start_page_id  !== null ? (int) $row->rsvp_before_start_page_id  : null,
+            rsvpAfterDeadlinePageId: isset($row->rsvp_after_deadline_page_id) && $row->rsvp_after_deadline_page_id !== null ? (int) $row->rsvp_after_deadline_page_id : null,
             venueId:             isset($row->venue_id)     && $row->venue_id     !== null ? (int) $row->venue_id     : null,
             fromName:                  $row->from_name             ?? '',
             fromEmail:                 $row->from_email            ?? '',

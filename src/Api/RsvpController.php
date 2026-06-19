@@ -117,7 +117,7 @@ class RsvpController extends AbstractApiController
 
             if (!empty($pendingMemberIds)) {
                 return new WP_REST_Response(
-                    ['success' => false, 'message' => 'The RSVP deadline for this event has passed.', 'deadline_passed' => true],
+                    ['success' => false, 'message' => 'The RSVP deadline for this event has passed.', 'deadline_passed' => true, 'rsvp_after_deadline_url' => $currentFlow->rsvpAfterDeadlineUrl],
                     422
                 );
             }
@@ -495,8 +495,9 @@ class RsvpController extends AbstractApiController
             'requires_food'         => $result->requiresFood,
             'requires_beverage'     => $result->requiresBeverage,
             'dashboard_url'         => $result->dashboardUrl,
-            'rsvp_before_start_url' => $result->rsvpBeforeStartUrl,
-            'rsvp_notes'            => $group->rsvpNotes,
+            'rsvp_before_start_url'   => $result->rsvpBeforeStartUrl,
+            'rsvp_after_deadline_url' => $result->rsvpAfterDeadlineUrl,
+            'rsvp_notes'              => $group->rsvpNotes,
             'rsvp_notes_updated_at' => $group->rsvpNotesUpdatedAt,
             'lodging_booked'        => $group->lodgingBooked,
             'lodging_booked_at'     => $group->lodgingBookedAt,
@@ -507,9 +508,10 @@ class RsvpController extends AbstractApiController
                 'date'                 => $event->formattedDateTimeRange(),
                 'rsvp_start_datetime'  => $event->rsvpStartDatetime,
                 'rsvp_start_pending'   => $result->rsvpStartPending,
-                'rsvp_deadline'        => $event->rsvpDeadline,
-                'rsvp_deadline_passed' => $result->rsvpDeadlinePassed,
-                'can_rsvp'             => !$result->rsvpStartPending && !$result->rsvpDeadlinePassed,
+                'rsvp_deadline'           => $event->rsvpDeadline,
+                'rsvp_deadline_passed'    => $result->rsvpDeadlinePassed,
+                'rsvp_after_deadline_url' => $result->rsvpAfterDeadlineUrl,
+                'can_rsvp'                => !$result->rsvpStartPending && !$result->rsvpDeadlinePassed,
                 'venue'                => $venue ? [
                     'name'    => $venue->name,
                     'address' => $venue->formattedAddress(),
@@ -557,6 +559,7 @@ class RsvpController extends AbstractApiController
                 'address'     => $location->formattedAddress(),
                 'booking_url' => $location->bookingUrl,
                 'is_other'    => $location->isOther,
+                'notes'       => $location->notes,
             ], $lodging),
         ];
 

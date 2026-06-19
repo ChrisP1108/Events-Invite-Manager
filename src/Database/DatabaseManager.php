@@ -18,7 +18,7 @@ final class DatabaseManager
     /**
      * The current database schema version.
      */
-    private const SCHEMA_VERSION = '42';
+    private const SCHEMA_VERSION = '44';
 
     /**
      * The database table names.
@@ -135,6 +135,7 @@ final class DatabaseManager
                 max_invitees              SMALLINT UNSIGNED   NULL DEFAULT NULL,
                 rsvp_start_datetime       DATETIME            NULL DEFAULT NULL,
                 rsvp_deadline             DATETIME            NULL DEFAULT NULL,
+                rsvp_after_deadline_page_id BIGINT(20) UNSIGNED NULL DEFAULT NULL,
                 created_at                DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at                DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (id)
@@ -177,6 +178,7 @@ final class DatabaseManager
                 is_other             TINYINT(1)          NOT NULL DEFAULT 0,
                 has_lodging          TINYINT(1)          NOT NULL DEFAULT 0,
                 booking_url          VARCHAR(500)        NOT NULL DEFAULT '',
+                description          TEXT                NULL DEFAULT NULL,
                 image_attachment_id  BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
                 created_at           DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (id)
@@ -186,6 +188,7 @@ final class DatabaseManager
                 event_id    BIGINT(20) UNSIGNED NOT NULL,
                 location_id BIGINT(20) UNSIGNED NOT NULL,
                 sort_order  INT                 NOT NULL DEFAULT 0,
+                notes       TEXT                NULL DEFAULT NULL,
                 created_at  DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (id),
                 UNIQUE KEY event_location (event_id, location_id),

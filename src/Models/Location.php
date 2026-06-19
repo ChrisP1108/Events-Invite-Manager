@@ -31,6 +31,7 @@ final class Location
         public readonly bool   $isOther,
         public readonly bool   $hasLodging,
         public readonly string $bookingUrl,
+        public readonly string $description,
         public readonly int    $imageAttachmentId,
         public readonly string $createdAt,
     ) {}
@@ -357,6 +358,7 @@ final class Location
             'is_other'            => $isOther ? 1 : 0,
             'has_lodging'         => !empty($data['has_lodging']) ? 1 : 0,
             'booking_url'         => $data['booking_url']         ?? '',
+            'description'         => $data['description']         ?? '',
             'image_attachment_id' => (int) ($data['image_attachment_id'] ?? 0),
         ]);
 
@@ -391,6 +393,7 @@ final class Location
                 'is_other'            => $isOther ? 1 : 0,
                 'has_lodging'         => !empty($data['has_lodging']) ? 1 : 0,
                 'booking_url'         => $data['booking_url']         ?? '',
+                'description'         => $data['description']         ?? '',
                 'image_attachment_id' => (int) ($data['image_attachment_id'] ?? 0),
             ],
             ['id' => $id]
@@ -469,6 +472,7 @@ final class Location
             isOther:             (bool) ($row->is_other            ?? false),
             hasLodging:          (bool) ($row->has_lodging         ?? false),
             bookingUrl:                 $row->booking_url          ?? '',
+            description:                $row->description          ?? '',
             imageAttachmentId:   (int)  ($row->image_attachment_id ?? 0),
             createdAt:                  $row->created_at           ?? '',
         );

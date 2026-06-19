@@ -19,13 +19,15 @@ Each location can be marked as offering **lodging** (`has_lodging`), which makes
 
 Each location also supports an optional **thumbnail image** selected from the WordPress Media Library. The thumbnail is shown in the Locations list table's Image column, and wherever the location appears on an event edit screen — in the Venue/Location tab and in the Lodging tab's location list.
 
+An optional **description** field is available on each location for free-text notes or details visible to admins. This field is stored in the database but not surfaced to invitees.
+
 ### Food & Beverages Library
 A global library of food and beverage menu items, managed from the dedicated **Food & Beverages** admin page. The page displays two independent scrollable tables — one for food, one for beverages — each with its own AJAX live search and column-filter dropdown. Items are created once and assigned to individual events; the same item can be reused across multiple events.
 
 Each item has a **label** (required), optional **description**, an optional **vendor** linked from the vendor library via an autocomplete picker, an optional per-person **price** (used in budget calculations), and a **categories** assignment. Categories can be assigned both when creating an item inline and on the standalone edit screen.
 
 ### Events
-Create and manage events with full details: name, description, date, start and end time, time zone, optional **Save the Date calendar span** for all-day destination/weekend holds, RSVP start/deadline windows, linked WordPress RSVP and before-start pages, and an optional **maximum invitee cap**. A calendar view in the admin shows all dated events at a glance with month navigation and a jump-to-event dropdown.
+Create and manage events with full details: name, description, date, start and end time, time zone, optional **Save the Date calendar span** for all-day destination/weekend holds, RSVP start/deadline windows, linked WordPress RSVP page, **Before RSVP Start Page** (shown to guests who visit before RSVPs open), **After RSVP Deadline Page** (shown to first-time RSVP attempts after the deadline), and an optional **maximum invitee cap**. A calendar view in the admin shows all dated events at a glance with month navigation and a jump-to-event dropdown.
 
 Below the calendar, the events list supports **AJAX live search** with a **column-filter dropdown** (Name, Description), sortable columns (Name, Date/Time), and pagination — filtering and sorting happen without a page reload.
 
@@ -36,6 +38,8 @@ Each event can have a single venue selected from the location library. Typing in
 
 ### Lodging Locations
 Events can offer multiple lodging options to invitees, each selected from library entries with `has_lodging` enabled. Lodging assignments are stored in a dedicated pivot table (`eim_event_lodging`) and exposed via the REST API. Invitees can select a lodging option, choose "Other," or mark their preference as undisclosed. Lodging is stored as a shared group-wide choice rather than per-member.
+
+Each lodging assignment on an event can also carry **event-specific notes** — a free-text field unique to that event/location pairing. Notes are entered inline on the event's Lodging tab and saved automatically via AJAX. They are included in the REST API's lodging payload so the frontend can display them alongside the location details when invitees choose their lodging.
 
 ### Food & Beverage Options (per event)
 When **food options** and/or **beverage options** are enabled on an event, the event edit screen presents an autocomplete search that pulls from the global menu item library. Selected items are stored in the `eim_event_menu_items` pivot table. These options are returned by the RSVP REST API and can be selected per invitee during registration (stored as `food_option_id` and `beverage_option_id` on each group member). When both food and beverage options are enabled, their assignment tables are displayed **side-by-side** in a two-column grid.
@@ -108,21 +112,55 @@ Both events and budget plans can be exported directly from the admin in two form
 All list tables use a shared search control that includes a text input and a column-filter dropdown. The search bar is only displayed when there is at least one item in the list. When a search returns no results it shows "No results found based upon search criteria." rather than the empty-state message.
 
 ### `eim_change` WordPress Action Hook
-Every create, edit, and delete operation across all plugin entities fires the `eim_change` WordPress action, allowing external code snippets to react to any data change without modifying the plugin's files.
+Every create, edit, and delete operation across all plugin entities fires the `eim_change` WordPress action, allowing site-specific snippets to react to plugin data changes without modifying the plugin's files.
 
 ```php
-add_action('eim_change', function (EimChangeEvent $e): void {
-    // $e->type        — entity type, e.g. EimChangeEvent::TYPE_EVENT
-    // $e->change_type — one of 'added', 'edited', or 'deleted'
-    // $e->data        — the model object after the write (or a snapshot before deletion)
+add_action('eim_change', function (\EventsInviteManager\Hooks\EimChangeEvent $event): void {
+    // $event->type        Entity type, e.g. EimChangeEvent::TYPE_EVENT
+    // $event->change_type One of ADDED, EDITED, or DELETED
+    // $event->data        The affected model object
 });
 ```
+
+**Mental model:** admin save, REST write, or delete action → database write succeeds → the plugin dispatches `EimChangeEvent` → your listener runs.
 
 **Type constants** (`EimChangeEvent::TYPE_*`): `event`, `invitee`, `requested_add_on`, `message`, `connection_group`, `location`, `menu_item`, `budget_plan`, `budget_line_item`, `vendor`, `newsletter`, `category`, `gift`.
 
 **Change type constants** (`EimChangeEvent::ADDED`, `EimChangeEvent::EDITED`, `EimChangeEvent::DELETED`).
 
-The hook lives in `EventsInviteManager\Hooks\EimChangeEvent` and fires only on successful writes — failed DB operations never dispatch it. For delete operations, `$e->data` contains a snapshot of the record captured immediately before deletion.
+The hook lives in `EventsInviteManager\Hooks\EimChangeEvent` and fires only on successful writes — failed DB operations never dispatch it. For delete operations, `$event->data` contains the record snapshot captured immediately before deletion.
+
+**Example: log invitee profile changes**
+
+Place code like this in a small site-specific plugin, an MU plugin, or your theme's `functions.php`. The example listens only for invitee creates/edits/deletes, then logs the affected invitee ID, name, and email.
+
+```php
+use EventsInviteManager\Hooks\EimChangeEvent;
+
+add_action('eim_change', static function (EimChangeEvent $event): void {
+    if ($event->type !== EimChangeEvent::TYPE_INVITEE) {
+        return;
+    }
+
+    $invitee = $event->data;
+
+    if (!is_object($invitee)) {
+        return;
+    }
+
+    $name = trim(($invitee->firstName ?? '') . ' ' . ($invitee->lastName ?? ''));
+
+    error_log(sprintf(
+        'EIM invitee %s: #%d %s <%s>',
+        $event->change_type,
+        $invitee->id ?? 0,
+        $name !== '' ? $name : 'Unknown invitee',
+        $invitee->email ?? ''
+    ));
+});
+```
+
+To narrow the listener further, check both `$event->type` and `$event->change_type`, for example `EimChangeEvent::TYPE_EVENT` plus `EimChangeEvent::EDITED` to run only after event edits.
 
 ### REST API
 JSON endpoints powering the front-end RSVP experience, invitee dashboard, registry, messaging, and guest-request features:
@@ -198,6 +236,7 @@ Each location has:
 - **Lodging** — check "This location offers lodging" to make it available in the event lodging autocomplete. Optionally add a **Booking Website** URL.
 - **Image** — optional thumbnail from the WordPress Media Library; shown in the Locations list and on the event edit screen wherever the location appears (venue and lodging panels)
 - **Address** — street, city, state, ZIP (hidden when "Other" is checked)
+- **Description** — optional free-text notes or details about the location (admin-only)
 
 ### 2 — Build your vendor library (optional)
 
@@ -245,7 +284,7 @@ Open the event edit screen, navigate to the **Invited Invitees** tab, add existi
 
 ### 10 — Build your RSVP page
 
-Create a WordPress page and set it as the event's **QR Code RSVP Page**. Optionally set an **RSVP Start** time and **Before RSVP Start Page** to send early visitors to a holding page. When an invitee scans their QR code the plugin redirects them to the RSVP page with `?eim_confirmation={code}` appended once RSVPs are open. The RSVP flow is driven by the `next_action` field returned by the API:
+Create a WordPress page and set it as the event's **QR Code RSVP Page**. Optionally set an **RSVP Start** time and **Before RSVP Start Page** to send early visitors to a holding page, and an **After RSVP Deadline Page** to redirect first-time RSVP attempts that arrive after the deadline has passed. When an invitee scans their QR code the plugin redirects them to the RSVP page with `?eim_confirmation={code}` appended once RSVPs are open. The RSVP flow is driven by the `next_action` field returned by the API:
 
 1. Call `GET /wp-json/eim/v1/rsvp?confirmation_code={code}` to get the current state.
 2. Present the appropriate step based on `next_action` (`rsvp_form`, `menu_required`, `lodging_required`, `dashboard_redirect`).
@@ -309,7 +348,7 @@ All endpoints are under the `eim/v1` namespace. All are publicly accessible — 
 
 ### `GET /wp-json/eim/v1/rsvp`
 
-Returns the current RSVP flow state for a confirmation code: event details, food/beverage options, lodging options, all group members, and a `next_action` field indicating what the frontend should present next. The event payload includes `rsvp_start_datetime`, `rsvp_start_pending`, `rsvp_deadline`, `rsvp_deadline_passed`, and `can_rsvp`; a configured early holding page is exposed as `rsvp_before_start_url`.
+Returns the current RSVP flow state for a confirmation code: event details, food/beverage options, lodging options, all group members, and a `next_action` field indicating what the frontend should present next. The event payload includes `rsvp_start_datetime`, `rsvp_start_pending`, `rsvp_before_start_url`, `rsvp_deadline`, `rsvp_deadline_passed`, `rsvp_after_deadline_url`, and `can_rsvp`. Each lodging option in the `lodging` array includes a `notes` field for event-specific context.
 
 **`next_action` values**
 
@@ -380,11 +419,11 @@ Sends a new invitee message for a specific event/group thread.
 
 | Table | Description |
 |-------|-------------|
-| `{prefix}eim_events` | Event records including venue FK, RSVP page ID, before-start page ID, dashboard page ID, date/time, food/beverage flags, RSVP start/deadline, and invite email template |
+| `{prefix}eim_events` | Event records including venue FK, RSVP page ID, before-start page ID, after-deadline page ID, dashboard page ID, date/time, food/beverage flags, RSVP start/deadline, and invite email template |
 | `{prefix}eim_invitees` | Global invitee profile records |
 | `{prefix}eim_event_invitees` | Event membership assignments for individual invitees |
-| `{prefix}eim_locations` | Global location catalogue — venues and lodging options shared across all events; includes an optional `image_attachment_id` for a WordPress Media Library thumbnail |
-| `{prefix}eim_event_lodging` | Pivot table linking events to their lodging location options |
+| `{prefix}eim_locations` | Global location catalogue — venues and lodging options shared across all events; includes an optional `booking_url`, `description` (admin notes), and `image_attachment_id` for a WordPress Media Library thumbnail |
+| `{prefix}eim_event_lodging` | Pivot table linking events to their lodging location options; includes a `notes` column for event-specific notes unique to each event/location pairing |
 | `{prefix}eim_qr_codes` | QR code records: confirmation code, event/group FKs, and uploads-relative SVG path with companion PNG beside it |
 | `{prefix}eim_invitee_connection_groups` | Reusable global relationship groups (couples, families, households, custom) |
 | `{prefix}eim_invitee_connection_group_members` | Pivot table linking global invitees to reusable connection groups |

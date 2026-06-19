@@ -71,6 +71,7 @@ final class RsvpFlowResolver
         [$requiresFood, $requiresBeverage] = $this->resolveMenuRequirements($event);
         $rsvpStartPending            = $event->isRsvpStartPending();
         $rsvpBeforeStartUrl          = $event->rsvpBeforeStartUrl($code);
+        $rsvpAfterDeadlineUrl        = $event->rsvpAfterDeadlineUrl($code);
         $deadlinePassed              = $event->isRsvpDeadlinePassed();
 
         if (!empty($pendingMembers)) {
@@ -86,8 +87,9 @@ final class RsvpFlowResolver
                 dashboardUrl:       null,
                 message:            null,
                 rsvpStartPending:   $rsvpStartPending,
-                rsvpBeforeStartUrl: $rsvpBeforeStartUrl,
-                rsvpDeadlinePassed: $deadlinePassed,
+                rsvpBeforeStartUrl:   $rsvpBeforeStartUrl,
+                rsvpDeadlinePassed:   $deadlinePassed,
+                rsvpAfterDeadlineUrl: $rsvpAfterDeadlineUrl,
             );
         }
 
@@ -105,8 +107,9 @@ final class RsvpFlowResolver
                 dashboardUrl:       $event->dashboardUrl($code),
                 message:            null,
                 rsvpStartPending:   $rsvpStartPending,
-                rsvpBeforeStartUrl: $rsvpBeforeStartUrl,
-                rsvpDeadlinePassed: $deadlinePassed,
+                rsvpBeforeStartUrl:   $rsvpBeforeStartUrl,
+                rsvpDeadlinePassed:   $deadlinePassed,
+                rsvpAfterDeadlineUrl: $rsvpAfterDeadlineUrl,
             );
         }
 

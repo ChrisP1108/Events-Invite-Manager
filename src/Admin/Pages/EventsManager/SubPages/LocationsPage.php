@@ -144,6 +144,7 @@ final class LocationsPage extends AbstractAdminPage
             'zip_code'            => sanitize_text_field(wp_unslash($_POST['zip_code'] ?? '')),
             'has_lodging'         => !empty($_POST['has_lodging']),
             'booking_url'         => esc_url_raw(wp_unslash($_POST['booking_url'] ?? '')),
+            'description'         => sanitize_textarea_field(wp_unslash($_POST['description'] ?? '')),
             'image_attachment_id' => $this->sanitizeImageAttachmentId((int) ($_POST['image_attachment_id'] ?? 0)),
         ];
 
@@ -585,6 +586,17 @@ final class LocationsPage extends AbstractAdminPage
                             }
                             $this->renderCategoryPicker('eim-location-cat-picker', $selCats, $catNonce);
                             ?>
+                        </td>
+                    </tr>
+                </table>
+
+                <h2 class="title">Description</h2>
+                <table class="form-table" role="presentation">
+                    <tr>
+                        <th scope="row"><label for="eim_lib_description">Description</label></th>
+                        <td>
+                            <textarea id="eim_lib_description" name="description" rows="4" class="large-text"><?= esc_textarea($isNew ? '' : $location->description); ?></textarea>
+                            <p class="description">Optional notes or details about this location. Shown to admins only.</p>
                         </td>
                     </tr>
                 </table>

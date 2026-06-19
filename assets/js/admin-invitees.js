@@ -1819,6 +1819,56 @@
     }
 
     // -----------------------------------------------------------------------
+    // LodgingNotesEditor — inline AJAX save for per-event lodging notes
+    // -----------------------------------------------------------------------
+
+    class LodgingNotesEditor {
+        constructor() {
+            if (!config.event?.lodgingNotesNonce) return;
+            this._timers = new Map();
+            document.addEventListener('input', (e) => {
+                if (e.target.matches('.eim-lodging-notes')) this._schedule(e.target);
+            });
+        }
+
+        _schedule(textarea) {
+            const id = textarea.dataset.lodgingId;
+            if (!id) return;
+            clearTimeout(this._timers.get(id));
+            this._timers.set(id, setTimeout(() => this._save(textarea), 600));
+        }
+
+        async _save(textarea) {
+            const id     = textarea.dataset.lodgingId;
+            const status = textarea.closest('div')?.querySelector('.eim-lodging-notes-status');
+            if (status) status.textContent = 'Saving…';
+
+            const body = new URLSearchParams();
+            body.set('action',     'eim_save_lodging_notes');
+            body.set('nonce',      config.event.lodgingNotesNonce);
+            body.set('event_id',   config.event.id || 0);
+            body.set('lodging_id', id);
+            body.set('notes',      textarea.value);
+
+            try {
+                const resp = await fetch(ajaxurl, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body,
+                });
+                const { success } = await resp.json();
+                if (status) {
+                    status.textContent = success ? 'Saved.' : 'Could not save.';
+                    window.setTimeout(() => { if (status) status.textContent = ''; }, 2400);
+                }
+            } catch {
+                if (status) status.textContent = 'Could not save.';
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // MenuItemPicker — autocomplete for food/beverage pickers on the event edit page
     // -----------------------------------------------------------------------
 
@@ -2921,6 +2971,7 @@
             new MenuItemPicker();
             new EventMenuItemFilter();
             new EventAssignmentSorter();
+            new LodgingNotesEditor();
             new GroupAccordion();
             new SeatAssignmentManager(config.event?.seatNonce || '');
             seatingTableInstance = new SeatingAssignmentsTable();

@@ -113,7 +113,8 @@ final class EventsPage extends AbstractAdminPage
             'invite_email_subject'  => sanitize_text_field(wp_unslash($_POST['invite_email_subject'] ?? '')),
             'invite_email_template' => wp_kses_post(wp_unslash($_POST['invite_email_template'] ?? '')),
             'rsvp_page_id'          => (int) ($_POST['rsvp_page_id'] ?? 0),
-            'rsvp_before_start_page_id' => (int) ($_POST['rsvp_before_start_page_id'] ?? 0),
+            'rsvp_before_start_page_id'  => (int) ($_POST['rsvp_before_start_page_id']  ?? 0),
+            'rsvp_after_deadline_page_id' => (int) ($_POST['rsvp_after_deadline_page_id'] ?? 0),
             'venue_id'              => (int) ($_POST['venue_library_id'] ?? 0),
             'start_datetime'        => $this->sanitizeDatetimeLocal($_POST['start_datetime'] ?? '', $timezone),
             'end_datetime'          => $this->sanitizeDatetimeLocal($_POST['end_datetime']   ?? '', $timezone),
@@ -979,6 +980,34 @@ final class EventsPage extends AbstractAdminPage
     }
 
     /**
+     * AJAX: saves event-specific notes for a lodging assignment.
+     *
+     * Expected POST params: nonce, event_id, lodging_id, notes.
+     */
+    public function handleAjaxSaveLodgingNotes(): void
+    {
+        check_ajax_referer('eim_save_lodging_notes_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions.', 403);
+        }
+
+        $eventId   = (int) ($_POST['event_id']   ?? 0);
+        $lodgingId = (int) ($_POST['lodging_id'] ?? 0);
+        $notes     = sanitize_textarea_field(wp_unslash($_POST['notes'] ?? ''));
+
+        if ($eventId <= 0 || $lodgingId <= 0) {
+            wp_send_json_error('Invalid request.', 400);
+        }
+
+        if (!EventLodging::updateNotes($lodgingId, $eventId, $notes)) {
+            wp_send_json_error('Unable to save notes.', 500);
+        }
+
+        wp_send_json_success(['message' => 'Notes saved.']);
+    }
+
+    /**
      * AJAX: persists a new drag-sorted order for menu items of a specific type on an event.
      *
      * Expected POST params: nonce, event_id, type, ids[] (ordered menu item IDs).
@@ -1469,7 +1498,8 @@ final class EventsPage extends AbstractAdminPage
                 'calendar_span_description' => $event->calendarSpanDescription,
                 'rsvp_start_datetime' => $event->rsvpStartDatetime,
                 'rsvp_deadline'=> $event->rsvpDeadline,
-                'rsvp_before_start_page_id' => $event->rsvpBeforeStartPageId,
+                'rsvp_before_start_page_id'  => $event->rsvpBeforeStartPageId,
+                'rsvp_after_deadline_page_id' => $event->rsvpAfterDeadlinePageId,
                 'max_invitees' => $event->maxInvitees,
                 'venue'        => $venue ? ['name' => $venue->name, 'address' => $venue->formattedAddress(), 'booking_url' => $venue->bookingUrl] : null,
             ],
@@ -1479,6 +1509,7 @@ final class EventsPage extends AbstractAdminPage
                 'address'     => $l->formattedAddress(),
                 'booking_url' => $l->bookingUrl,
                 'is_other'    => $l->isOther,
+                'notes'       => $l->notes,
             ], $lodgingOptions),
             'menu_options' => [
                 'food'     => array_map(static fn(MenuItem $i): array => ['id' => $i->id, 'label' => $i->label, 'description' => $i->description], array_values($foodById ? MenuItem::forEventByType($eventId, MenuItem::TYPE_FOOD) : [])),
@@ -2322,7 +2353,8 @@ final class EventsPage extends AbstractAdminPage
         $pages           = get_pages(['sort_column' => 'post_title', 'sort_order' => 'ASC']);
         $selectedPageId       = $isNew ? 0 : ($event->rsvpPageId ?? 0);
         $selectedDashboard    = $isNew ? 0 : ($event->dashboardPageId ?? 0);
-        $selectedBeforeStart  = $isNew ? 0 : ($event->rsvpBeforeStartPageId ?? 0);
+        $selectedBeforeStart   = $isNew ? 0 : ($event->rsvpBeforeStartPageId   ?? 0);
+        $selectedAfterDeadline = $isNew ? 0 : ($event->rsvpAfterDeadlinePageId ?? 0);
         ?>
         <div class="wrap">
             <h1><?= esc_html($title); ?></h1>
@@ -2512,6 +2544,25 @@ final class EventsPage extends AbstractAdminPage
                                 <?php $rsvpDeadlineVal = (!$isNew && $event->rsvpDeadline) ? $this->utcToDatetimeLocal($event->rsvpDeadline, $event->timezone) : ''; ?>
                                 <input type="datetime-local" id="eim_rsvp_deadline" name="rsvp_deadline" value="<?= esc_attr($rsvpDeadlineVal); ?>">
                                 <p class="description">Invitees must submit their initial RSVP (attending / not attending) by this date and time. Leave blank for no deadline.</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="eim_rsvp_after_deadline_page_id">After RSVP Deadline Page</label></th>
+                            <td>
+                                <select id="eim_rsvp_after_deadline_page_id" name="rsvp_after_deadline_page_id">
+                                    <option value="0">— No after-deadline page selected —</option>
+                                    <?php foreach ($pages as $page): ?>
+                                        <option value="<?= esc_attr($page->ID); ?>" <?php selected($selectedAfterDeadline, $page->ID); ?>>
+                                            <?= esc_html($page->post_title); ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                                <p class="description">
+                                    Guests who attempt to RSVP for the first time after the RSVP Deadline are sent here instead.
+                                    <?php if ($selectedAfterDeadline > 0): ?>
+                                        <br><a href="<?= esc_url(get_permalink($selectedAfterDeadline)); ?>" target="_blank"><?= esc_html(get_the_title($selectedAfterDeadline)); ?> ↗</a>
+                                    <?php endif; ?>
+                                </p>
                             </td>
                         </tr>
                         <tr>
@@ -2817,6 +2868,14 @@ final class EventsPage extends AbstractAdminPage
                                                         <?php elseif ($loc->formattedAddress()): ?>
                                                             <br><span style="color:#666;font-size:12px;"><?= esc_html($loc->formattedAddress()); ?></span>
                                                         <?php endif; ?>
+                                                        <div style="margin-top:6px;">
+                                                            <textarea class="eim-lodging-notes"
+                                                                      data-lodging-id="<?= esc_attr($loc->id); ?>"
+                                                                      placeholder="Event-specific notes…"
+                                                                      rows="2"
+                                                                      style="width:100%;font-size:12px;resize:vertical;"><?= esc_textarea($loc->notes); ?></textarea>
+                                                            <span class="eim-lodging-notes-status" style="font-size:11px;color:#888;"></span>
+                                                        </div>
                                                     </td>
                                                     <td>
                                                         <a href="<?= esc_url($removeUrl); ?>"

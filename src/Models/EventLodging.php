@@ -23,6 +23,7 @@ final class EventLodging
      * @param int    $eventId            Parent event ID.
      * @param int    $locationId         FK to eim_locations.
      * @param int    $sortOrder          Display order (ascending).
+     * @param string $notes              Optional event-specific notes about this lodging option.
      * @param string $createdAt          MySQL datetime of row creation.
      * @param string $name               Location name (from JOIN).
      * @param string $streetAddress      Location street address (from JOIN).
@@ -38,6 +39,7 @@ final class EventLodging
         public readonly int    $eventId,
         public readonly int    $locationId,
         public readonly int    $sortOrder,
+        public readonly string $notes,
         public readonly string $createdAt,
         public readonly string $name,
         public readonly string $streetAddress,
@@ -64,7 +66,7 @@ final class EventLodging
 
         $rows = $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT el.id, el.event_id, el.location_id, el.sort_order, el.created_at,
+                "SELECT el.id, el.event_id, el.location_id, el.sort_order, el.notes, el.created_at,
                         l.name, l.street_address, l.city, l.state, l.zip_code, l.is_other, l.booking_url,
                         l.image_attachment_id
                  FROM {$el} el
@@ -117,6 +119,29 @@ final class EventLodging
             'location_id' => $locationId,
             'sort_order'  => $sortOrder > 0 ? $sortOrder : self::nextSortOrder($eventId),
         ]);
+
+        return $result !== false;
+    }
+
+    /**
+     * Updates the event-specific notes for a lodging assignment.
+     *
+     * @param int    $id      Primary key of the eim_event_lodging row.
+     * @param int    $eventId Parent event ID (used to scope the update for safety).
+     * @param string $notes   New notes value (empty string clears the notes).
+     * @return bool
+     */
+    public static function updateNotes(int $id, int $eventId, string $notes): bool
+    {
+        global $wpdb;
+
+        $result = $wpdb->update(
+            DatabaseManager::eventLodgingTable(),
+            ['notes' => $notes !== '' ? $notes : null],
+            ['id' => $id, 'event_id' => $eventId],
+            ['%s'],
+            ['%d', '%d']
+        );
 
         return $result !== false;
     }
@@ -246,6 +271,7 @@ final class EventLodging
             eventId:            (int)  $row->event_id,
             locationId:         (int)  $row->location_id,
             sortOrder:          (int)  $row->sort_order,
+            notes:                     $row->notes               ?? '',
             createdAt:                 $row->created_at          ?? '',
             name:                      $row->name,
             streetAddress:             $row->street_address      ?? '',
