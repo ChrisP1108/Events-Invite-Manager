@@ -44,6 +44,7 @@ final class CalendarLinksShortcode
                 'before_text' => '',
                 'after_text' => '',
                 'no_pretext' => '',
+                'classes' => ''
             ],
             is_array($attrs) ? $attrs : [],
             'eim_calendar_links'
@@ -55,6 +56,7 @@ final class CalendarLinksShortcode
         $beforeText = trim((string) $attrs['before_text']);
         $afterText  = trim((string) $attrs['after_text']);
         $noPretext  = trim((string) $attrs['no_pretext']) !== '';
+        $classes    = trim((string) $attrs['classes']);
 
         if (empty($types)) {
             return '';
@@ -81,7 +83,7 @@ final class CalendarLinksShortcode
             );
         }
 
-        return $this->renderHtml($linkSets, $types, $styled, $beforeText, $afterText, $noPretext);
+        return $this->renderHtml($linkSets, $types, $styled, $beforeText, $afterText, $noPretext, $classes);
     }
 
     // -------------------------------------------------------------------------
@@ -259,7 +261,7 @@ final class CalendarLinksShortcode
      * @param array<int, array{key:string,label:string,link:Link}> $linkSets
      * @param string[] $types
      */
-    private function renderHtml(array $linkSets, array $types, bool $styled, string $beforeText = '', string $afterText = '', bool $noPretext = false): string
+    private function renderHtml(array $linkSets, array $types, bool $styled, string $beforeText = '', string $afterText = '', bool $noPretext = false, string $classes = ''): string
     {
         $groups = [];
 
@@ -297,9 +299,10 @@ final class CalendarLinksShortcode
         }
 
         return sprintf(
-            '<div class="eim-calendar-links%s%s">%s</div>',
+            '<div class="eim-calendar-links%s%s %s">%s</div>',
             esc_attr($styledClass),
             esc_attr($multiClass),
+            esc_attr($classes),
             $items
         );
     }
@@ -309,7 +312,7 @@ final class CalendarLinksShortcode
         [$href, $calendarName, $download] = match ($type) {
             'google'  => [$link->google(),      'Google Calendar', ''],
             'ical'    => [$link->ics(),         'Apple Calendar',  $this->icsFilename($link)],
-            'outlook' => [$link->webOutlook(),  'Outlook',         ''],
+            'outlook' => [$link->webOutlook(),  'Outlook Calendar',         ''],
             default   => ['', '', ''],
         };
 
@@ -327,7 +330,7 @@ final class CalendarLinksShortcode
 
         return sprintf(
             '<a href="%s" class="eim-calendar-link eim-calendar-link--%s"%s%s>'
-                . '%s'
+                . '<span class="eim-calendar-link-text">%s</span>'
             . '</a>',
             esc_attr($href),
             esc_attr($type),
