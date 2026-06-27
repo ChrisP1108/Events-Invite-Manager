@@ -381,7 +381,7 @@ img {
     object-fit: contain;
 }
 
-.eim-li-image-modal-close {
+.eim-li-image-modal-close, .eim-invitee-image-modal-close {
     align-items: center;
     background: #fff;
     border-radius: 50%;
@@ -1193,7 +1193,7 @@ img {
     padding: 4px 6px;
 }
 
-.eim-li-image-modal-close {
+.eim-li-image-modal-close, .eim-invitee-image-modal-close {
     color: #fff !important;
     font-size: clamp(1rem, 3.5vw, 1.75rem) !important;
     text-decoration: none;
@@ -1207,7 +1207,7 @@ img {
     transition: 0.25s !important;
 }
 
-.eim-li-image-modal-close:hover {
+.eim-li-image-modal-close:hover, .eim-invitee-image-modal-close:hover {
     transform: scale(1.1);
 }
 
