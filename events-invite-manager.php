@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) exit;
  * PHP version guard.
  *
  * This file must not use PHP 8.1+ syntax directly. PHP parses the entire file
- * before executing any branch, so 8.1+ syntax here would cause a fatal parse
+ * before executing any branches, so 8.1+ syntax here would cause a fatal parse
  * error on older runtimes before this guard ever runs. PHP 8.1+ code is safely
  * isolated in the vendor autoloader and the src/ files loaded inside the else block.
  */
