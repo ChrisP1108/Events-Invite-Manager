@@ -1093,9 +1093,9 @@ final class EventsPage extends AbstractAdminPage
             $members        = $group->getMembers();
 
             if ($primaryInvitee) {
-                $qrCode = $this->qrCodeService->getOrCreateForGroup($event, $group);
-
-                if ($qrCode === null) {
+                if ($primaryInvitee->email === '') {
+                    $message = 'invite_no_email';
+                } elseif (($qrCode = $this->qrCodeService->getOrCreateForGroup($event, $group)) === null) {
                     $message = 'invite_failed';
                 } else {
                     $sent = $this->emailService->sendGroupInvite(
@@ -1150,7 +1150,7 @@ final class EventsPage extends AbstractAdminPage
                 }
 
                 $primaryInvitee = Invitee::find($group->primaryInviteeId);
-                if ($primaryInvitee === null) {
+                if ($primaryInvitee === null || $primaryInvitee->email === '') {
                     continue;
                 }
 
@@ -1684,7 +1684,7 @@ final class EventsPage extends AbstractAdminPage
 
         foreach ($unsent as $group) {
             $primaryInvitee = Invitee::find($group->primaryInviteeId);
-            if ($primaryInvitee === null) {
+            if ($primaryInvitee === null || $primaryInvitee->email === '') {
                 $failed++;
                 continue;
             }

@@ -157,7 +157,7 @@ final class InviteesPage extends AbstractAdminPage
             'image_attachment_id' => $this->sanitizeInviteeImageAttachmentId((int) ($_POST['image_attachment_id'] ?? 0)),
         ];
 
-        if (empty($data['first_name']) || empty($data['last_name']) || empty($data['email'])) {
+        if (empty($data['first_name']) || empty($data['last_name'])) {
             wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, [
                 'action'    => $id ? 'edit' : 'add',
                 'id'        => $id ?: null,
@@ -166,7 +166,7 @@ final class InviteesPage extends AbstractAdminPage
             exit;
         }
 
-        if (!is_email($data['email'])) {
+        if ($data['email'] !== '' && !is_email($data['email'])) {
             wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, [
                 'action'    => $id ? 'edit' : 'add',
                 'id'        => $id ?: null,
@@ -557,9 +557,9 @@ final class InviteesPage extends AbstractAdminPage
                                    value="<?= esc_attr($isNew ? '' : $invitee->lastName); ?>" required></td>
                     </tr>
                     <tr>
-                        <th scope="row"><label for="eim_email">Email Address <span aria-hidden="true" style="color:#d63638;">*</span></label></th>
+                        <th scope="row"><label for="eim_email">Email Address</label></th>
                         <td><input type="email" id="eim_email" name="email" class="regular-text"
-                                   value="<?= esc_attr($isNew ? '' : $invitee->email); ?>" required></td>
+                                   value="<?= esc_attr($isNew ? '' : $invitee->email); ?>"></td>
                     </tr>
                     <tr>
                         <th scope="row"><label for="eim_phone">Phone</label></th>

@@ -178,6 +178,10 @@ final class EmailService
      */
     private function dispatchHtml(string $to, string $subject, string $body, string $fromHeader = ''): bool
     {
+        if ($to === '') {
+            return false;
+        }
+
         $headers = ['Content-Type: text/html; charset=UTF-8'];
 
         if ($fromHeader !== '') {
