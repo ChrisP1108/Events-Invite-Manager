@@ -53,7 +53,14 @@ final class QrCode
             $wpdb->prepare("SELECT * FROM {$table} WHERE confirmation_code = %s LIMIT 1", $code)
         );
 
-        return $row ? self::fromRow($row) : null;
+        if (!$row) {
+            return null;
+        }
+
+        $qrCode = self::fromRow($row);
+
+        // The column collation is case-insensitive, so re-check the case exactly here.
+        return hash_equals($qrCode->confirmationCode, $code) ? $qrCode : null;
     }
 
     /**

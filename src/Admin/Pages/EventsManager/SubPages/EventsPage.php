@@ -111,7 +111,7 @@ final class EventsPage extends AbstractAdminPage
             'from_name'             => sanitize_text_field(wp_unslash($_POST['from_name'] ?? '')),
             'from_email'            => $this->sanitizeFromEmailTemplate((string) ($_POST['from_email'] ?? '')),
             'invite_email_subject'  => sanitize_text_field(wp_unslash($_POST['invite_email_subject'] ?? '')),
-            'invite_email_template' => wp_kses_post(wp_unslash($_POST['invite_email_template'] ?? '')),
+            'invite_email_template' => wp_unslash($_POST['invite_email_template'] ?? ''),
             'rsvp_page_id'          => (int) ($_POST['rsvp_page_id'] ?? 0),
             'rsvp_before_start_page_id'  => (int) ($_POST['rsvp_before_start_page_id']  ?? 0),
             'rsvp_after_deadline_page_id' => (int) ($_POST['rsvp_after_deadline_page_id'] ?? 0),

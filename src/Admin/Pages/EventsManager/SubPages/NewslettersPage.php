@@ -216,9 +216,11 @@ final class NewslettersPage extends AbstractAdminPage
 
         $id = (int) ($_POST['newsletter_id'] ?? 0);
 
-        // Collect raw POST content — wp_editor POSTs HTML, so use wp_kses_post.
+        // Page is gated behind manage_options, so trust the admin's raw HTML rather than
+        // running it through wp_kses_post(), which strips/mangles markup email layouts need
+        // (style attributes, conditional comments, etc.) and can re-encode it as literal entities.
         $content = isset($_POST['newsletter_content'])
-            ? wp_kses_post(wp_unslash($_POST['newsletter_content']))
+            ? wp_unslash($_POST['newsletter_content'])
             : '';
 
         $categoryIds = array_map('intval', (array) ($_POST['category_ids'] ?? []));
