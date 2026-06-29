@@ -78,7 +78,10 @@ final class QrCodeService
      */
     public function imgTag(QrCode $qrCode): string
     {
-        return '<img src="' . esc_url($qrCode->pngUrl()) . '" alt="Scan to RSVP" width="' . self::QR_EMAIL_DISPLAY_SIZE . '" height="' . self::QR_EMAIL_DISPLAY_SIZE . '" style="display:block;">';
+        $img = '<img src="' . esc_url($qrCode->pngUrl()) . '" alt="Scan to RSVP" width="' . self::QR_EMAIL_DISPLAY_SIZE . '" height="' . self::QR_EMAIL_DISPLAY_SIZE . '" style="display:block;">';
+        $url = esc_url($this->buildInviteUrl($qrCode->confirmationCode));
+
+        return '<a href="' . $url . '" target="_blank" style="display:block;">' . $img . '</a>';
     }
 
     /**
