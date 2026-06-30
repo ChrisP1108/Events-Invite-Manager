@@ -305,7 +305,9 @@ final class Invitee
             'events'     => $eventSortSql,
         ];
 
-        $sortSql = $sortColumns[$orderBy] ?? $sortColumns['last_name'];
+        // has_address is computed in PHP after the fetch; use last_name for the DB sort pass.
+        $phpSort = $orderBy === 'has_address';
+        $sortSql = $phpSort ? $sortColumns['last_name'] : ($sortColumns[$orderBy] ?? $sortColumns['last_name']);
         $dirSql  = strtolower($order) === 'desc' ? 'DESC' : 'ASC';
         $params  = [];
         $where   = '';
@@ -384,7 +386,20 @@ final class Invitee
             ? $wpdb->get_results($wpdb->prepare($sql, ...$params))
             : $wpdb->get_results($sql);
 
-        $invitees        = array_map(static fn(object $row) => self::fromPublicRow($row), $rows ?? []);
+        $invitees = array_map(static fn(object $row) => self::fromPublicRow($row), $rows ?? []);
+
+        if ($phpSort) {
+            $desc = $dirSql === 'DESC';
+            usort($invitees, static function (self $a, self $b) use ($desc): int {
+                $aHas = (int) $a->hasAddress();
+                $bHas = (int) $b->hasAddress();
+                if ($aHas !== $bHas) {
+                    return $desc ? $bHas - $aHas : $aHas - $bHas;
+                }
+                return strcasecmp($a->lastName, $b->lastName) ?: strcasecmp($a->firstName, $b->firstName);
+            });
+        }
+
         $inviteeIds      = array_map(static fn(self $inv) => $inv->id, $invitees);
         $eventsByInvitee = self::eventsForInvitees($inviteeIds);
 
@@ -599,6 +614,14 @@ final class Invitee
     public function fullName(): string
     {
         return trim("{$this->firstName} {$this->lastName}");
+    }
+
+    public function hasAddress(): bool
+    {
+        return $this->streetAddress !== ''
+            && $this->city         !== ''
+            && $this->state        !== ''
+            && $this->zipCode      !== '';
     }
 
     public function formattedAddress(): string

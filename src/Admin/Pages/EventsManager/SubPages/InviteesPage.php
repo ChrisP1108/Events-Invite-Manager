@@ -409,6 +409,7 @@ final class InviteesPage extends AbstractAdminPage
                         <th style="width:11%;"><?= $this->sortLink('Last Name', 'last_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
                         <th style="width:17%;"><?= $this->sortLink('Email', 'email', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
                         <th style="width:10%;"><?= $this->sortLink('Phone', 'phone', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
+                        <th style="width:8%;"><?= $this->sortLink('Has Address', 'has_address', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
                         <th style="width:13%"><?= $this->sortLink('Invited Events', 'events', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
                         <th style="width:13%;">Connection Groups</th>
                         <th style="width:11%;">Categories</th>
@@ -432,7 +433,7 @@ final class InviteesPage extends AbstractAdminPage
     {
         if (empty($rows)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No invitees found.';
-            echo '<tr class="eim-no-results"><td colspan="10">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="11">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -463,6 +464,7 @@ final class InviteesPage extends AbstractAdminPage
                 <td><a href="<?= esc_url($editUrl); ?>"><?= esc_html($invitee->lastName); ?></a></td>
                 <td><a href="mailto:<?= esc_attr($invitee->email); ?>"><?= esc_html($invitee->email); ?></a></td>
                 <td><?= esc_html($invitee->phone ?: '—'); ?></td>
+                <td><?= $invitee->hasAddress() ? 'True' : 'False'; ?></td>
                 <td>
                     <?php if (empty($row['events'])): ?>
                         <span style="color:#999;">Not invited yet</span>
@@ -715,7 +717,7 @@ final class InviteesPage extends AbstractAdminPage
     private function sanitizeSortKey(string $key): string
     {
         $key = sanitize_key($key);
-        return in_array($key, ['first_name', 'last_name', 'email', 'phone', 'events'], true)
+        return in_array($key, ['first_name', 'last_name', 'email', 'phone', 'has_address', 'events'], true)
             ? $key
             : 'last_name';
     }
