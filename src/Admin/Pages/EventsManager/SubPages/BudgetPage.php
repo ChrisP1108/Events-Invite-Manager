@@ -91,7 +91,7 @@ final class BudgetPage extends AbstractAdminPage
         $plans = array_slice($all, ($page - 1) * $perPage, $perPage);
 
         ob_start();
-        $this->renderPlanRows($plans, $query);
+        $this->renderPlanRows($plans, $query, ($page - 1) * $perPage);
         $html = (string) ob_get_clean();
 
         wp_send_json_success(['html' => $html, 'count' => $total, 'total' => $total]);
@@ -656,6 +656,7 @@ final class BudgetPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
+                        <th style="width:30px;">#</th>
                         <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('budget-plans'); ?></th>
                         <th style="width:22%;"><?= $this->sortLink('Plan Name', 'name',      AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_BUDGET]); ?></th>
                         <th style="width:18%;"><?= $this->sortLink('Events',    'events',    AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_BUDGET]); ?></th>
@@ -685,18 +686,18 @@ final class BudgetPage extends AbstractAdminPage
      *
      * @param BudgetPlan[] $plans
      */
-    private function renderPlanRows(array $plans, string $search = ''): void
+    private function renderPlanRows(array $plans, string $search = '', int $offset = 0): void
     {
         if (empty($plans)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No budget plans found.';
-            echo '<tr class="eim-no-results"><td colspan="8">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="9">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
         $planIds    = array_map(static fn(BudgetPlan $p): int => $p->id, $plans);
         $catsByPlan = Category::forEntities('budget_plan', $planIds);
 
-        foreach ($plans as $plan) {
+        foreach ($plans as $i => $plan) {
             $editUrl   = AdminMenu::tabUrl(AdminMenu::TAB_BUDGET, ['action' => 'edit', 'id' => $plan->id]);
             $deleteUrl = wp_nonce_url(
                 AdminMenu::tabUrl(AdminMenu::TAB_BUDGET, ['action' => 'delete_budget_plan', 'id' => $plan->id]),
@@ -706,6 +707,7 @@ final class BudgetPage extends AbstractAdminPage
             $cats   = $catsByPlan[$plan->id] ?? [];
             ?>
             <tr>
+                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
                 <?= $this->renderBulkSelectCell('eim-budget-plans-bulk-form', 'budget-plans', $plan->id, $plan->name); ?>
                 <td><strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($plan->name); ?></a></strong>
                     <?php if ($plan->description): ?>

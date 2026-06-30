@@ -68,7 +68,7 @@ final class VendorsPage extends AbstractAdminPage
         $vendors = array_slice($all, ($page - 1) * $perPage, $perPage);
 
         ob_start();
-        $this->renderVendorRows($vendors, $query);
+        $this->renderVendorRows($vendors, $query, ($page - 1) * $perPage);
         $html = (string) ob_get_clean();
 
         wp_send_json_success(['html' => $html, 'count' => $total, 'total' => $total]);
@@ -253,6 +253,7 @@ final class VendorsPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
+                        <th style="width:30px;">#</th>
                         <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('vendors'); ?></th>
                         <th style="width:20%;"><?= $this->sortLink('Company Name', 'company_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_VENDORS]); ?></th>
                         <th style="width:13%;"><?= $this->sortLink('Contact Name', 'contact_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_VENDORS]); ?></th>
@@ -281,11 +282,11 @@ final class VendorsPage extends AbstractAdminPage
      *
      * @param Vendor[] $vendors
      */
-    private function renderVendorRows(array $vendors, string $search = ''): void
+    private function renderVendorRows(array $vendors, string $search = '', int $offset = 0): void
     {
         if (empty($vendors)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No vendors found.';
-            echo '<tr class="eim-no-results"><td colspan="8">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="9">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -294,7 +295,7 @@ final class VendorsPage extends AbstractAdminPage
         $menuUsage    = Vendor::menuItemUsageForVendors($vendorIds);
         $catsByVendor = Category::forEntities('vendor', $vendorIds);
 
-        foreach ($vendors as $vendor) {
+        foreach ($vendors as $i => $vendor) {
             $editUrl   = AdminMenu::tabUrl(AdminMenu::TAB_VENDORS, ['action' => 'edit', 'id' => $vendor->id]);
             $deleteUrl = wp_nonce_url(
                 AdminMenu::tabUrl(AdminMenu::TAB_VENDORS, ['action' => 'delete_vendor', 'id' => $vendor->id]),
@@ -305,6 +306,7 @@ final class VendorsPage extends AbstractAdminPage
             $cats      = $catsByVendor[$vendor->id] ?? [];
             ?>
             <tr>
+                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
                 <?= $this->renderBulkSelectCell('eim-vendors-bulk-form', 'vendors', $vendor->id, $vendor->companyName); ?>
                 <td>
                     <strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($vendor->companyName); ?></a></strong>

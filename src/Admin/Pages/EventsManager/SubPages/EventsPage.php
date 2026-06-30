@@ -1875,7 +1875,7 @@ final class EventsPage extends AbstractAdminPage
         $paged = array_slice($all, ($page - 1) * $perPage, $perPage);
 
         ob_start();
-        $this->renderEventRows($paged, $query);
+        $this->renderEventRows($paged, $query, ($page - 1) * $perPage);
         $html = (string) ob_get_clean();
 
         wp_send_json_success(['html' => $html, 'count' => $total, 'total' => $total]);
@@ -2011,6 +2011,7 @@ final class EventsPage extends AbstractAdminPage
                        data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
+                            <th style="width:30px;">#</th>
                             <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('events'); ?></th>
                             <th style="width:18%;"><?= $this->sortLink('Name', 'name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_EVENTS]); ?></th>
                             <th style="width:20%;"><?= $this->sortLink('Date / Time', 'start_datetime', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_EVENTS]); ?></th>
@@ -2035,18 +2036,18 @@ final class EventsPage extends AbstractAdminPage
      *
      * @param Event[] $events
      */
-    private function renderEventRows(array $events, string $search = ''): void
+    private function renderEventRows(array $events, string $search = '', int $offset = 0): void
     {
         if (empty($events)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No events found.';
-            echo '<tr class="eim-no-results"><td colspan="7">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="8">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
         $catsByEvent = Category::forEntities('event', array_map(static fn(Event $e): int => $e->id, $events));
         $catEditBase = AdminMenu::tabUrl(AdminMenu::TAB_CATEGORIES);
 
-        foreach ($events as $event) {
+        foreach ($events as $i => $event) {
             $editUrl     = AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $event->id]);
             $deleteUrl   = wp_nonce_url(
                 AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'delete_event', 'id' => $event->id]),
@@ -2059,6 +2060,7 @@ final class EventsPage extends AbstractAdminPage
             $cats        = $catsByEvent[$event->id] ?? [];
             ?>
             <tr>
+                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
                 <?= $this->renderBulkSelectCell('eim-events-bulk-form', 'events', $event->id, $event->name); ?>
                 <td>
                     <strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($event->name); ?></a></strong>

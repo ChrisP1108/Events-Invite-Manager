@@ -1144,6 +1144,16 @@ img {
     vertical-align: middle;
 }
 
+.eim-row-num,
+.wp-list-table th.eim-row-num {
+    color: #999;
+    font-size: 11px;
+    text-align: right;
+    vertical-align: middle;
+    width: 30px;
+    padding-right: 6px !important;
+}
+
 /* ---- Requested Invitee Add-Ons modal ---- */
 
 .eim-modal-overlay {

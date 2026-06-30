@@ -58,7 +58,7 @@ final class GiftsPage extends AbstractAdminPage
         $gifts   = array_slice($all, ($page - 1) * $perPage, $perPage);
 
         ob_start();
-        $this->renderGiftRows($gifts, $query);
+        $this->renderGiftRows($gifts, $query, ($page - 1) * $perPage);
         $html = (string) ob_get_clean();
 
         wp_send_json_success(['html' => $html, 'count' => $total, 'total' => $total]);
@@ -238,6 +238,7 @@ final class GiftsPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
+                        <th style="width:30px;">#</th>
                         <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('gifts'); ?></th>
                         <th class="eim-gift-image-column">Image</th>
                         <th style="width:22%;"><?= $this->sortLink('Name', 'name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_GIFTS]); ?></th>
@@ -263,11 +264,11 @@ final class GiftsPage extends AbstractAdminPage
     }
 
     /** @param Gift[] $gifts */
-    private function renderGiftRows(array $gifts, string $search = ''): void
+    private function renderGiftRows(array $gifts, string $search = '', int $offset = 0): void
     {
         if (empty($gifts)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No gifts found.';
-            echo '<tr class="eim-no-results"><td colspan="9">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="10">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -276,7 +277,7 @@ final class GiftsPage extends AbstractAdminPage
         $eventsByGift = Gift::eventDataForGifts($giftIds);
         $purchaseByGift = Gift::purchaseDetailsForGifts($giftIds);
 
-        foreach ($gifts as $gift) {
+        foreach ($gifts as $i => $gift) {
             $editUrl   = AdminMenu::tabUrl(AdminMenu::TAB_GIFTS, ['action' => 'edit', 'id' => $gift->id]);
             $deleteUrl = wp_nonce_url(
                 AdminMenu::tabUrl(AdminMenu::TAB_GIFTS, ['action' => 'delete_gift', 'id' => $gift->id]),
@@ -286,6 +287,7 @@ final class GiftsPage extends AbstractAdminPage
             $events = $eventsByGift[$gift->id] ?? [];
             ?>
             <tr>
+                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
                 <?= $this->renderBulkSelectCell('eim-gifts-bulk-form', 'gifts', $gift->id, $gift->name); ?>
                 <td><?= $this->giftImageThumbnailMarkup($gift->imageAttachmentId, $gift->name); ?></td>
                 <td>

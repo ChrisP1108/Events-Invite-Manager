@@ -56,7 +56,7 @@ final class BudgetItemsPage extends AbstractAdminPage
         $items = array_slice($all, ($page - 1) * $perPage, $perPage);
 
         ob_start();
-        $this->renderRows($items, $query);
+        $this->renderRows($items, $query, ($page - 1) * $perPage);
         $html = (string) ob_get_clean();
 
         wp_send_json_success(['html' => $html, 'count' => $total, 'total' => $total]);
@@ -290,6 +290,7 @@ final class BudgetItemsPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
+                        <th style="width:30px;">#</th>
                         <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('budget-items'); ?></th>
                         <th style="width:52px;">Image</th>
                         <th style="width:20%;"><?= $this->sortLink('Label',        'label',        AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_BUDGET_LINE_ITEMS]); ?></th>
@@ -319,11 +320,11 @@ final class BudgetItemsPage extends AbstractAdminPage
      *
      * @param BudgetItem[] $items
      */
-    private function renderRows(array $items, string $search = ''): void
+    private function renderRows(array $items, string $search = '', int $offset = 0): void
     {
         if (empty($items)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No line items found.';
-            echo '<tr class="eim-no-results"><td colspan="8">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="9">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -339,7 +340,7 @@ final class BudgetItemsPage extends AbstractAdminPage
             if ($p) $plansById[$pid] = $p;
         }
 
-        foreach ($items as $item) {
+        foreach ($items as $i => $item) {
             $editUrl   = AdminMenu::tabUrl(AdminMenu::TAB_BUDGET_LINE_ITEMS, ['action' => 'edit', 'id' => $item->id]);
             $deleteUrl = wp_nonce_url(
                 AdminMenu::tabUrl(AdminMenu::TAB_BUDGET_LINE_ITEMS, ['action' => 'delete_budget_item', 'id' => $item->id]),
@@ -355,6 +356,7 @@ final class BudgetItemsPage extends AbstractAdminPage
                 : "Delete line item &ldquo;{$item->label}&rdquo;?";
             ?>
             <tr>
+                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
                 <?= $this->renderBulkSelectCell('eim-budget-items-bulk-form', 'budget-items', $item->id, $item->label); ?>
                 <td><?= $this->lineItemImageThumbnailMarkup($item->imageAttachmentId, $item->label); ?></td>
                 <td>

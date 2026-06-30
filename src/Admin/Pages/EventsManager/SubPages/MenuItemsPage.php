@@ -212,7 +212,7 @@ final class MenuItemsPage extends AbstractAdminPage
         $items = array_slice($all, ($page - 1) * $perPage, $perPage);
 
         ob_start();
-        $this->renderItemRows($items, $type, $query);
+        $this->renderItemRows($items, $type, $query, ($page - 1) * $perPage);
         $html = (string) ob_get_clean();
 
         wp_send_json_success(['html' => $html, 'count' => $total, 'total' => $total]);
@@ -445,6 +445,7 @@ final class MenuItemsPage extends AbstractAdminPage
                        data-total="<?= esc_attr($total); ?>">
                     <thead>
                         <tr>
+                            <th style="width:30px;">#</th>
                             <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('menu-' . $type); ?></th>
                             <th style="width:22%;"><?= $this->clientSortLink('Label', 'label', $sort, $order); ?></th>
                             <th><?= $this->clientSortLink('Description', 'description', $sort, $order); ?></th>
@@ -472,13 +473,13 @@ final class MenuItemsPage extends AbstractAdminPage
      * @param string     $type   MenuItem::TYPE_FOOD or TYPE_BEVERAGE (for empty-state message).
      * @param string     $search Active search query (used to distinguish no-match from empty library).
      */
-    private function renderItemRows(array $items, string $type, string $search = ''): void
+    private function renderItemRows(array $items, string $type, string $search = '', int $offset = 0): void
     {
         if (empty($items)) {
             $msg = $search !== ''
                 ? 'No results found based upon search criteria.'
                 : 'No ' . ($type === MenuItem::TYPE_BEVERAGE ? 'beverage' : 'food') . ' items yet.';
-            echo '<tr class="eim-no-results"><td colspan="7">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="8">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -488,7 +489,7 @@ final class MenuItemsPage extends AbstractAdminPage
         $catsByItem = Category::forEntities('menu_item', $itemIds);
         $catEditBase = AdminMenu::tabUrl(AdminMenu::TAB_CATEGORIES);
 
-        foreach ($items as $item) {
+        foreach ($items as $i => $item) {
             $vendor    = $item->vendorId ? ($vendorsMap[$item->vendorId] ?? null) : null;
             $cats      = $catsByItem[$item->id] ?? [];
             $editUrl   = AdminMenu::tabUrl(AdminMenu::TAB_MENU_ITEMS, ['action' => 'edit', 'id' => $item->id]);
@@ -498,6 +499,7 @@ final class MenuItemsPage extends AbstractAdminPage
             );
             ?>
             <tr>
+                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
                 <?= $this->renderBulkSelectCell('eim-menu-' . $type . '-bulk-form', 'menu-' . $type, $item->id, $item->label); ?>
                 <td><strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($item->label); ?></a></strong></td>
                 <td><?= esc_html($item->description ?: '—'); ?></td>

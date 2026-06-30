@@ -57,7 +57,7 @@ final class MessagesPage extends AbstractAdminPage
         $paged = array_slice($all, ($page - 1) * $perPage, $perPage);
 
         ob_start();
-        $this->renderRows($paged);
+        $this->renderRows($paged, ($page - 1) * $perPage);
         $html = (string) ob_get_clean();
 
         wp_send_json_success(['html' => $html, 'count' => $total, 'total' => $total]);
@@ -111,6 +111,7 @@ final class MessagesPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
+                        <th style="width:30px;">#</th>
                         <th class="eim-bulk-select-cell" style="width:3%;">
                             <?= $this->renderBulkSelectHeader('messages'); ?>
                         </th>
@@ -131,12 +132,12 @@ final class MessagesPage extends AbstractAdminPage
         <?php
     }
 
-    private function renderRows(array $messages): void
+    private function renderRows(array $messages, int $offset = 0): void
     {
         if (empty($messages)) {
             ?>
             <tr>
-                <td colspan="7" style="text-align:center;color:#999;padding:20px;">
+                <td colspan="8" style="text-align:center;color:#999;padding:20px;">
                     No messages found.
                 </td>
             </tr>
@@ -144,7 +145,7 @@ final class MessagesPage extends AbstractAdminPage
             return;
         }
 
-        foreach ($messages as $msg) {
+        foreach ($messages as $i => $msg) {
             $eventUrl  = AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $msg->eventId]);
             $cgUrl     = AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'edit', 'id' => $msg->connectionGroupId]);
             $truncated = mb_strlen($msg->message) > 140 ? mb_substr($msg->message, 0, 140) . '…' : $msg->message;
@@ -159,6 +160,7 @@ final class MessagesPage extends AbstractAdminPage
             ?>
             <tr data-message-id="<?= esc_attr($msg->id); ?>"
                 data-is-read="<?= $msg->isRead ? '1' : '0'; ?>">
+                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
                 <?= $this->renderBulkSelectCell('eim-messages-bulk-form', 'messages', $msg->id, $msg->message); ?>
                 <td><?= esc_html($this->formatDate($msg->createdAt)); ?></td>
                 <td>

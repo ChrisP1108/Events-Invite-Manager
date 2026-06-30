@@ -58,7 +58,7 @@ final class InviteesPage extends AbstractAdminPage
         $rows    = array_slice($all, ($page - 1) * $perPage, $perPage);
 
         ob_start();
-        $this->renderInviteeRows($rows, [], $query);
+        $this->renderInviteeRows($rows, [], $query, ($page - 1) * $perPage);
         $html = (string) ob_get_clean();
 
         wp_send_json_success(['html' => $html, 'count' => $total, 'total' => $total]);
@@ -403,6 +403,7 @@ final class InviteesPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
+                        <th style="width:30px;">#</th>
                         <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('invitees'); ?></th>
                         <th class="eim-invitee-image-column">Image</th>
                         <th style="width:11%;"><?= $this->sortLink('First Name', 'first_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
@@ -429,11 +430,11 @@ final class InviteesPage extends AbstractAdminPage
      * @param array<int, array{invitee: Invitee, events: array}>  $rows
      * @param array<int, ConnectionGroup[]>                        $groupsByInvitee
      */
-    private function renderInviteeRows(array $rows, array $groupsByInvitee = [], string $search = ''): void
+    private function renderInviteeRows(array $rows, array $groupsByInvitee = [], string $search = '', int $offset = 0): void
     {
         if (empty($rows)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No invitees found.';
-            echo '<tr class="eim-no-results"><td colspan="11">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="12">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -446,7 +447,7 @@ final class InviteesPage extends AbstractAdminPage
         $inviteeIds  = array_map(static fn($r) => $r['invitee']->id, $rows);
         $catsByInvitee = Category::forEntities('invitee', $inviteeIds);
 
-        foreach ($rows as $row) {
+        foreach ($rows as $i => $row) {
             /** @var Invitee $invitee */
             $invitee     = $row['invitee'];
             $editUrl     = AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, ['action' => 'edit', 'id' => $invitee->id]);
@@ -458,6 +459,7 @@ final class InviteesPage extends AbstractAdminPage
             $cats        = $catsByInvitee[$invitee->id]   ?? [];
             ?>
             <tr>
+                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
                 <?= $this->renderBulkSelectCell('eim-invitees-bulk-form', 'invitees', $invitee->id, $invitee->fullName()); ?>
                 <td><?= $this->inviteeImageThumbnailMarkup($invitee->imageAttachmentId, $invitee->fullName()); ?></td>
                 <td><a href="<?= esc_url($editUrl); ?>"><?= esc_html($invitee->firstName); ?></a></td>

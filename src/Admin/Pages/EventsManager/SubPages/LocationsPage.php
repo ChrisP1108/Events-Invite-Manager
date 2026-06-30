@@ -64,7 +64,7 @@ final class LocationsPage extends AbstractAdminPage
         $paged   = array_slice($all, ($page - 1) * $perPage, $perPage);
 
         ob_start();
-        $this->renderLocationRows($paged, $query);
+        $this->renderLocationRows($paged, $query, ($page - 1) * $perPage);
         $html = (string) ob_get_clean();
 
         wp_send_json_success([
@@ -286,6 +286,7 @@ final class LocationsPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
+                        <th style="width:30px;">#</th>
                         <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('locations'); ?></th>
                         <th class="eim-li-image-column">Image</th>
                         <th style="width:24%;"><?= $this->sortLink('Name', 'name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_LOCATIONS]); ?></th>
@@ -316,11 +317,11 @@ final class LocationsPage extends AbstractAdminPage
      * @param Location[] $locations
      * @return void
      */
-    private function renderLocationRows(array $locations, string $search = ''): void
+    private function renderLocationRows(array $locations, string $search = '', int $offset = 0): void
     {
         if (empty($locations)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No locations found.';
-            echo '<tr class="eim-no-results"><td colspan="9">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="10">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -328,7 +329,7 @@ final class LocationsPage extends AbstractAdminPage
         $locationIds     = array_map(static fn(Location $loc): int => $loc->id, $locations);
         $catsByLocation  = Category::forEntities('location', $locationIds);
 
-        foreach ($locations as $loc) {
+        foreach ($locations as $i => $loc) {
             $editUrl   = AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS, ['action' => 'edit', 'id' => $loc->id]);
             $deleteUrl = wp_nonce_url(
                 AdminMenu::tabUrl(AdminMenu::TAB_LOCATIONS, ['action' => 'delete_location', 'id' => $loc->id]),
@@ -336,6 +337,7 @@ final class LocationsPage extends AbstractAdminPage
             );
             ?>
             <tr>
+                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
                 <?= $this->renderBulkSelectCell('eim-locations-bulk-form', 'locations', $loc->id, $loc->name); ?>
                 <td><?= $this->locationImageThumbnailMarkup($loc->imageAttachmentId, $loc->name); ?></td>
                 <td><strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($loc->name); ?></a></strong></td>

@@ -63,7 +63,7 @@ final class RequestedInviteesPage extends AbstractAdminPage
         $paged = array_slice($all, ($page - 1) * $perPage, $perPage);
 
         ob_start();
-        $this->renderRows($paged, $query);
+        $this->renderRows($paged, $query, ($page - 1) * $perPage);
         $html = (string) ob_get_clean();
 
         wp_send_json_success(['html' => $html, 'count' => $total, 'total' => $total]);
@@ -252,6 +252,7 @@ final class RequestedInviteesPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
+                        <th style="width:30px;">#</th>
                         <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('riars'); ?></th>
                         <th style="width:8%;"><?= $this->sortLink('First Name', 'first_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_REQUESTED_INVITEES]); ?></th>
                         <th style="width:8%;"><?= $this->sortLink('Last Name', 'last_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_REQUESTED_INVITEES]); ?></th>
@@ -287,15 +288,15 @@ final class RequestedInviteesPage extends AbstractAdminPage
      * @param string                  $search
      * @return void
      */
-    private function renderRows(array $requests, string $search = ''): void
+    private function renderRows(array $requests, string $search = '', int $offset = 0): void
     {
         if (empty($requests)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No requests found.';
-            echo '<tr class="eim-no-results"><td colspan="11">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="12">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
-        foreach ($requests as $req) {
+        foreach ($requests as $i => $req) {
             $cgUrl      = AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'edit', 'id' => $req->connectionGroupId]);
             $eventUrl   = $req->eventId
                 ? AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $req->eventId])
@@ -342,6 +343,7 @@ final class RequestedInviteesPage extends AbstractAdminPage
             ]);
             ?>
             <tr data-riar-id="<?= esc_attr($req->id); ?>" data-request="<?= esc_attr($requestData); ?>">
+                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
                 <?= $this->renderBulkSelectCell('eim-riars-bulk-form', 'riars', $req->id, $req->fullName()); ?>
                 <td><?= esc_html($req->firstName); ?></td>
                 <td><?= esc_html($req->lastName); ?></td>

@@ -72,7 +72,7 @@ final class CategoriesPage extends AbstractAdminPage
         $paged = array_slice($all, ($page - 1) * $perPage, $perPage);
 
         ob_start();
-        $this->renderCategoryRows($paged, $query);
+        $this->renderCategoryRows($paged, $query, ($page - 1) * $perPage);
         $html = (string) ob_get_clean();
 
         wp_send_json_success(['html' => $html, 'count' => $total, 'total' => $total]);
@@ -257,6 +257,7 @@ final class CategoriesPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
+                        <th style="width:30px;">#</th>
                         <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('categories'); ?></th>
                         <th style="width:40%;"><?= $this->sortLink('Name', 'name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, $sortArgs); ?></th>
                         <th style="width:30%;">Parent</th>
@@ -278,11 +279,11 @@ final class CategoriesPage extends AbstractAdminPage
     }
 
     /** @param Category[] $categories */
-    private function renderCategoryRows(array $categories, string $search = ''): void
+    private function renderCategoryRows(array $categories, string $search = '', int $offset = 0): void
     {
         if (empty($categories)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No categories found.';
-            echo '<tr class="eim-no-results"><td colspan="5">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="6">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
@@ -307,7 +308,7 @@ final class CategoriesPage extends AbstractAdminPage
             }
         }
 
-        foreach ($categories as $cat) {
+        foreach ($categories as $i => $cat) {
             $editUrl   = AdminMenu::tabUrl(AdminMenu::TAB_CATEGORIES, ['action' => 'edit', 'id' => $cat->id]);
             $deleteUrl = wp_nonce_url(
                 AdminMenu::tabUrl(AdminMenu::TAB_CATEGORIES, ['action' => 'delete_category', 'id' => $cat->id]),
@@ -317,6 +318,7 @@ final class CategoriesPage extends AbstractAdminPage
             $childCount = count($children);
             ?>
             <tr>
+                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
                 <?= $this->renderBulkSelectCell('eim-categories-bulk-form', 'categories', $cat->id, $cat->name); ?>
                 <td>
                     <strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($cat->name); ?></a></strong>

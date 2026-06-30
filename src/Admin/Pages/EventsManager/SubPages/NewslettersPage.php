@@ -87,7 +87,7 @@ final class NewslettersPage extends AbstractAdminPage
         $newsletters = array_slice($all, ($page - 1) * $perPage, $perPage);
 
         ob_start();
-        $this->renderNewsletterRows($newsletters, $query);
+        $this->renderNewsletterRows($newsletters, $query, ($page - 1) * $perPage);
         $html = (string) ob_get_clean();
 
         wp_send_json_success([
@@ -395,6 +395,7 @@ final class NewslettersPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
+                        <th style="width:30px;">#</th>
                         <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('newsletters'); ?></th>
                         <th style="width:26%;"><?= $this->sortLink('Title',        'title',        AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_NEWSLETTERS]); ?></th>
                         <th style="width:20%;"><?= $this->sortLink('Events',       'events',       AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_NEWSLETTERS]); ?></th>
@@ -426,15 +427,15 @@ final class NewslettersPage extends AbstractAdminPage
      *
      * @param Newsletter[] $newsletters
      */
-    private function renderNewsletterRows(array $newsletters, string $search = ''): void
+    private function renderNewsletterRows(array $newsletters, string $search = '', int $offset = 0): void
     {
         if (empty($newsletters)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No newsletters found.';
-            echo '<tr class="eim-no-results"><td colspan="8">' . esc_html($msg) . '</td></tr>';
+            echo '<tr class="eim-no-results"><td colspan="9">' . esc_html($msg) . '</td></tr>';
             return;
         }
 
-        foreach ($newsletters as $nl) {
+        foreach ($newsletters as $i => $nl) {
             $editUrl   = AdminMenu::tabUrl(AdminMenu::TAB_NEWSLETTERS, ['action' => 'edit', 'id' => $nl->id]);
             $deleteUrl = wp_nonce_url(
                 AdminMenu::tabUrl(AdminMenu::TAB_NEWSLETTERS, ['action' => 'delete_newsletter', 'id' => $nl->id]),
@@ -449,6 +450,7 @@ final class NewslettersPage extends AbstractAdminPage
             $statusLabel = $nl->status === 'published' ? 'Published' : 'Draft';
             ?>
             <tr>
+                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
                 <?= $this->renderBulkSelectCell('eim-newsletters-bulk-form', 'newsletters', $nl->id, $nl->title); ?>
                 <td><strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($nl->title); ?></a></strong></td>
                 <td>

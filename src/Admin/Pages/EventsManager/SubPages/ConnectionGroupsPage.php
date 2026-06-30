@@ -88,7 +88,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
         $groups = array_slice($all, ($page - 1) * $perPage, $perPage);
 
         ob_start();
-        $this->renderGroupRows($groups, $query, $eventsByGroup);
+        $this->renderGroupRows($groups, $query, $eventsByGroup, ($page - 1) * $perPage);
         $html = (string) ob_get_clean();
 
         wp_send_json_success([
@@ -384,6 +384,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
+                        <th style="width:30px;">#</th>
                         <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('connection-groups'); ?></th>
                         <th style="width:22%;"><?= $this->sortLink('Name',       'name',       AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_CONNECTION_GROUPS]); ?></th>
                         <th style="width:30%;"><?= $this->sortLink('Members',    'members',     AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_CONNECTION_GROUPS]); ?></th>
@@ -409,13 +410,13 @@ final class ConnectionGroupsPage extends AbstractAdminPage
      * @param array<int, array<int, array{id:int,name:string}>>  $eventsByGroup
      * @return void
      */
-    private function renderGroupRows(array $groups, string $search = '', array $eventsByGroup = []): void
+    private function renderGroupRows(array $groups, string $search = '', array $eventsByGroup = [], int $offset = 0): void
     {
         if (empty($groups)) {
             $addUrl = AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'add']);
             ?>
             <tr>
-                <td colspan="6">
+                <td colspan="7">
                     <?= $search
                         ? 'No results found based upon search criteria.'
                         : 'No connection groups yet. <a href="' . esc_url($addUrl) . '">Add the first one.</a>'; ?>
@@ -428,7 +429,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
         $groupIds   = array_map(static fn(ConnectionGroup $g): int => $g->id, $groups);
         $catsByGroup = Category::forEntities('connection_group', $groupIds);
 
-        foreach ($groups as $group) {
+        foreach ($groups as $i => $group) {
             $editUrl   = AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'edit', 'id' => $group->id]);
             $deleteUrl = wp_nonce_url(
                 AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'delete_connection_group', 'id' => $group->id]),
@@ -438,6 +439,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
             $cats        = $catsByGroup[$group->id]   ?? [];
             ?>
             <tr>
+                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
                 <?= $this->renderBulkSelectCell('eim-connection-groups-bulk-form', 'connection-groups', $group->id, $group->name); ?>
                 <td>
                     <strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($group->name); ?></a></strong>
