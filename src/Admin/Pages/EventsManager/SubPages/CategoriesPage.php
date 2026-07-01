@@ -257,8 +257,7 @@ final class CategoriesPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
-                        <th style="width:30px;">#</th>
-                        <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('categories'); ?></th>
+                        <?= $this->renderLeadingHeaderCells('categories'); ?>
                         <th style="width:40%;"><?= $this->sortLink('Name', 'name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, $sortArgs); ?></th>
                         <th style="width:30%;">Parent</th>
                         <th style="width:15%;">Children</th>
@@ -283,7 +282,7 @@ final class CategoriesPage extends AbstractAdminPage
     {
         if (empty($categories)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No categories found.';
-            echo '<tr class="eim-no-results"><td colspan="6">' . esc_html($msg) . '</td></tr>';
+            echo $this->renderNoResultsRow($msg);
             return;
         }
 
@@ -318,8 +317,7 @@ final class CategoriesPage extends AbstractAdminPage
             $childCount = count($children);
             ?>
             <tr>
-                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
-                <?= $this->renderBulkSelectCell('eim-categories-bulk-form', 'categories', $cat->id, $cat->name); ?>
+                <?= $this->renderLeadingCells('eim-categories-bulk-form', 'categories', $cat->id, $cat->name, $offset + $i + 1); ?>
                 <td>
                     <strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($cat->name); ?></a></strong>
                     <?php if ($cat->parentId !== null): ?>

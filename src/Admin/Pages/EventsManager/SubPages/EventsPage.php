@@ -2011,8 +2011,7 @@ final class EventsPage extends AbstractAdminPage
                        data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
-                            <th style="width:30px;">#</th>
-                            <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('events'); ?></th>
+                            <?= $this->renderLeadingHeaderCells('events'); ?>
                             <th style="width:18%;"><?= $this->sortLink('Name', 'name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_EVENTS]); ?></th>
                             <th style="width:20%;"><?= $this->sortLink('Date / Time', 'start_datetime', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_EVENTS]); ?></th>
                             <th>Description</th>
@@ -2040,7 +2039,7 @@ final class EventsPage extends AbstractAdminPage
     {
         if (empty($events)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No events found.';
-            echo '<tr class="eim-no-results"><td colspan="8">' . esc_html($msg) . '</td></tr>';
+            echo $this->renderNoResultsRow($msg);
             return;
         }
 
@@ -2060,8 +2059,7 @@ final class EventsPage extends AbstractAdminPage
             $cats        = $catsByEvent[$event->id] ?? [];
             ?>
             <tr>
-                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
-                <?= $this->renderBulkSelectCell('eim-events-bulk-form', 'events', $event->id, $event->name); ?>
+                <?= $this->renderLeadingCells('eim-events-bulk-form', 'events', $event->id, $event->name, $offset + $i + 1); ?>
                 <td>
                     <strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($event->name); ?></a></strong>
                 </td>

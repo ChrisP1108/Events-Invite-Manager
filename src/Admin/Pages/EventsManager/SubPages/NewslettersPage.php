@@ -395,8 +395,7 @@ final class NewslettersPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
-                        <th style="width:30px;">#</th>
-                        <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('newsletters'); ?></th>
+                        <?= $this->renderLeadingHeaderCells('newsletters'); ?>
                         <th style="width:26%;"><?= $this->sortLink('Title',        'title',        AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_NEWSLETTERS]); ?></th>
                         <th style="width:20%;"><?= $this->sortLink('Events',       'events',       AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_NEWSLETTERS]); ?></th>
                         <th style="width:16%;"><?= $this->sortLink('Categories',   'categories',   AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_NEWSLETTERS]); ?></th>
@@ -431,7 +430,7 @@ final class NewslettersPage extends AbstractAdminPage
     {
         if (empty($newsletters)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No newsletters found.';
-            echo '<tr class="eim-no-results"><td colspan="9">' . esc_html($msg) . '</td></tr>';
+            echo $this->renderNoResultsRow($msg);
             return;
         }
 
@@ -450,8 +449,7 @@ final class NewslettersPage extends AbstractAdminPage
             $statusLabel = $nl->status === 'published' ? 'Published' : 'Draft';
             ?>
             <tr>
-                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
-                <?= $this->renderBulkSelectCell('eim-newsletters-bulk-form', 'newsletters', $nl->id, $nl->title); ?>
+                <?= $this->renderLeadingCells('eim-newsletters-bulk-form', 'newsletters', $nl->id, $nl->title, $offset + $i + 1); ?>
                 <td><strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($nl->title); ?></a></strong></td>
                 <td>
                     <?php if (empty($nl->events)): ?>

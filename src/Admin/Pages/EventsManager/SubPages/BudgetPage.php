@@ -656,8 +656,7 @@ final class BudgetPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
-                        <th style="width:30px;">#</th>
-                        <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('budget-plans'); ?></th>
+                        <?= $this->renderLeadingHeaderCells('budget-plans'); ?>
                         <th style="width:22%;"><?= $this->sortLink('Plan Name', 'name',      AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_BUDGET]); ?></th>
                         <th style="width:18%;"><?= $this->sortLink('Events',    'events',    AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_BUDGET]); ?></th>
                         <th style="width:11%;"><?= $this->sortLink('Target',    'target',    AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_BUDGET]); ?></th>
@@ -690,7 +689,7 @@ final class BudgetPage extends AbstractAdminPage
     {
         if (empty($plans)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No budget plans found.';
-            echo '<tr class="eim-no-results"><td colspan="9">' . esc_html($msg) . '</td></tr>';
+            echo $this->renderNoResultsRow($msg);
             return;
         }
 
@@ -707,8 +706,7 @@ final class BudgetPage extends AbstractAdminPage
             $cats   = $catsByPlan[$plan->id] ?? [];
             ?>
             <tr>
-                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
-                <?= $this->renderBulkSelectCell('eim-budget-plans-bulk-form', 'budget-plans', $plan->id, $plan->name); ?>
+                <?= $this->renderLeadingCells('eim-budget-plans-bulk-form', 'budget-plans', $plan->id, $plan->name, $offset + $i + 1); ?>
                 <td><strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($plan->name); ?></a></strong>
                     <?php if ($plan->description): ?>
                         <br><span style="color:#646970;font-size:12px;"><?= esc_html(wp_trim_words($plan->description, 8, '…')); ?></span>

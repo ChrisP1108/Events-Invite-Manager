@@ -193,6 +193,53 @@ abstract class AbstractAdminPage
     }
 
     /**
+     * Emits the leading "#" row-number + bulk-select header cells for a standard
+     * list table. Use this in place of hand-written leading <th> markup so future
+     * cross-cutting changes to the leading columns touch only this class.
+     *
+     * @param string $group Bulk-select group identifier (matches renderLeadingCells()).
+     * @return string
+     */
+    protected function renderLeadingHeaderCells(string $group): string
+    {
+        return '<th class="eim-row-num-col" style="width:30px;">#</th>'
+             . '<th class="eim-bulk-select-column" style="width:36px;">'
+             . $this->renderBulkSelectHeader($group)
+             . '</th>';
+    }
+
+    /**
+     * Emits the leading "#" row-number + bulk-select body cells for one row.
+     *
+     * @param string $formId    HTML id of the bulk-action form the checkbox submits to.
+     * @param string $group     Bulk-select group identifier (matches renderLeadingHeaderCells()).
+     * @param int    $id        Record ID for the checkbox value.
+     * @param string $label     Aria-label text for the checkbox.
+     * @param int    $rowNumber Already-computed 1-based display number ($offset + $i + 1).
+     * @return string
+     */
+    protected function renderLeadingCells(string $formId, string $group, int $id, string $label, int $rowNumber): string
+    {
+        return '<td class="eim-row-num">' . (int) $rowNumber . '</td>'
+             . $this->renderBulkSelectCell($formId, $group, $id, $label);
+    }
+
+    /**
+     * Returns a standard "no results" table row.
+     *
+     * The colspan of 100 is clamped by the browser to the actual number of
+     * columns, so the row always spans the full table and never needs adjusting
+     * when columns are added or removed.
+     *
+     * @param string $message Message to display (escaped here).
+     * @return string
+     */
+    protected function renderNoResultsRow(string $message): string
+    {
+        return '<tr class="eim-no-results"><td colspan="100">' . esc_html($message) . '</td></tr>';
+    }
+
+    /**
      * Returns sanitized IDs from a submitted bulk action request.
      *
      * @return int[]

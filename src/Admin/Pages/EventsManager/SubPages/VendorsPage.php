@@ -253,8 +253,7 @@ final class VendorsPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
-                        <th style="width:30px;">#</th>
-                        <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('vendors'); ?></th>
+                        <?= $this->renderLeadingHeaderCells('vendors'); ?>
                         <th style="width:20%;"><?= $this->sortLink('Company Name', 'company_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_VENDORS]); ?></th>
                         <th style="width:13%;"><?= $this->sortLink('Contact Name', 'contact_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_VENDORS]); ?></th>
                         <th style="width:14%;">Categories</th>
@@ -286,7 +285,7 @@ final class VendorsPage extends AbstractAdminPage
     {
         if (empty($vendors)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No vendors found.';
-            echo '<tr class="eim-no-results"><td colspan="9">' . esc_html($msg) . '</td></tr>';
+            echo $this->renderNoResultsRow($msg);
             return;
         }
 
@@ -306,8 +305,7 @@ final class VendorsPage extends AbstractAdminPage
             $cats      = $catsByVendor[$vendor->id] ?? [];
             ?>
             <tr>
-                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
-                <?= $this->renderBulkSelectCell('eim-vendors-bulk-form', 'vendors', $vendor->id, $vendor->companyName); ?>
+                <?= $this->renderLeadingCells('eim-vendors-bulk-form', 'vendors', $vendor->id, $vendor->companyName, $offset + $i + 1); ?>
                 <td>
                     <strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($vendor->companyName); ?></a></strong>
                     <?php if ($vendor->formattedAddress()): ?>

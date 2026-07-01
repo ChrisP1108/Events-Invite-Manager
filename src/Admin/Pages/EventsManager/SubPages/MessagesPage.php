@@ -111,10 +111,7 @@ final class MessagesPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
-                        <th style="width:30px;">#</th>
-                        <th class="eim-bulk-select-cell" style="width:3%;">
-                            <?= $this->renderBulkSelectHeader('messages'); ?>
-                        </th>
+                        <?= $this->renderLeadingHeaderCells('messages'); ?>
                         <th style="width:11%;"><?= $this->sortLink('Date',            'created_at',            AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_MESSAGES]); ?></th>
                         <th style="width:15%;"><?= $this->sortLink('Event',            'event_name',            AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_MESSAGES]); ?></th>
                         <th style="width:35%;"><?= $this->sortLink('Message',         'message',               AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_MESSAGES]); ?></th>
@@ -137,7 +134,7 @@ final class MessagesPage extends AbstractAdminPage
         if (empty($messages)) {
             ?>
             <tr>
-                <td colspan="8" style="text-align:center;color:#999;padding:20px;">
+                <td colspan="100" style="text-align:center;color:#999;padding:20px;">
                     No messages found.
                 </td>
             </tr>
@@ -160,8 +157,7 @@ final class MessagesPage extends AbstractAdminPage
             ?>
             <tr data-message-id="<?= esc_attr($msg->id); ?>"
                 data-is-read="<?= $msg->isRead ? '1' : '0'; ?>">
-                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
-                <?= $this->renderBulkSelectCell('eim-messages-bulk-form', 'messages', $msg->id, $msg->message); ?>
+                <?= $this->renderLeadingCells('eim-messages-bulk-form', 'messages', $msg->id, $msg->message, $offset + $i + 1); ?>
                 <td><?= esc_html($this->formatDate($msg->createdAt)); ?></td>
                 <td>
                     <?php if ($msg->eventName !== null): ?>

@@ -19,6 +19,13 @@ A WordPress plugin for managing private event invitations, grouped RSVPs, venue/
 - Computed/relational columns (e.g. "Estimated", "Events", "Paid"): sort in PHP after the DB fetch using a private `sortRows()` / `maybePhpSort()` helper on the model
 - Client-side-only tables (small, already fully loaded): use `data-val` attributes on `<td>` elements and a JS class that sorts DOM rows (see `CategoryTable` in `admin-budget.js`)
 
+### Leading Columns (row number + bulk select)
+Every standalone list table starts with two shared columns: a `#` row-number cell and the bulk-select checkbox. **Never hand-write these** — use the `AbstractAdminPage` helpers so a future cross-cutting change touches one file instead of every page:
+- **Header:** `<?= $this->renderLeadingHeaderCells($group); ?>` as the first `<th>` group in the `<thead>` (replaces the old `#` `<th>` + bulk-select `<th>`)
+- **Row:** `<?= $this->renderLeadingCells($formId, $group, $id, $label, $offset + $i + 1); ?>` as the first cells in each row (replaces the old `eim-row-num` `<td>` + `renderBulkSelectCell()` call). Requires the row loop to use `foreach ($rows as $i => $row)` and the `render*Rows()` method to accept `int $offset = 0`, passed as `($page - 1) * $perPage` from the AJAX handler so numbers stay correct across pages.
+- **No results:** `echo $this->renderNoResultsRow($msg);` — uses `colspan="100"` (browser-clamped to the real column count) so colspan never needs bumping when columns change. Only exception: empty states containing their own HTML (e.g. an "Add the first one" link) or custom styling keep their inline `<tr>` block but should still use `colspan="100"`.
+- These helpers apply only to **standalone** list tables, not sub-tables inside edit forms (event lodging/gifts/groups, connection-group members, budget line items/payments).
+
 ### AJAX Pattern
 Every list table that is **server-rendered and filterable** needs:
 1. A public `handleAjaxSearch*()` method on the page class (nonce-checked, returns `{html, count}` JSON)

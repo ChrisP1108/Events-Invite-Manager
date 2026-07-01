@@ -403,8 +403,7 @@ final class InviteesPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
-                        <th style="width:30px;">#</th>
-                        <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('invitees'); ?></th>
+                        <?= $this->renderLeadingHeaderCells('invitees'); ?>
                         <th class="eim-invitee-image-column">Image</th>
                         <th style="width:11%;"><?= $this->sortLink('First Name', 'first_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
                         <th style="width:11%;"><?= $this->sortLink('Last Name', 'last_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_INVITEES]); ?></th>
@@ -434,7 +433,7 @@ final class InviteesPage extends AbstractAdminPage
     {
         if (empty($rows)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No invitees found.';
-            echo '<tr class="eim-no-results"><td colspan="12">' . esc_html($msg) . '</td></tr>';
+            echo $this->renderNoResultsRow($msg);
             return;
         }
 
@@ -459,8 +458,7 @@ final class InviteesPage extends AbstractAdminPage
             $cats        = $catsByInvitee[$invitee->id]   ?? [];
             ?>
             <tr>
-                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
-                <?= $this->renderBulkSelectCell('eim-invitees-bulk-form', 'invitees', $invitee->id, $invitee->fullName()); ?>
+                <?= $this->renderLeadingCells('eim-invitees-bulk-form', 'invitees', $invitee->id, $invitee->fullName(), $offset + $i + 1); ?>
                 <td><?= $this->inviteeImageThumbnailMarkup($invitee->imageAttachmentId, $invitee->fullName()); ?></td>
                 <td><a href="<?= esc_url($editUrl); ?>"><?= esc_html($invitee->firstName); ?></a></td>
                 <td><a href="<?= esc_url($editUrl); ?>"><?= esc_html($invitee->lastName); ?></a></td>

@@ -384,8 +384,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
-                        <th style="width:30px;">#</th>
-                        <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('connection-groups'); ?></th>
+                        <?= $this->renderLeadingHeaderCells('connection-groups'); ?>
                         <th style="width:22%;"><?= $this->sortLink('Name',       'name',       AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_CONNECTION_GROUPS]); ?></th>
                         <th style="width:30%;"><?= $this->sortLink('Members',    'members',     AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_CONNECTION_GROUPS]); ?></th>
                         <th><?= $this->sortLink('Invited To', 'invited_to', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_CONNECTION_GROUPS]); ?></th>
@@ -416,7 +415,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
             $addUrl = AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'add']);
             ?>
             <tr>
-                <td colspan="7">
+                <td colspan="100">
                     <?= $search
                         ? 'No results found based upon search criteria.'
                         : 'No connection groups yet. <a href="' . esc_url($addUrl) . '">Add the first one.</a>'; ?>
@@ -439,8 +438,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
             $cats        = $catsByGroup[$group->id]   ?? [];
             ?>
             <tr>
-                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
-                <?= $this->renderBulkSelectCell('eim-connection-groups-bulk-form', 'connection-groups', $group->id, $group->name); ?>
+                <?= $this->renderLeadingCells('eim-connection-groups-bulk-form', 'connection-groups', $group->id, $group->name, $offset + $i + 1); ?>
                 <td>
                     <strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($group->name); ?></a></strong>
                 </td>

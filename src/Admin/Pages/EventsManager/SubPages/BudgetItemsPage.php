@@ -290,8 +290,7 @@ final class BudgetItemsPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
-                        <th style="width:30px;">#</th>
-                        <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('budget-items'); ?></th>
+                        <?= $this->renderLeadingHeaderCells('budget-items'); ?>
                         <th style="width:52px;">Image</th>
                         <th style="width:20%;"><?= $this->sortLink('Label',        'label',        AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_BUDGET_LINE_ITEMS]); ?></th>
                         <th style="width:9%;"><?= $this->sortLink('Unit Cost',    'unit_cost',    AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_BUDGET_LINE_ITEMS]); ?></th>
@@ -324,7 +323,7 @@ final class BudgetItemsPage extends AbstractAdminPage
     {
         if (empty($items)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No line items found.';
-            echo '<tr class="eim-no-results"><td colspan="9">' . esc_html($msg) . '</td></tr>';
+            echo $this->renderNoResultsRow($msg);
             return;
         }
 
@@ -356,8 +355,7 @@ final class BudgetItemsPage extends AbstractAdminPage
                 : "Delete line item &ldquo;{$item->label}&rdquo;?";
             ?>
             <tr>
-                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
-                <?= $this->renderBulkSelectCell('eim-budget-items-bulk-form', 'budget-items', $item->id, $item->label); ?>
+                <?= $this->renderLeadingCells('eim-budget-items-bulk-form', 'budget-items', $item->id, $item->label, $offset + $i + 1); ?>
                 <td><?= $this->lineItemImageThumbnailMarkup($item->imageAttachmentId, $item->label); ?></td>
                 <td>
                     <strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($item->label); ?></a></strong>

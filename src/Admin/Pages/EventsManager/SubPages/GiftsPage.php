@@ -238,8 +238,7 @@ final class GiftsPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
-                        <th style="width:30px;">#</th>
-                        <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('gifts'); ?></th>
+                        <?= $this->renderLeadingHeaderCells('gifts'); ?>
                         <th class="eim-gift-image-column">Image</th>
                         <th style="width:22%;"><?= $this->sortLink('Name', 'name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_GIFTS]); ?></th>
                         <th style="width:9%;"><?= $this->sortLink('Price', 'price_cents', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_GIFTS]); ?></th>
@@ -268,7 +267,7 @@ final class GiftsPage extends AbstractAdminPage
     {
         if (empty($gifts)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No gifts found.';
-            echo '<tr class="eim-no-results"><td colspan="10">' . esc_html($msg) . '</td></tr>';
+            echo $this->renderNoResultsRow($msg);
             return;
         }
 
@@ -287,8 +286,7 @@ final class GiftsPage extends AbstractAdminPage
             $events = $eventsByGift[$gift->id] ?? [];
             ?>
             <tr>
-                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
-                <?= $this->renderBulkSelectCell('eim-gifts-bulk-form', 'gifts', $gift->id, $gift->name); ?>
+                <?= $this->renderLeadingCells('eim-gifts-bulk-form', 'gifts', $gift->id, $gift->name, $offset + $i + 1); ?>
                 <td><?= $this->giftImageThumbnailMarkup($gift->imageAttachmentId, $gift->name); ?></td>
                 <td>
                     <strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($gift->name); ?></a></strong>

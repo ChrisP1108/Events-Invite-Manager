@@ -252,8 +252,7 @@ final class RequestedInviteesPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
-                        <th style="width:30px;">#</th>
-                        <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('riars'); ?></th>
+                        <?= $this->renderLeadingHeaderCells('riars'); ?>
                         <th style="width:8%;"><?= $this->sortLink('First Name', 'first_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_REQUESTED_INVITEES]); ?></th>
                         <th style="width:8%;"><?= $this->sortLink('Last Name', 'last_name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_REQUESTED_INVITEES]); ?></th>
                         <th style="width:13%;"><?= $this->sortLink('Email', 'email', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_REQUESTED_INVITEES]); ?></th>
@@ -292,7 +291,7 @@ final class RequestedInviteesPage extends AbstractAdminPage
     {
         if (empty($requests)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No requests found.';
-            echo '<tr class="eim-no-results"><td colspan="12">' . esc_html($msg) . '</td></tr>';
+            echo $this->renderNoResultsRow($msg);
             return;
         }
 
@@ -343,8 +342,7 @@ final class RequestedInviteesPage extends AbstractAdminPage
             ]);
             ?>
             <tr data-riar-id="<?= esc_attr($req->id); ?>" data-request="<?= esc_attr($requestData); ?>">
-                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
-                <?= $this->renderBulkSelectCell('eim-riars-bulk-form', 'riars', $req->id, $req->fullName()); ?>
+                <?= $this->renderLeadingCells('eim-riars-bulk-form', 'riars', $req->id, $req->fullName(), $offset + $i + 1); ?>
                 <td><?= esc_html($req->firstName); ?></td>
                 <td><?= esc_html($req->lastName); ?></td>
                 <td><?= esc_html($req->email); ?></td>

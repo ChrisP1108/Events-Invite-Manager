@@ -286,8 +286,7 @@ final class LocationsPage extends AbstractAdminPage
                    data-total="<?= esc_attr($total); ?>">
                 <thead>
                     <tr>
-                        <th style="width:30px;">#</th>
-                        <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('locations'); ?></th>
+                        <?= $this->renderLeadingHeaderCells('locations'); ?>
                         <th class="eim-li-image-column">Image</th>
                         <th style="width:24%;"><?= $this->sortLink('Name', 'name', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_LOCATIONS]); ?></th>
                         <th style="width:12%;"><?= $this->sortLink('Type', 'is_other', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, $search, ['tab' => AdminMenu::TAB_LOCATIONS]); ?></th>
@@ -321,7 +320,7 @@ final class LocationsPage extends AbstractAdminPage
     {
         if (empty($locations)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No locations found.';
-            echo '<tr class="eim-no-results"><td colspan="10">' . esc_html($msg) . '</td></tr>';
+            echo $this->renderNoResultsRow($msg);
             return;
         }
 
@@ -337,8 +336,7 @@ final class LocationsPage extends AbstractAdminPage
             );
             ?>
             <tr>
-                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
-                <?= $this->renderBulkSelectCell('eim-locations-bulk-form', 'locations', $loc->id, $loc->name); ?>
+                <?= $this->renderLeadingCells('eim-locations-bulk-form', 'locations', $loc->id, $loc->name, $offset + $i + 1); ?>
                 <td><?= $this->locationImageThumbnailMarkup($loc->imageAttachmentId, $loc->name); ?></td>
                 <td><strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($loc->name); ?></a></strong></td>
                 <td>

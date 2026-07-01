@@ -445,8 +445,7 @@ final class MenuItemsPage extends AbstractAdminPage
                        data-total="<?= esc_attr($total); ?>">
                     <thead>
                         <tr>
-                            <th style="width:30px;">#</th>
-                            <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('menu-' . $type); ?></th>
+                            <?= $this->renderLeadingHeaderCells('menu-' . $type); ?>
                             <th style="width:22%;"><?= $this->clientSortLink('Label', 'label', $sort, $order); ?></th>
                             <th><?= $this->clientSortLink('Description', 'description', $sort, $order); ?></th>
                             <th style="width:16%;">Vendor</th>
@@ -479,7 +478,7 @@ final class MenuItemsPage extends AbstractAdminPage
             $msg = $search !== ''
                 ? 'No results found based upon search criteria.'
                 : 'No ' . ($type === MenuItem::TYPE_BEVERAGE ? 'beverage' : 'food') . ' items yet.';
-            echo '<tr class="eim-no-results"><td colspan="8">' . esc_html($msg) . '</td></tr>';
+            echo $this->renderNoResultsRow($msg);
             return;
         }
 
@@ -499,8 +498,7 @@ final class MenuItemsPage extends AbstractAdminPage
             );
             ?>
             <tr>
-                <td class="eim-row-num"><?= $offset + $i + 1; ?></td>
-                <?= $this->renderBulkSelectCell('eim-menu-' . $type . '-bulk-form', 'menu-' . $type, $item->id, $item->label); ?>
+                <?= $this->renderLeadingCells('eim-menu-' . $type . '-bulk-form', 'menu-' . $type, $item->id, $item->label, $offset + $i + 1); ?>
                 <td><strong><a href="<?= esc_url($editUrl); ?>"><?= esc_html($item->label); ?></a></strong></td>
                 <td><?= esc_html($item->description ?: '—'); ?></td>
                 <td>
