@@ -3856,7 +3856,7 @@ final class EventsPage extends AbstractAdminPage
         $pagedGroups = array_slice($groups, ($page - 1) * $perPage, $perPage);
 
         ob_start();
-        $this->renderEventGroupRows($event, $pagedGroups, $dateFormat, $query);
+        $this->renderEventGroupRows($event, $pagedGroups, $dateFormat, $query, ($page - 1) * $perPage);
         $html = (string) ob_get_clean();
 
         wp_send_json_success(['html' => $html, 'count' => $total, 'total' => $total]);
@@ -3900,7 +3900,7 @@ final class EventsPage extends AbstractAdminPage
      * @param string            $dateFormat WordPress date format for the invite-sent column.
      * @param string            $search     Active search query (for the empty-state message).
      */
-    private function renderEventGroupRows(Event $event, array $groups, string $dateFormat, string $search = ''): void
+    private function renderEventGroupRows(Event $event, array $groups, string $dateFormat, string $search = '', int $offset = 0): void
     {
         if (empty($groups)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No invitees have been added to this event yet.';
@@ -3925,7 +3925,7 @@ final class EventsPage extends AbstractAdminPage
         $groupIds   = array_map(static fn(InvitationGroup $g): int => $g->id, $groups);
         $qrByGroup  = QrCode::mapByGroupIds($groupIds);
 
-        foreach ($groups as $group) {
+        foreach ($groups as $i => $group) {
             $members              = $group->getMembers();
             $primaryInvitee       = Invitee::find($group->primaryInviteeId);
 
@@ -3955,7 +3955,7 @@ final class EventsPage extends AbstractAdminPage
             $uninvitedConnections = array_values(array_filter($allConnections, static fn(array $c) => !$c['already_invited']));
             ?>
             <tr>
-                <?= $this->renderBulkSelectCell('eim-event-groups-bulk-form', 'event-groups-' . $event->id, $group->id, 'invitation group ' . (string) $group->id); ?>
+                <?= $this->renderLeadingCells('eim-event-groups-bulk-form', 'event-groups-' . $event->id, $group->id, 'invitation group ' . (string) $group->id, $offset + $i + 1); ?>
                 <td style="width:30px;vertical-align:middle;text-align:center;">
                     <button type="button"
                             class="button-link eim-seat-accordion-toggle"
@@ -4508,7 +4508,7 @@ final class EventsPage extends AbstractAdminPage
                data-total="<?= esc_attr($groupTotal); ?>">
             <thead>
                 <tr>
-                    <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('event-groups-' . $event->id); ?></th>
+                    <?= $this->renderLeadingHeaderCells('event-groups-' . $event->id); ?>
                     <th style="width:30px;" title="Seating"></th>
                     <th style="width:20%;"><?= $this->sortLink('Group Members',   'name',        AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
                     <th style="width:14%;"><?= $this->sortLink('Email (Primary)', 'email',       AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
