@@ -385,13 +385,16 @@ final class ConnectionGroup
     {
         global $wpdb;
 
+        $sortOrder = self::nextMemberSortOrder($groupId);
+
         $result = $wpdb->query(
             $wpdb->prepare(
                 "INSERT IGNORE INTO " . DatabaseManager::inviteeConnectionGroupMembersTable() . "
-                 (group_id, invitee_id, role) VALUES (%d, %d, %s)",
+                 (group_id, invitee_id, role, sort_order) VALUES (%d, %d, %s, %d)",
                 $groupId,
                 $inviteeId,
-                $role
+                $role,
+                $sortOrder
             )
         );
 
@@ -683,11 +686,11 @@ final class ConnectionGroup
 
         $rows = $wpdb->get_results(
             $wpdb->prepare(
-                "SELECT i.*, cgm.group_id AS cg_group_id, cgm.role AS cg_role
+                "SELECT i.*, cgm.group_id AS cg_group_id, cgm.role AS cg_role, cgm.sort_order AS cg_sort_order
                  FROM {$membersTable} cgm
                  INNER JOIN {$inviteesTable} i ON i.id = cgm.invitee_id
                  WHERE cgm.group_id IN ({$placeholders})
-                 ORDER BY i.last_name ASC, i.first_name ASC",
+                 ORDER BY cgm.sort_order ASC, i.last_name ASC, i.first_name ASC",
                 ...$groupIds
             )
         );
@@ -699,6 +702,111 @@ final class ConnectionGroup
         }
 
         return $grouped;
+    }
+
+    /**
+     * Computes the next available sort_order for a member being added to a group.
+     *
+     * @param int $groupId
+     * @return int
+     */
+    private static function nextMemberSortOrder(int $groupId): int
+    {
+        global $wpdb;
+
+        return (int) $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM " . DatabaseManager::inviteeConnectionGroupMembersTable() . " WHERE group_id = %d",
+                $groupId
+            )
+        );
+    }
+
+    /**
+     * Persists a full member order for a group, as produced by drag-and-drop
+     * reordering in the admin UI.
+     *
+     * Only invitee IDs that are actually members of the group are applied;
+     * anything else in $orderedInviteeIds is ignored.
+     *
+     * @param int   $groupId
+     * @param int[] $orderedInviteeIds Member invitee IDs in the desired display order.
+     * @return bool
+     */
+    public static function updateMemberOrder(int $groupId, array $orderedInviteeIds): bool
+    {
+        global $wpdb;
+
+        $membersTable = DatabaseManager::inviteeConnectionGroupMembersTable();
+
+        $validIds = array_map(
+            'intval',
+            $wpdb->get_col(
+                $wpdb->prepare("SELECT invitee_id FROM {$membersTable} WHERE group_id = %d", $groupId)
+            )
+        );
+        $validLookup = array_flip($validIds);
+
+        $position = 1;
+        foreach (array_map('intval', $orderedInviteeIds) as $inviteeId) {
+            if (!isset($validLookup[$inviteeId])) {
+                continue;
+            }
+
+            $updated = $wpdb->update(
+                $membersTable,
+                ['sort_order' => $position],
+                ['group_id' => $groupId, 'invitee_id' => $inviteeId]
+            );
+
+            if ($updated === false) {
+                return false;
+            }
+
+            $position++;
+        }
+
+        return true;
+    }
+
+    /**
+     * Returns each connection-group member's sort_order for every group the
+     * given invitee belongs to, keyed by invitee_id (including the invitee
+     * themselves).
+     *
+     * Used to seed default ordering when invitees are added to an event's
+     * InvitationGroup, so admin-configured connection-group order carries
+     * over. When an invitee belongs to multiple connection groups, the
+     * lowest sort_order across those groups is used as a deterministic
+     * tiebreak.
+     *
+     * @param int $primaryInviteeId
+     * @return array<int, int> invitee_id => sort_order
+     */
+    public static function memberOrderMap(int $primaryInviteeId): array
+    {
+        global $wpdb;
+
+        $membersTable = DatabaseManager::inviteeConnectionGroupMembersTable();
+
+        $rows = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT invitee_id, MIN(sort_order) AS sort_order
+                 FROM {$membersTable}
+                 WHERE group_id IN (
+                     SELECT group_id FROM {$membersTable} WHERE invitee_id = %d
+                 )
+                 GROUP BY invitee_id",
+                $primaryInviteeId
+            )
+        );
+
+        $map = [];
+        foreach ($rows ?? [] as $row) {
+            $map[(int) $row->invitee_id] = (int) $row->sort_order;
+        }
+
+        return $map;
     }
 
     /**

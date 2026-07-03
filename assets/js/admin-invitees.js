@@ -8,6 +8,8 @@
  *  - Connection Groups page table search (ConnectionGroupTable)
  *  - Event edit screen invitee picker + connection-group checkboxes (EventInviteePicker)
  *  - Connection Groups edit page member picker (ConnectionGroupMemberPicker)
+ *  - Connection Groups edit page member drag-and-drop reordering (ConnectionGroupMemberSorter)
+ *  - Invited Invitees dropdown "Change Order Number" inline editor (EventGroupManager)
  */
 (() => {
     'use strict';
@@ -1149,6 +1151,15 @@
             const trigger = e.target.closest('.eim-member-dropdown-trigger');
             if (trigger) { this.#toggleDropdown(e, trigger); return; }
 
+            const orderTrigger = e.target.closest('.eim-change-order-trigger');
+            if (orderTrigger) { e.stopPropagation(); this.#showOrderEditor(orderTrigger); return; }
+
+            const orderCancel = e.target.closest('.eim-cancel-order');
+            if (orderCancel) { e.stopPropagation(); this.#hideOrderEditor(orderCancel); return; }
+
+            const orderSave = e.target.closest('.eim-save-order');
+            if (orderSave) { e.stopPropagation(); this.#saveOrder(orderSave); return; }
+
             const addToggle = e.target.closest('.eim-add-member-toggle');
             if (addToggle) { this.#showRow(`eim-add-member-row-${addToggle.dataset.groupId}`, `eim-add-member-search-${addToggle.dataset.groupId}`); return; }
 
@@ -1243,6 +1254,107 @@
             document.querySelectorAll('.eim-member-dropdown-menu').forEach(m => {
                 m.hidden = true;
                 m.previousElementSibling?.setAttribute('aria-expanded', 'false');
+            });
+            document.querySelectorAll('.eim-member-order-editor').forEach(editor => { editor.hidden = true; });
+        }
+
+        /**
+         * Reveals the inline "change order number" editor for a member, replacing
+         * the visible "Change Order Number" menu item, and focuses its input.
+         *
+         * @param {HTMLElement} trigger The `.eim-change-order-trigger` button that was clicked.
+         * @returns {void}
+         */
+        #showOrderEditor(trigger) {
+            const editor = trigger.nextElementSibling;
+            if (!editor || !editor.classList.contains('eim-member-order-editor')) return;
+            editor.hidden = false;
+            editor.querySelector('.eim-order-input')?.focus();
+        }
+
+        /**
+         * Hides the inline order editor without saving.
+         *
+         * @param {HTMLElement} cancelBtn The `.eim-cancel-order` button that was clicked.
+         * @returns {void}
+         */
+        #hideOrderEditor(cancelBtn) {
+            const editor = cancelBtn.closest('.eim-member-order-editor');
+            if (editor) editor.hidden = true;
+        }
+
+        /**
+         * Saves a member's new order number via AJAX and refreshes every member's
+         * order badge in the group, since moving one member renumbers the rest.
+         *
+         * @param {HTMLElement} saveBtn The `.eim-save-order` button that was clicked.
+         * @returns {Promise<void>}
+         */
+        async #saveOrder(saveBtn) {
+            const editor  = saveBtn.closest('.eim-member-order-editor');
+            const trigger = editor?.previousElementSibling;
+            const input   = editor?.querySelector('.eim-order-input');
+            const status  = editor?.querySelector('.eim-order-save-status');
+            if (!editor || !trigger || !input) return;
+
+            const groupId   = trigger.dataset.groupId;
+            const inviteeId = trigger.dataset.inviteeId;
+            const newOrder  = parseInt(input.value, 10);
+
+            if (!groupId || !inviteeId || !newOrder || newOrder < 1) {
+                if (status) { status.textContent = 'Enter a valid number.'; status.style.color = '#d63638'; }
+                return;
+            }
+
+            saveBtn.disabled = true;
+            if (status) { status.textContent = ''; }
+
+            try {
+                const body = new FormData();
+                body.append('action',     'eim_save_member_order');
+                body.append('nonce',      config.event?.memberOrderNonce || '');
+                body.append('group_id',   groupId);
+                body.append('invitee_id', inviteeId);
+                body.append('sort_order', String(newOrder));
+
+                const resp = await fetch(ajaxurl, { method: 'POST', credentials: 'same-origin', body });
+                const { success, data } = await resp.json();
+
+                if (success && data?.order_map) {
+                    this.#applyOrderMap(groupId, data.order_map);
+                    editor.hidden = true;
+                } else if (status) {
+                    status.textContent = 'Error';
+                    status.style.color = '#d63638';
+                }
+            } catch (err) {
+                console.error('[EIM] Member order save failed:', err);
+                if (status) { status.textContent = 'Error'; status.style.color = '#d63638'; }
+            } finally {
+                saveBtn.disabled = false;
+            }
+        }
+
+        /**
+         * Updates every member's order badge and editor input within one group
+         * to reflect a freshly-saved order map.
+         *
+         * @param {string}                  groupId  The invitation group ID whose badges should refresh.
+         * @param {Object<string, number>}  orderMap invitee_id => new 1-based position.
+         * @returns {void}
+         */
+        #applyOrderMap(groupId, orderMap) {
+            document.querySelectorAll(`.eim-change-order-trigger[data-group-id="${CSS.escape(String(groupId))}"]`).forEach((trigger) => {
+                const newPosition = orderMap[trigger.dataset.inviteeId];
+                if (newPosition === undefined) return;
+
+                trigger.dataset.currentOrder = String(newPosition);
+
+                const badge = trigger.closest('.eim-member-dropdown')?.querySelector('.eim-member-order-badge');
+                if (badge) badge.textContent = `#${newPosition}`;
+
+                const input = trigger.nextElementSibling?.querySelector('.eim-order-input');
+                if (input) input.value = String(newPosition);
             });
         }
 
@@ -2124,6 +2236,195 @@
     }
 
     // -----------------------------------------------------------------------
+    // ConnectionGroupMemberSorter — drag-and-drop member reordering
+    // -----------------------------------------------------------------------
+
+    /**
+     * Wires up native HTML5 drag-and-drop reordering for a connection group's
+     * member table, mirroring EventAssignmentSorter's mechanics (used for event
+     * lodging/menu items). Kept as its own class rather than folded into
+     * EventAssignmentSorter since that class is tightly coupled to
+     * config.event.id/assignmentSortNonce, while this table is scoped to
+     * config.connectionGroup instead.
+     *
+     * Dragging is disabled while the member search filter is active, since
+     * reordering a filtered subset would produce a confusing result.
+     */
+    class ConnectionGroupMemberSorter {
+        /** @type {HTMLTableElement|null} */
+        #table;
+
+        /** @type {HTMLTableSectionElement|null} */
+        #tbody;
+
+        /** @type {HTMLInputElement|null} */
+        #search;
+
+        /** @type {HTMLElement|null} */
+        #dragging = null;
+
+        /**
+         * Locates the sortable members table and binds drag listeners. Silently
+         * aborts when the table isn't on the page or reordering isn't enabled.
+         */
+        constructor() {
+            this.#table = document.querySelector('.eim-cg-sortable-members');
+            if (!this.#table || !config.connectionGroup?.memberOrderSortNonce) return;
+
+            this.#tbody = this.#table.tBodies?.[0];
+            if (!this.#tbody) return;
+
+            this.#search = document.getElementById('eim-cg-members-search');
+            this.#initRows();
+        }
+
+        /**
+         * Returns true when the search filter is currently narrowing the row set.
+         *
+         * @returns {boolean}
+         */
+        #isFiltering() {
+            return (this.#search?.value || '').trim().length > 0;
+        }
+
+        /**
+         * Attaches drag handle and drag/drop listeners to every sortable row.
+         *
+         * @returns {void}
+         */
+        #initRows() {
+            for (const row of this.#tbody.querySelectorAll('.eim-sortable-row')) {
+                const handle = row.querySelector('.eim-drag-handle');
+                if (!handle) continue;
+
+                row.draggable = false;
+
+                handle.addEventListener('mousedown', () => {
+                    if (!this.#isFiltering()) row.draggable = true;
+                });
+
+                handle.addEventListener('mouseup', () => {
+                    if (!row.classList.contains('is-dragging')) row.draggable = false;
+                });
+
+                handle.addEventListener('touchstart', () => {
+                    if (!this.#isFiltering()) row.draggable = true;
+                }, { passive: true });
+
+                row.addEventListener('dragstart', (event) => {
+                    this.#dragging = row;
+                    row.classList.add('is-dragging');
+                    event.dataTransfer.effectAllowed = 'move';
+                    event.dataTransfer.setData('text/plain', row.dataset.id || '');
+                });
+
+                row.addEventListener('dragend', () => {
+                    row.classList.remove('is-dragging');
+                    row.draggable = false;
+
+                    if (!this.#dragging) return;
+                    this.#dragging = null;
+                    this.#renumberRows();
+                    this.#saveOrder();
+                });
+            }
+
+            this.#tbody.addEventListener('dragover', (event) => {
+                if (!this.#dragging) return;
+
+                event.preventDefault();
+                const after = this.#dragAfterElement(event.clientY);
+
+                if (after === null) {
+                    this.#tbody.appendChild(this.#dragging);
+                } else {
+                    this.#tbody.insertBefore(this.#dragging, after);
+                }
+            });
+        }
+
+        /**
+         * Returns the closest non-dragging row below the given vertical cursor
+         * position, or `null` if the dragged item should be appended at the end.
+         *
+         * @param {number} y The current clientY cursor coordinate.
+         * @returns {HTMLElement|null}
+         */
+        #dragAfterElement(y) {
+            const rows = [...this.#tbody.querySelectorAll('.eim-sortable-row:not(.is-dragging)')]
+                .filter((row) => row.style.display !== 'none');
+
+            return rows.reduce((closest, row) => {
+                const box    = row.getBoundingClientRect();
+                const offset = y - box.top - box.height / 2;
+
+                if (offset < 0 && offset > closest.offset) {
+                    return { offset, row };
+                }
+
+                return closest;
+            }, { offset: Number.NEGATIVE_INFINITY, row: null }).row;
+        }
+
+        /**
+         * Updates the `data-order` dataset attribute and visible order cell of
+         * every sortable row to reflect their current DOM positions.
+         *
+         * @returns {void}
+         */
+        #renumberRows() {
+            const rows = [...this.#tbody.querySelectorAll('.eim-sortable-row')];
+
+            rows.forEach((row, index) => {
+                const order = String(index + 1);
+                row.dataset.order = order;
+
+                const cell = row.querySelector('.eim-order-cell');
+                if (cell) cell.textContent = order;
+            });
+        }
+
+        /**
+         * Persists the current row order to the server via AJAX.
+         *
+         * @returns {Promise<void>}
+         */
+        async #saveOrder() {
+            const rows = [...this.#tbody.querySelectorAll('.eim-sortable-row')];
+            const ids  = rows.map((row) => row.dataset.id).filter(Boolean);
+
+            if (ids.length < 2) return;
+
+            const body = new URLSearchParams();
+            body.set('action', 'eim_sort_cg_members');
+            body.set('nonce', config.connectionGroup.memberOrderSortNonce);
+            body.set('connection_group_id', config.connectionGroup.id || 0);
+            ids.forEach((id) => body.append('ids[]', id));
+
+            const status = this.#table.parentElement?.querySelector('.eim-sort-status');
+            if (status) status.textContent = 'Saving order...';
+
+            try {
+                const response = await fetch(ajaxurl, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body,
+                });
+                const { success } = await response.json();
+
+                if (status) {
+                    status.textContent = success ? 'Order saved.' : 'Could not save order.';
+                    window.setTimeout(() => { status.textContent = ''; }, 2400);
+                }
+            } catch (error) {
+                console.error('[EIM] Connection group member order save failed:', error);
+                if (status) status.textContent = 'Could not save order.';
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // GroupAccordion — toggles the seating accordion row per invitation group
     // -----------------------------------------------------------------------
 
@@ -2966,6 +3267,7 @@
         if (config.connectionGroup?.enabled)      new ConnectionGroupMemberPicker();
         new EventGroupManager();
         new ConnectionGroupMembersTable();
+        new ConnectionGroupMemberSorter();
         if (config.event?.enabled) {
             new EventGroupsTable();
             new MenuItemPicker();

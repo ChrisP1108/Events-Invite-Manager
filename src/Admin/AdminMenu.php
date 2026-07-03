@@ -244,6 +244,10 @@ final class AdminMenu
         // Seating assignments save.
         add_action('wp_ajax_eim_save_seat_assignment',  [$this->eventsPage, 'handleAjaxSaveSeating']);
 
+        // Group member order (Invited Invitees dropdown + Connection Groups drag-and-drop).
+        add_action('wp_ajax_eim_save_member_order', [$this->eventsPage, 'handleAjaxSaveMemberOrder']);
+        add_action('wp_ajax_eim_sort_cg_members',   [$this->connectionGroupsPage, 'handleAjaxSaveMemberOrder']);
+
         // Invite email: test send and send-all.
         add_action('wp_ajax_eim_send_invite_test',      [$this->eventsPage, 'handleAjaxSendInviteTest']);
         add_action('wp_ajax_eim_send_all_invites_ajax', [$this->eventsPage, 'handleAjaxSendAllInvites']);
@@ -472,6 +476,7 @@ final class AdminMenu
                     'assignmentSortNonce' => wp_create_nonce('eim_event_assignment_sort_nonce'),
                     'lodgingNotesNonce'   => wp_create_nonce('eim_save_lodging_notes_nonce'),
                     'seatNonce'           => wp_create_nonce('eim_save_seat_assignment_nonce'),
+                    'memberOrderNonce'    => wp_create_nonce('eim_save_member_order_nonce'),
                     'inviteTestNonce'     => wp_create_nonce('eim_send_invite_test_nonce'),
                     'inviteAllNonce'      => wp_create_nonce('eim_send_all_invites_nonce'),
                     'getMessagesNonce'    => wp_create_nonce('eim_get_group_messages_nonce'),
@@ -480,8 +485,9 @@ final class AdminMenu
                     'replyNonce'          => wp_create_nonce('eim_reply_to_message_nonce'),
                 ],
                 'connectionGroup' => [
-                    'enabled' => $tab === self::TAB_CONNECTION_GROUPS && in_array($action, ['add', 'edit'], true),
-                    'id'      => (int) ($_GET['id'] ?? 0),
+                    'enabled'              => $tab === self::TAB_CONNECTION_GROUPS && in_array($action, ['add', 'edit'], true),
+                    'id'                   => (int) ($_GET['id'] ?? 0),
+                    'memberOrderSortNonce' => wp_create_nonce('eim_sort_cg_members_nonce'),
                 ],
                 'connectionGroupTable' => [
                     'enabled' => $tab === self::TAB_CONNECTION_GROUPS && !in_array($action, ['add', 'edit'], true),

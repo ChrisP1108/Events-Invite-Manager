@@ -3940,6 +3940,45 @@ final class EventsPage extends AbstractAdminPage
     }
 
     /**
+     * AJAX: moves a group member to a new display position, renumbering the
+     * rest of the group's members to keep the sequence contiguous.
+     *
+     * Expected POST params: nonce, group_id, invitee_id, sort_order (1-based position).
+     */
+    public function handleAjaxSaveMemberOrder(): void
+    {
+        check_ajax_referer('eim_save_member_order_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions.', 403);
+        }
+
+        $groupId    = (int) ($_POST['group_id']   ?? 0);
+        $inviteeId  = (int) ($_POST['invitee_id'] ?? 0);
+        $sortOrder  = (int) ($_POST['sort_order']  ?? 0);
+
+        if (!$groupId || !$inviteeId || $sortOrder < 1) {
+            wp_send_json_error('Missing required parameters.');
+        }
+
+        $success = InvitationGroup::updateMemberSortOrder($groupId, $inviteeId, $sortOrder);
+
+        if (!$success) {
+            wp_send_json_error('Could not save order.');
+        }
+
+        // Moving one member renumbers the whole group, so return every
+        // member's new position for the client to refresh all badges at once.
+        $group     = InvitationGroup::find($groupId);
+        $orderMap  = [];
+        foreach ($group?->getMembers() ?? [] as $index => $member) {
+            $orderMap[$member->id] = $index + 1;
+        }
+
+        wp_send_json_success(['order_map' => $orderMap]);
+    }
+
+    /**
      * Renders invitation group table rows for both the initial page and AJAX responses.
      *
      * @param Event             $event      The event whose groups are being rendered.
@@ -4012,7 +4051,7 @@ final class EventsPage extends AbstractAdminPage
                 </td>
                 <td>
                     <span class="eim-tag-list">
-                        <?php foreach ($members as $member): ?>
+                        <?php foreach ($members as $memberIndex => $member): ?>
                             <?php
                             $removeUrl      = wp_nonce_url(
                                 AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'remove_invitee_from_event', 'event_id' => $event->id, 'invitee_id' => $member->id]),
@@ -4024,6 +4063,7 @@ final class EventsPage extends AbstractAdminPage
                                 'eim_set_primary_' . $event->id . '_' . $group->id . '_' . $member->id
                             );
                             $isPrimary      = $member->id === $group->primaryInviteeId;
+                            $memberPosition = $memberIndex + 1;
                             ?>
                             <?php
                             $foodLabel      = $this->menuSelectionLabel($member->foodOptionId, $rsvpOptionMap);
@@ -4035,7 +4075,7 @@ final class EventsPage extends AbstractAdminPage
                                     <button type="button"
                                             class="eim-member-dropdown-trigger"
                                             aria-haspopup="true"
-                                            aria-expanded="false"><?= esc_html($member->fullName()); ?><?= $isPrimary ? ' <span class="eim-event-tag-role" title="Primary recipient">✉</span>' : ''; ?></button>
+                                            aria-expanded="false"><span class="eim-member-order-badge" title="Order in group">#<?= esc_html($memberPosition); ?></span> <?= esc_html($member->fullName()); ?><?= $isPrimary ? ' <span class="eim-event-tag-role" title="Primary recipient">✉</span>' : ''; ?></button>
                                     <div class="eim-member-dropdown-menu" role="menu" hidden>
                                         <a href="<?= esc_url($editInvUrl); ?>" role="menuitem">Edit Invitee</a>
                                         <button type="button"
@@ -4047,6 +4087,24 @@ final class EventsPage extends AbstractAdminPage
                                            role="menuitem"
                                            onclick="return confirm('Make <?= esc_js($member->fullName()); ?> the primary recipient for this group?');">Make Primary</a>
                                         <?php endif; ?>
+                                        <button type="button"
+                                                class="eim-change-order-trigger"
+                                                role="menuitem"
+                                                data-group-id="<?= esc_attr($group->id); ?>"
+                                                data-invitee-id="<?= esc_attr($member->id); ?>"
+                                                data-current-order="<?= esc_attr($memberPosition); ?>">Change Order Number</button>
+                                        <span class="eim-member-order-editor" hidden>
+                                            <label class="screen-reader-text" for="eim-order-input-<?= esc_attr($group->id . '-' . $member->id); ?>">New order number for <?= esc_html($member->fullName()); ?></label>
+                                            <input type="number"
+                                                   id="eim-order-input-<?= esc_attr($group->id . '-' . $member->id); ?>"
+                                                   class="small-text eim-order-input"
+                                                   min="1"
+                                                   max="<?= esc_attr(count($members)); ?>"
+                                                   value="<?= esc_attr($memberPosition); ?>">
+                                            <button type="button" class="button button-small eim-save-order">Save</button>
+                                            <button type="button" class="button-link eim-cancel-order">Cancel</button>
+                                            <span class="eim-order-save-status"></span>
+                                        </span>
                                     </div>
                                 </span>
                                 <?php if ($foodLabel || $bevLabel || $member->dietaryNotes): ?>

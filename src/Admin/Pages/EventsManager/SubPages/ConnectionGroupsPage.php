@@ -151,6 +151,33 @@ final class ConnectionGroupsPage extends AbstractAdminPage
         ], $results));
     }
 
+    /**
+     * AJAX: persists a new drag-sorted member order for a connection group.
+     *
+     * Expected POST params: nonce, connection_group_id, ids[] (ordered invitee IDs).
+     */
+    public function handleAjaxSaveMemberOrder(): void
+    {
+        check_ajax_referer('eim_sort_cg_members_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Insufficient permissions.', 403);
+        }
+
+        $groupId = (int) ($_POST['connection_group_id'] ?? 0);
+        $ids     = wp_unslash($_POST['ids'] ?? []);
+
+        if ($groupId <= 0 || !is_array($ids) || ConnectionGroup::find($groupId) === null) {
+            wp_send_json_error('Invalid request.', 400);
+        }
+
+        if (!ConnectionGroup::updateMemberOrder($groupId, array_map('intval', $ids))) {
+            wp_send_json_error('Unable to save member order.', 500);
+        }
+
+        wp_send_json_success(['message' => 'Member order saved.']);
+    }
+
     // -------------------------------------------------------------------------
     // Form handlers
     // -------------------------------------------------------------------------
@@ -594,6 +621,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                 if (!empty($members)):
                 ?>
                     <?php $memberCount = count($members); ?>
+                    <?php $canReorder  = $memberCount > 1; ?>
 
                     <?php if ($memberCount >= 2): ?>
                     <div style="margin-bottom:6px;display:flex;align-items:center;gap:12px;">
@@ -609,6 +637,11 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                     </div>
                     <?php endif; ?>
 
+                    <?php if ($canReorder): ?>
+                        <p class="description eim-sortable-hint">Drag rows by the handle to set the order names appear in invite emails. Order numbers update automatically. Reordering is disabled while filtering.</p>
+                        <p class="description eim-sort-status" aria-live="polite"></p>
+                    <?php endif; ?>
+
                     <?php $this->renderBulkActions(
                         'eim-cg-members-bulk-form',
                         AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'edit', 'id' => $group->id]),
@@ -618,13 +651,18 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                     ); ?>
 
                     <table id="eim-cg-members-table"
-                           class="wp-list-table widefat fixed striped"
+                           class="wp-list-table widefat fixed striped<?= $canReorder ? ' eim-cg-sortable-members' : ''; ?>"
                            style="margin-bottom:16px;"
+                           data-connection-group-id="<?= esc_attr($group->id); ?>"
                            data-sort="name"
                            data-order="asc">
                         <thead>
                             <tr>
+                                <?php if ($canReorder): ?>
+                                    <th class="eim-drag-column"><span class="screen-reader-text">Move</span></th>
+                                <?php endif; ?>
                                 <th class="eim-bulk-select-column" style="width:36px;"><?= $this->renderBulkSelectHeader('cg-members-' . $group->id); ?></th>
+                                <th style="width:8%;">Order</th>
                                 <th>
                                     <a href="#" class="eim-sort-link eim-cg-member-sort"
                                        data-sort="name" data-order="desc">
@@ -642,17 +680,29 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                             </tr>
                         </thead>
                         <tbody id="eim-cg-members-tbody">
-                            <?php foreach ($members as $member): ?>
+                            <?php foreach ($members as $position => $member): ?>
                                 <?php
                                 $removeUrl = wp_nonce_url(
                                     AdminMenu::tabUrl(AdminMenu::TAB_CONNECTION_GROUPS, ['action' => 'remove_member_from_connection_group', 'group_id' => $group->id, 'invitee_id' => $member->id]),
                                     'eim_remove_cg_member_' . $group->id . '_' . $member->id
                                 );
                                 $editUrl = AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, ['action' => 'edit', 'id' => $member->id]);
+                                $displayOrder = $position + 1;
                                 ?>
-                                <tr data-name="<?= esc_attr(strtolower($member->fullName())); ?>"
+                                <tr class="<?= $canReorder ? 'eim-sortable-row' : ''; ?>"
+                                    data-id="<?= esc_attr($member->id); ?>"
+                                    data-order="<?= esc_attr($displayOrder); ?>"
+                                    data-name="<?= esc_attr(strtolower($member->fullName())); ?>"
                                     data-email="<?= esc_attr(strtolower($member->email)); ?>">
+                                    <?php if ($canReorder): ?>
+                                        <td class="eim-drag-column">
+                                            <button type="button" class="button-link eim-drag-handle" aria-label="Drag to reorder <?= esc_attr($member->fullName()); ?>">
+                                                <span class="dashicons dashicons-menu" aria-hidden="true"></span>
+                                            </button>
+                                        </td>
+                                    <?php endif; ?>
                                     <?= $this->renderBulkSelectCell('eim-cg-members-bulk-form', 'cg-members-' . $group->id, $member->id, $member->fullName()); ?>
+                                    <td class="eim-order-cell"><?= esc_html($displayOrder); ?></td>
                                     <td><a href="<?= esc_url($editUrl); ?>"><?= esc_html($member->fullName()); ?></a></td>
                                     <td><?= esc_html($member->email); ?></td>
                                     <td><span style="color:#646970;">—</span></td>

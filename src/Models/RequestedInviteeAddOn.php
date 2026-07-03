@@ -363,13 +363,19 @@ final class RequestedInviteeAddOn
 
         // If an invitation group was saved, auto-RSVP as attending.
         if ($request->invitationGroupId) {
+            // Append at the end of the group's order — this invitee was just
+            // created moments ago, so there's no pre-planned connection-group
+            // position to inherit.
+            $sortOrder = InvitationGroup::nextMemberSortOrder((int) $request->invitationGroupId);
+
             $inserted = $wpdb->query($wpdb->prepare(
                 "INSERT IGNORE INTO " . DatabaseManager::invitationGroupMembersTable() . "
-                 (group_id, invitee_id, rsvp_status, registered_at)
-                 VALUES (%d, %d, 'attending', %s)",
+                 (group_id, invitee_id, rsvp_status, registered_at, sort_order)
+                 VALUES (%d, %d, 'attending', %s, %d)",
                 $request->invitationGroupId,
                 $inviteeId,
-                current_time('mysql')
+                current_time('mysql'),
+                $sortOrder
             ));
 
             if ($inserted === false) {

@@ -18,7 +18,7 @@ final class DatabaseManager
     /**
      * The current database schema version.
      */
-    private const SCHEMA_VERSION = '44';
+    private const SCHEMA_VERSION = '45';
 
     /**
      * The database table names.
@@ -222,6 +222,7 @@ final class DatabaseManager
                 group_id   BIGINT(20) UNSIGNED NOT NULL,
                 invitee_id BIGINT(20) UNSIGNED NOT NULL,
                 role       VARCHAR(100)        NOT NULL DEFAULT '',
+                sort_order INT                 NOT NULL DEFAULT 0,
                 created_at DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (id),
@@ -250,6 +251,7 @@ final class DatabaseManager
                 group_id           BIGINT(20) UNSIGNED NOT NULL,
                 invitee_id         BIGINT(20) UNSIGNED NOT NULL,
                 rsvp_status        VARCHAR(10)         NOT NULL DEFAULT 'pending',
+                sort_order         INT                 NOT NULL DEFAULT 0,
                 registered_at      DATETIME,
                 food_option_id        BIGINT(20) UNSIGNED NULL DEFAULT NULL,
                 beverage_option_id    BIGINT(20) UNSIGNED NULL DEFAULT NULL,

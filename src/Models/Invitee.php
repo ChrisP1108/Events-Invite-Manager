@@ -47,6 +47,7 @@ final class Invitee
      * @param ?string $lodgingConfirmedAt  MySQL datetime when the lodging selection was confirmed, or null.
      * @param string  $createdAt           MySQL datetime of row creation.
      * @param string  $updatedAt           MySQL datetime of last update.
+     * @param int     $sortOrder           Display order within the current group context (invitation or connection group), 0 when not loaded from a group.
      */
     public function __construct(
         public readonly int     $id,
@@ -77,6 +78,7 @@ final class Invitee
         public readonly string  $createdAt,
         public readonly string  $updatedAt,
         public readonly string  $seatAssignment,
+        public readonly int     $sortOrder = 0,
     ) {}
 
     // -------------------------------------------------------------------------
@@ -699,6 +701,7 @@ final class Invitee
             createdAt:                  $row->created_at ?? '',
             updatedAt:                  $row->updated_at ?? '',
             seatAssignment:             $row->invitation_seat_assignment ?? '',
+            sortOrder:            (int) ($row->invitation_sort_order ?? $row->cg_sort_order ?? 0),
         );
     }
 

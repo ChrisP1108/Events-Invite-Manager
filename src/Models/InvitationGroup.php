@@ -164,6 +164,7 @@ final class InvitationGroup
 
         $groupsTable  = DatabaseManager::invitationGroupsTable();
         $membersTable = DatabaseManager::invitationGroupMembersTable();
+        $orderMap     = ConnectionGroup::memberOrderMap($primaryInviteeId);
 
         $result = $wpdb->insert($groupsTable, [
             'event_id'           => $eventId,
@@ -176,10 +177,17 @@ final class InvitationGroup
 
         $groupId = (int) $wpdb->insert_id;
 
+        // High-water mark so members with no connection-group order (appended
+        // below) always sort after every connection-group-ordered member,
+        // regardless of insertion sequence in this loop.
+        $highWater    = empty($orderMap) ? 0 : max($orderMap);
+        $primaryOrder = $orderMap[$primaryInviteeId] ?? ++$highWater;
+
         $wpdb->insert($membersTable, [
             'group_id'    => $groupId,
             'invitee_id'  => $primaryInviteeId,
             'rsvp_status' => self::RSVP_PENDING,
+            'sort_order'  => $primaryOrder,
         ]);
 
         $allIds = array_unique(array_filter(array_map('intval', $additionalMemberIds)));
@@ -187,12 +195,16 @@ final class InvitationGroup
             if ($memberId === $primaryInviteeId) {
                 continue;
             }
+
+            $memberOrder = $orderMap[$memberId] ?? ++$highWater;
+
             $wpdb->query(
                 $wpdb->prepare(
-                    "INSERT IGNORE INTO {$membersTable} (group_id, invitee_id, rsvp_status) VALUES (%d, %d, %s)",
+                    "INSERT IGNORE INTO {$membersTable} (group_id, invitee_id, rsvp_status, sort_order) VALUES (%d, %d, %s, %d)",
                     $groupId,
                     $memberId,
-                    self::RSVP_PENDING
+                    self::RSVP_PENDING,
+                    $memberOrder
                 )
             );
         }
@@ -298,9 +310,13 @@ final class InvitationGroup
             $eventId, $inviteeId
         ));
 
+        $group       = self::find($groupId);
+        $orderMap    = $group !== null ? ConnectionGroup::memberOrderMap($group->primaryInviteeId) : [];
+        $sortOrder   = $orderMap[$inviteeId] ?? self::nextMemberSortOrder($groupId);
+
         return $wpdb->query($wpdb->prepare(
-            "INSERT IGNORE INTO " . DatabaseManager::invitationGroupMembersTable() . " (group_id, invitee_id, rsvp_status) VALUES (%d, %d, %s)",
-            $groupId, $inviteeId, self::RSVP_PENDING
+            "INSERT IGNORE INTO " . DatabaseManager::invitationGroupMembersTable() . " (group_id, invitee_id, rsvp_status, sort_order) VALUES (%d, %d, %s, %d)",
+            $groupId, $inviteeId, self::RSVP_PENDING, $sortOrder
         )) !== false;
     }
 
@@ -632,12 +648,13 @@ final class InvitationGroup
                         egm.lodging_is_other      AS invitation_lodging_is_other,
                         egm.lodging_undisclosed   AS invitation_lodging_undisclosed,
                         egm.lodging_confirmed_at  AS invitation_lodging_confirmed_at,
-                        egm.seat_assignment       AS invitation_seat_assignment
+                        egm.seat_assignment       AS invitation_seat_assignment,
+                        egm.sort_order            AS invitation_sort_order
                  FROM {$membersTable} egm
                  INNER JOIN {$inviteesTable} i   ON i.id   = egm.invitee_id
                  INNER JOIN {$groupsTable}   eig ON eig.id = egm.group_id
                  WHERE egm.group_id IN ({$placeholders})
-                 ORDER BY i.last_name ASC, i.first_name ASC",
+                 ORDER BY egm.sort_order ASC, i.last_name ASC, i.first_name ASC",
                 ...$groupIds
             )
         );
@@ -660,6 +677,79 @@ final class InvitationGroup
             ['seat_assignment' => $seatAssignment],
             ['group_id' => $groupId, 'invitee_id' => $inviteeId]
         ) !== false;
+    }
+
+    /**
+     * Computes the next available sort_order for a member being added to a group.
+     *
+     * Public because RequestedInviteeAddOn::approve() also needs it for its
+     * own raw member insert (it can't go through addMemberToGroup() since it
+     * needs to set rsvp_status/registered_at directly).
+     *
+     * @param int $groupId
+     * @return int
+     */
+    public static function nextMemberSortOrder(int $groupId): int
+    {
+        global $wpdb;
+
+        return (int) $wpdb->get_var(
+            $wpdb->prepare(
+                "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM " . DatabaseManager::invitationGroupMembersTable() . " WHERE group_id = %d",
+                $groupId
+            )
+        );
+    }
+
+    /**
+     * Moves a member to a new 1-based position within their group and renumbers
+     * every other member's sort_order to keep the sequence contiguous.
+     *
+     * @param int $groupId
+     * @param int $inviteeId
+     * @param int $newPosition 1-based target position (clamped to the member count).
+     * @return bool
+     */
+    public static function updateMemberSortOrder(int $groupId, int $inviteeId, int $newPosition): bool
+    {
+        global $wpdb;
+
+        $membersTable = DatabaseManager::invitationGroupMembersTable();
+
+        $orderedIds = array_map(
+            'intval',
+            $wpdb->get_col(
+                $wpdb->prepare(
+                    "SELECT invitee_id FROM {$membersTable} WHERE group_id = %d ORDER BY sort_order ASC, id ASC",
+                    $groupId
+                )
+            )
+        );
+
+        $currentIndex = array_search($inviteeId, $orderedIds, true);
+        if ($currentIndex === false) {
+            return false;
+        }
+
+        unset($orderedIds[$currentIndex]);
+        $orderedIds = array_values($orderedIds);
+
+        $targetIndex = max(0, min($newPosition - 1, count($orderedIds)));
+        array_splice($orderedIds, $targetIndex, 0, [$inviteeId]);
+
+        foreach ($orderedIds as $index => $id) {
+            $updated = $wpdb->update(
+                $membersTable,
+                ['sort_order' => $index + 1],
+                ['group_id' => $groupId, 'invitee_id' => $id]
+            );
+
+            if ($updated === false) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public static function updateLodgingNotes(int $groupId, string $notes): bool

@@ -30,7 +30,7 @@ if (version_compare(PHP_VERSION, '8.1', '<')) {
     });
 } else {
 
-    define('EIM_VERSION', '1.7.4');
+    define('EIM_VERSION', '1.7.5');
     define('EIM_PLUGIN_FILE', __FILE__);
     define('EIM_PLUGIN_DIR', plugin_dir_path(__FILE__));
     define('EIM_PLUGIN_URL', plugin_dir_url(__FILE__));

@@ -831,6 +831,40 @@ img {
     color: #135e96;
 }
 
+/* Order-number badge shown before each member's name */
+.eim-member-order-badge {
+    color: #646970;
+    font-size: 11px;
+    font-weight: 600;
+    margin-right: 2px;
+}
+
+.eim-group-member-primary .eim-member-order-badge {
+    color: #1a5c1a;
+}
+
+/* Inline "change order number" editor within the member dropdown menu */
+.eim-member-order-editor {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 6px 12px;
+}
+
+.eim-member-order-editor[hidden] {
+    display: none;
+}
+
+.eim-member-order-editor .eim-order-input {
+    width: 52px;
+}
+
+.eim-order-save-status {
+    font-size: 11px;
+    width: 100%;
+}
+
 .eim-event-detail-dropdown {
     display: inline-flex;
     position: relative;
