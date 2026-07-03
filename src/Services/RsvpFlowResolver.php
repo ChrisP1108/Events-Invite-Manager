@@ -269,6 +269,104 @@ final class RsvpFlowResolver
         return true;
     }
 
+    /**
+     * Resolves a confirmation code into a flat array suitable for direct use by
+     * server-rendered templates (e.g. WordPress theme page templates).
+     *
+     * Unlike resolve(), which returns a structured RsvpFlowResult of typed value
+     * objects for programmatic consumers, this flattens the entire result --
+     * event, group, and per-member RSVP/menu/lodging state, plus QR code URLs --
+     * into primitive, snake_case-keyed arrays.
+     *
+     * The caller is responsible for extracting and sanitizing the raw code from
+     * the request (e.g. $_GET); this method never touches superglobals.
+     *
+     * @param string $confirmationCode Already-sanitized confirmation code.
+     * @return array{
+     *     confirmation_code: string,
+     *     next_action: string,
+     *     requires_lodging: bool,
+     *     requires_food: bool,
+     *     requires_beverage: bool,
+     *     dashboard_url: string|null,
+     *     rsvp_start_pending: bool,
+     *     rsvp_before_start_url: string|null,
+     *     rsvp_deadline_passed: bool,
+     *     rsvp_after_deadline_url: string|null,
+     *     qr_code: array{svg_url:string,png_url:string}|null,
+     *     event: array{id:int,name:string,description:string,start_datetime:string|null,end_datetime:string|null,timezone:string,lodging_enabled:bool,food_options_enabled:bool,beverage_options_enabled:bool}|null,
+     *     group: array{id:int,event_id:int,primary_invitee_id:int,rsvp_notes:string,lodging_booked:bool}|null,
+     *     primary_member_id: int|null,
+     *     members: array<int,array{id:int,first_name:string,last_name:string,email:string,rsvp_status:string,is_registered:bool,food_option_id:int|null,beverage_option_id:int|null,dietary_notes:string,lodging_id:int|null,is_primary:bool,sort_order:int}>
+     * }|false
+     */
+    public function resolveConfirmationCodeToArray(string $confirmationCode): array|false
+    {
+        $confirmationCode = trim($confirmationCode);
+
+        if ($confirmationCode === '') {
+            return false;
+        }
+
+        $flowResult = $this->resolve($confirmationCode);
+
+        if (!$flowResult->success) {
+            return false;
+        }
+
+        $qrCode = QrCode::findByCode($confirmationCode);
+
+        return [
+            'confirmation_code'       => $confirmationCode,
+            'next_action'             => $flowResult->nextAction,
+            'requires_lodging'        => $flowResult->requiresLodging,
+            'requires_food'           => $flowResult->requiresFood,
+            'requires_beverage'       => $flowResult->requiresBeverage,
+            'dashboard_url'           => $flowResult->dashboardUrl,
+            'rsvp_start_pending'      => $flowResult->rsvpStartPending,
+            'rsvp_before_start_url'   => $flowResult->rsvpBeforeStartUrl,
+            'rsvp_deadline_passed'    => $flowResult->rsvpDeadlinePassed,
+            'rsvp_after_deadline_url' => $flowResult->rsvpAfterDeadlineUrl,
+            'qr_code' => $qrCode ? [
+                'svg_url' => wp_make_link_relative($qrCode->svgUrl()),
+                'png_url' => wp_make_link_relative($qrCode->pngUrl()),
+            ] : null,
+            'event' => $flowResult->event ? [
+                'id'                       => $flowResult->event->id,
+                'name'                     => $flowResult->event->name,
+                'description'              => $flowResult->event->description,
+                'start_datetime'           => $flowResult->event->startDatetime,
+                'end_datetime'             => $flowResult->event->endDatetime,
+                'timezone'                 => $flowResult->event->timezone,
+                'lodging_enabled'          => $flowResult->event->lodgingEnabled,
+                'food_options_enabled'     => $flowResult->event->foodOptionsEnabled,
+                'beverage_options_enabled' => $flowResult->event->beverageOptionsEnabled,
+            ] : null,
+            'group' => $flowResult->group ? [
+                'id'                 => $flowResult->group->id,
+                'event_id'           => $flowResult->group->eventId,
+                'primary_invitee_id' => $flowResult->group->primaryInviteeId,
+                'rsvp_notes'         => $flowResult->group->rsvpNotes,
+                'lodging_booked'     => $flowResult->group->lodgingBooked,
+            ] : null,
+            'members' => array_map(static fn(Invitee $member) => [
+                'id'                 => $member->id,
+                'first_name'         => $member->firstName,
+                'last_name'          => $member->lastName,
+                'email'              => $member->email,
+                'rsvp_status'        => $member->rsvpStatus,
+                'is_registered'      => $member->isRegistered,
+                'food_option_id'     => $member->foodOptionId,
+                'beverage_option_id' => $member->beverageOptionId,
+                'dietary_notes'      => $member->dietaryNotes,
+                'lodging_id'         => $member->lodgingId,
+                'is_primary'         => $flowResult->group !== null && $member->id === $flowResult->group->primaryInviteeId,
+                'sort_order'         => $member->sortOrder,
+            ], $flowResult->members),
+            'primary_member_id' => $flowResult->group?->primaryInviteeId,
+        ];
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
 
     /**
