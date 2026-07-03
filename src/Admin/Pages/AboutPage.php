@@ -528,11 +528,12 @@ PHP;
                     <tr><td><code>{{ last_name }}</code></td><td>Primary invitee's last name</td></tr>
                     <tr><td><code>{{ full_name }}</code></td><td>First and last name combined</td></tr>
                     <tr><td><code>{{ email }}</code></td><td>Primary invitee's email address</td></tr>
-                    <tr><td><code>{{ qr_code }}</code></td><td>An <code>&lt;img&gt;</code> tag containing the invitation group's unique PNG QR code image, displayed at 480 × 480 px</td></tr>
+                    <tr><td><code>{{ qr_code }}</code></td><td>An <code>&lt;img&gt;</code> tag containing the invitation group's unique PNG QR code image, displayed at 480 × 480 px by default. Add <code>width</code>/<code>height</code> attributes to override the size, e.g. <code>{{ qr_code width="200" height="200" }}</code></td></tr>
                     <tr><td><code>{{ invite_url }}</code></td><td>The personalised RSVP URL encoded in the QR code — useful as a text fallback when email clients block images</td></tr>
                     <tr><td><code>{{ group_names }}</code></td><td>Comma-separated names of every invitee in the invitation group</td></tr>
                     <tr><td><code>{{ invitee_names }}</code></td><td>Alias of <code>{{ group_names }}</code></td></tr>
                     <tr><td><code>{{ invitee_count }}</code></td><td>Number of people in the invitation group</td></tr>
+                    <tr><td><code>{{ non_primary_names }}</code></td><td>The group's other invitees, with the primary invitee (the recipient) referred to as "You" — e.g. "You, Jamie and Alex". Matches the wording used on the site's RSVP confirmation page</td></tr>
                 </tbody>
             </table>
 

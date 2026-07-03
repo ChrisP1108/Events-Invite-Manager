@@ -10,6 +10,7 @@ use EventsInviteManager\Models\Event;
 use EventsInviteManager\Models\InvitationGroup;
 use EventsInviteManager\Models\Invitee;
 use EventsInviteManager\Models\Newsletter;
+use EventsInviteManager\Services\RsvpFlowResolver;
 
 /**
  * Handles sending invite emails via wp_mail().
@@ -17,7 +18,13 @@ use EventsInviteManager\Models\Newsletter;
  * Available template tags for invite emails:
  *   {{ event_name }}, {{ first_name }}, {{ last_name }}, {{ full_name }},
  *   {{ email }}, {{ qr_code }}, {{ invite_url }},
- *   {{ group_names }}, {{ invitee_names }}, {{ invitee_count }}
+ *   {{ group_names }}, {{ invitee_names }}, {{ invitee_count }}, {{ non_primary_names }}
+ *
+ * {{ first_name }}, {{ last_name }}, and {{ full_name }} already reflect the
+ * primary invitee (the recipient), so there's no separate "primary member" tag.
+ *
+ * {{ qr_code }} accepts optional width/height attributes to override the default
+ * 480x480 display size, e.g. {{ qr_code width="200" height="200" }}.
  */
 final class EmailService
 {
@@ -39,21 +46,24 @@ final class EmailService
      * reflect all members in the group; {{ first_name }}, {{ last_name }}, etc.
      * reflect the primary invitee (the email recipient).
      *
-     * @param Event           $event
-     * @param InvitationGroup $group
-     * @param Invitee         $primaryInvitee  The group member who receives the email.
-     * @param Invitee[]       $allMembers      All members including the primary.
-     * @param string          $qrCodeImgTag    HTML <img> tag for the QR code.
-     * @param string          $inviteUrl       RSVP URL encoded in the QR code.
+     * @param Event             $event
+     * @param InvitationGroup   $group
+     * @param Invitee           $primaryInvitee  The group member who receives the email.
+     * @param Invitee[]         $allMembers      All members including the primary.
+     * @param string|\Closure   $qrCodeImgTag    HTML <img> tag for the QR code, or a
+     *                                           `Closure(array<string,string> $attributes): string`
+     *                                           that builds it, honoring width/height attributes
+     *                                           written on the {{ qr_code }} tag itself.
+     * @param string            $inviteUrl       RSVP URL encoded in the QR code.
      * @return bool True if wp_mail() accepted the message.
      */
     public function sendGroupInvite(
-        Event           $event,
-        InvitationGroup $group,
-        Invitee         $primaryInvitee,
-        array           $allMembers,
-        string          $qrCodeImgTag = '',
-        string          $inviteUrl    = ''
+        Event             $event,
+        InvitationGroup   $group,
+        Invitee           $primaryInvitee,
+        array             $allMembers,
+        string|\Closure   $qrCodeImgTag = '',
+        string            $inviteUrl    = ''
     ): bool {
         if (empty($event->inviteEmailTemplate)) {
             return false;
@@ -65,16 +75,17 @@ final class EmailService
         ));
 
         $variables = [
-            'event_name'    => esc_html($event->name),
-            'first_name'    => esc_html($primaryInvitee->firstName),
-            'last_name'     => esc_html($primaryInvitee->lastName),
-            'full_name'     => esc_html($primaryInvitee->fullName()),
-            'email'         => esc_html($primaryInvitee->email),
-            'qr_code'       => $qrCodeImgTag,
-            'invite_url'    => esc_url($inviteUrl),
-            'group_names'   => $groupNames,
-            'invitee_names' => $groupNames,
-            'invitee_count' => (string) count($allMembers),
+            'event_name'         => esc_html($event->name),
+            'first_name'         => esc_html($primaryInvitee->firstName),
+            'last_name'          => esc_html($primaryInvitee->lastName),
+            'full_name'          => esc_html($primaryInvitee->fullName()),
+            'email'              => esc_html($primaryInvitee->email),
+            'qr_code'            => $qrCodeImgTag,
+            'invite_url'         => esc_url($inviteUrl),
+            'group_names'        => $groupNames,
+            'invitee_names'      => $groupNames,
+            'invitee_count'      => (string) count($allMembers),
+            'non_primary_names'  => $this->formatNonPrimaryNames($primaryInvitee, $allMembers),
         ];
 
         $subject = $this->renderer->render($event->inviteEmailSubject, $variables)
@@ -82,6 +93,32 @@ final class EmailService
         $body    = $this->renderer->render($event->inviteEmailTemplate, $variables);
 
         return $this->dispatchHtml($primaryInvitee->email, $subject, $body, $this->buildFromHeader($event));
+    }
+
+    /**
+     * Builds the {{ non_primary_names }} tag value: the group's non-primary members,
+     * with the primary invitee (the recipient) referred to as "You".
+     *
+     * The "You, X and Y" wording itself lives in
+     * RsvpFlowResolver::formatNonPrimaryNames() so it stays in sync with
+     * WeddingTheme\Classes\Confirmation::getNonPrimaryMembersNameString(), which
+     * shows the same phrasing on the site's RSVP confirmation page.
+     *
+     * @param Invitee   $primaryInvitee
+     * @param Invitee[] $allMembers
+     * @return string e.g. "You", "You and Jamie", or "You, Jamie and Alex".
+     */
+    private function formatNonPrimaryNames(Invitee $primaryInvitee, array $allMembers): string
+    {
+        $nonPrimaryNames = array_values(array_map(
+            static fn(Invitee $m) => esc_html($m->firstName),
+            array_filter(
+                $allMembers,
+                static fn(Invitee $m) => $m->id !== $primaryInvitee->id
+            )
+        ));
+
+        return RsvpFlowResolver::formatNonPrimaryNames($nonPrimaryNames);
     }
 
     /**

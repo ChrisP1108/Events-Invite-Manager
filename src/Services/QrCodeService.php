@@ -74,11 +74,16 @@ final class QrCodeService
      * Returns an HTML <img> tag pointing to the stored QR code PNG.
      *
      * @param QrCode $qrCode
+     * @param ?int   $width  Overrides the default display width, in pixels.
+     * @param ?int   $height Overrides the default display height, in pixels.
      * @return string
      */
-    public function imgTag(QrCode $qrCode): string
+    public function imgTag(QrCode $qrCode, ?int $width = null, ?int $height = null): string
     {
-        $img = '<img src="' . esc_url($qrCode->pngUrl()) . '" alt="Scan to RSVP" width="' . self::QR_EMAIL_DISPLAY_SIZE . '" height="' . self::QR_EMAIL_DISPLAY_SIZE . '" style="display:block;">';
+        $width  = $width ?? self::QR_EMAIL_DISPLAY_SIZE;
+        $height = $height ?? self::QR_EMAIL_DISPLAY_SIZE;
+
+        $img = '<img src="' . esc_url($qrCode->pngUrl()) . '" alt="Scan to RSVP" width="' . $width . '" height="' . $height . '" style="display:block;">';
         $url = esc_url($this->buildInviteUrl($qrCode->confirmationCode));
 
         return '<a href="' . $url . '" target="_blank" style="display:block;">' . $img . '</a>';

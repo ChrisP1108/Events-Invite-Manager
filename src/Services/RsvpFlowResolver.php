@@ -367,6 +367,80 @@ final class RsvpFlowResolver
         ];
     }
 
+    /**
+     * Finds the primary (recipient) member's row within a resolved confirmation
+     * array (see resolveConfirmationCodeToArray()).
+     *
+     * Single source of truth for "who is the primary member" — used by both the
+     * theme's RSVP confirmation page and the plugin's invite email tags.
+     *
+     * @param array $resolvedData The array returned by resolveConfirmationCodeToArray().
+     * @param string|null $key Optional field name to extract from the member's row.
+     * @return array|string|false The full member row, a single field's value, or false when not found.
+     */
+    public static function primaryMember(array $resolvedData, ?string $key = null): array|string|false
+    {
+        $member = array_find($resolvedData['members'] ?? [], static fn(array $m) => $m['is_primary']);
+
+        if ($member === null) {
+            return false;
+        }
+
+        if ($key === null) {
+            return $member;
+        }
+
+        return $member[$key] ?? false;
+    }
+
+    /**
+     * Formats the group's non-primary members into a human-readable string, with
+     * the primary member (the recipient) referred to as "You".
+     *
+     * Single source of truth for this wording — used by both the theme's RSVP
+     * confirmation page and the plugin's {{ non_primary_names }} email tag.
+     *
+     * @param array $resolvedData The array returned by resolveConfirmationCodeToArray().
+     * @return string|false e.g. "You", "You and Jamie", or "You, Jamie and Alex".
+     */
+    public static function nonPrimaryMembersNameString(array $resolvedData): string|false
+    {
+        if (empty($resolvedData['members'])) {
+            return false;
+        }
+
+        $names = array_values(array_map(
+            static fn(array $m) => $m['first_name'],
+            array_filter($resolvedData['members'], static fn(array $m) => !$m['is_primary'])
+        ));
+
+        return self::formatNonPrimaryNames($names);
+    }
+
+    /**
+     * Formats a list of non-primary first names as "You" / "You and X" / "You, X and Y".
+     *
+     * @param string[] $names Non-primary members' first names, in display order.
+     * @return string
+     */
+    public static function formatNonPrimaryNames(array $names): string
+    {
+        $count = count($names);
+
+        if ($count === 0) {
+            return 'You';
+        }
+
+        if ($count === 1) {
+            return 'You and ' . $names[0];
+        }
+
+        $lastKey = array_key_last($names);
+        $names[$lastKey] = 'and ' . $names[$lastKey];
+
+        return 'You, ' . implode(', ', $names);
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
 
     /**

@@ -1104,7 +1104,11 @@ final class EventsPage extends AbstractAdminPage
                         $group,
                         $primaryInvitee,
                         $members,
-                        $this->qrCodeService->imgTag($qrCode),
+                        fn(array $attrs): string => $this->qrCodeService->imgTag(
+                            $qrCode,
+                            isset($attrs['width']) ? (int) $attrs['width'] : null,
+                            isset($attrs['height']) ? (int) $attrs['height'] : null
+                        ),
                         $this->qrCodeService->inviteUrl($qrCode)
                     );
                     $message = $sent ? 'invite_sent' : 'invite_failed';
@@ -1167,7 +1171,11 @@ final class EventsPage extends AbstractAdminPage
                     $group,
                     $primaryInvitee,
                     $members,
-                    $this->qrCodeService->imgTag($qrCode),
+                    fn(array $attrs): string => $this->qrCodeService->imgTag(
+                        $qrCode,
+                        isset($attrs['width']) ? (int) $attrs['width'] : null,
+                        isset($attrs['height']) ? (int) $attrs['height'] : null
+                    ),
                     $this->qrCodeService->inviteUrl($qrCode)
                 )) {
                     InvitationGroup::markInviteSent($group->id);
@@ -1749,7 +1757,11 @@ final class EventsPage extends AbstractAdminPage
                 $group,
                 $primaryInvitee,
                 $members,
-                $this->qrCodeService->imgTag($qrCode),
+                fn(array $attrs): string => $this->qrCodeService->imgTag(
+                    $qrCode,
+                    isset($attrs['width']) ? (int) $attrs['width'] : null,
+                    isset($attrs['height']) ? (int) $attrs['height'] : null
+                ),
                 $this->qrCodeService->inviteUrl($qrCode)
             )) {
                 InvitationGroup::markInviteSent($group->id);
@@ -2703,11 +2715,15 @@ final class EventsPage extends AbstractAdminPage
                         <code>{{ event_name }}</code> <code>{{ first_name }}</code> <code>{{ last_name }}</code>
                         <code>{{ full_name }}</code> <code>{{ email }}</code> <code>{{ qr_code }}</code> <code>{{ invite_url }}</code>
                     </p>
+                    <p class="description" style="margin-bottom:4px;">
+                        <code>{{ qr_code }}</code> accepts optional <code>width</code>/<code>height</code> attributes to resize it, e.g. <code>{{ qr_code width="200" height="200" }}</code>
+                    </p>
                     <p class="description" style="margin-bottom:12px;">
                         Group tags:
                         <code>{{ group_names }}</code> — all members' names ·
                         <code>{{ invitee_names }}</code> — same as group_names ·
-                        <code>{{ invitee_count }}</code> — number of people in the group
+                        <code>{{ invitee_count }}</code> — number of people in the group ·
+                        <code>{{ non_primary_names }}</code> — other members, recipient shown as "You"
                     </p>
 
                     <style>
