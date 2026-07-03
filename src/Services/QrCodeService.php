@@ -419,6 +419,9 @@ final class QrCodeService
      */
     private function buildInviteUrl(string $code): string
     {
-        return home_url('/') . '?eim_confirmation=' . $code;
+        $domain = trim((string) get_option('eim_qr_code_domain', ''));
+        $base   = $domain !== '' ? trailingslashit($domain) : home_url('/');
+
+        return $base . '?eim_confirmation=' . $code;
     }
 }

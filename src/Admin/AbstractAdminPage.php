@@ -447,6 +447,7 @@ abstract class AbstractAdminPage
             'invites_sent'          => "Sent {$count} invite email(s) to unsent groups.",
             'qr_codes_generated'    => "Generated {$count} QR code(s) for all invitation groups.",
             'qr_codes_deleted'      => "Deleted {$count} QR code(s) for this event.",
+            'qr_domain_settings_saved' => 'QR code domain settings saved. Delete and regenerate existing QR codes for the change to take effect.',
             'lodging_created'       => 'Lodging location added successfully.',
             'lodging_updated'       => 'Lodging location updated successfully.',
             'lodging_deleted'       => 'Lodging location deleted.',
@@ -532,6 +533,7 @@ abstract class AbstractAdminPage
             'bulk_invalid_action'        => 'Choose a valid bulk action before applying.',
             'riar_not_found'             => 'Request not found.',
             'riar_create_failed'         => 'Could not create the invitee. Please try again.',
+            'qr_domain_invalid'          => 'Please enter a valid custom domain including https:// (e.g. https://example.com).',
         ];
 
         if (isset($successes[$messageKey])) {

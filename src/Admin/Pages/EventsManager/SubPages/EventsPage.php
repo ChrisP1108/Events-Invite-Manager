@@ -68,6 +68,7 @@ final class EventsPage extends AbstractAdminPage
             'send_all_event_invites'    => $this->handleSendAllEventInvites(),
             'generate_all_qr_codes'     => $this->handleGenerateAllQrCodes(),
             'delete_all_qr_codes'       => $this->handleDeleteAllQrCodes(),
+            'save_qr_domain_settings'   => $this->handleSaveQrDomainSettings(),
             'export_event_csv'          => $this->handleExportEventCsv(),
             'export_event_json'         => $this->handleExportEventJson(),
             'add_gift_to_event'         => $this->handleAddGiftToEvent(),
@@ -1242,6 +1243,52 @@ final class EventsPage extends AbstractAdminPage
             'id'          => $eventId,
             'eim_message' => 'qr_codes_deleted',
             'count'       => $deleted,
+        ]) . '#eim-etab-invitees');
+        exit;
+    }
+
+    /**
+     * Saves the site-wide QR code domain setting: either follow the current
+     * site domain automatically, or pin QR generation to a custom domain.
+     *
+     * This is a global setting (applies to every event's QR codes), even
+     * though the form lives on a single event's Invited Invitees tab.
+     */
+    private function handleSaveQrDomainSettings(): void
+    {
+        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_save_qr_domain_settings')) {
+            wp_die('Security check failed.');
+        }
+
+        $eventId   = (int) ($_POST['event_id'] ?? 0);
+        $mode      = sanitize_key($_POST['qr_domain_mode'] ?? 'auto');
+        $rawDomain = trim((string) ($_POST['qr_domain_custom'] ?? ''));
+
+        if ($mode === 'custom') {
+            // Validate the raw input before esc_url_raw() gets a chance to
+            // silently prepend "http://" to a schemeless string — that
+            // coercion would otherwise let nonsense input (e.g. "not-a-url")
+            // pass FILTER_VALIDATE_URL as "http://not-a-url".
+            $scheme = wp_parse_url($rawDomain, PHP_URL_SCHEME);
+
+            if ($rawDomain === '' || !filter_var($rawDomain, FILTER_VALIDATE_URL) || !in_array($scheme, ['http', 'https'], true)) {
+                wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
+                    'action'    => 'edit',
+                    'id'        => $eventId,
+                    'eim_error' => 'qr_domain_invalid',
+                ]) . '#eim-etab-invitees');
+                exit;
+            }
+
+            update_option('eim_qr_code_domain', untrailingslashit(esc_url_raw($rawDomain)), false);
+        } else {
+            update_option('eim_qr_code_domain', '', false);
+        }
+
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
+            'action'      => 'edit',
+            'id'          => $eventId,
+            'eim_message' => 'qr_domain_settings_saved',
         ]) . '#eim-etab-invitees');
         exit;
     }
@@ -4525,6 +4572,44 @@ final class EventsPage extends AbstractAdminPage
             </tbody>
         </table>
         <?php $this->renderPaginationBar('eim-event-groups-search'); ?>
+
+        <?php
+        $qrDomainOption  = get_option('eim_qr_code_domain', '');
+        $qrDomainMode    = $qrDomainOption !== '' ? 'custom' : 'auto';
+        $saveQrDomainUrl = AdminMenu::tabUrl(AdminMenu::TAB_EVENTS);
+        ?>
+        <h2 style="margin-top:32px;">QR Code Domain</h2>
+        <p style="margin-top:4px;"><strong>Applies to QR codes for all events, not just this one.</strong></p>
+        <form method="post" action="<?= esc_url($saveQrDomainUrl); ?>" style="margin-top:8px;">
+            <?php wp_nonce_field('eim_save_qr_domain_settings'); ?>
+            <input type="hidden" name="eim_action" value="save_qr_domain_settings">
+            <input type="hidden" name="event_id" value="<?= esc_attr($event->id); ?>">
+            <p style="margin-bottom:6px;">
+                <label>
+                    <input type="radio" name="qr_domain_mode" value="auto" <?= checked($qrDomainMode, 'auto', false); ?>
+                           onchange="document.getElementById('eim-qr-custom-domain').disabled = true;">
+                    Use current site domain (<code><?= esc_html(home_url('/')); ?></code>)
+                </label>
+            </p>
+            <p style="margin-bottom:6px;">
+                <label>
+                    <input type="radio" name="qr_domain_mode" value="custom" <?= checked($qrDomainMode, 'custom', false); ?>
+                           onchange="document.getElementById('eim-qr-custom-domain').disabled = false;">
+                    Use a custom domain:
+                </label>
+                <input type="url" id="eim-qr-custom-domain" name="qr_domain_custom"
+                       value="<?= esc_attr($qrDomainOption); ?>"
+                       placeholder="https://example.com"
+                       <?= $qrDomainMode !== 'custom' ? 'disabled' : ''; ?>
+                       style="width:320px;margin-left:6px;">
+            </p>
+            <p style="margin-top:8px;margin-bottom:0;">
+                <button type="submit" class="button button-primary">Save Domain Setting</button>
+                <span style="margin-left:10px;color:#646970;font-size:12px;">
+                    Existing QR codes still encode the old domain until you delete and regenerate them below.
+                </span>
+            </p>
+        </form>
 
         <?php if (!empty($groups)):
             $generateQrUrl = wp_nonce_url(
