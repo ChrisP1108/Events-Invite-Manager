@@ -10,7 +10,7 @@ A WordPress plugin for managing private event invitations, grouped RSVPs, attend
 A centralised global library of vendors — caterers, photographers, venues, florists, and any other service provider. Vendors are created once and referenced from both food & beverage menu items and budget line items. Each record stores company name, street address, email address, phone number, and free-text notes. The Vendors admin table supports AJAX live search with a **column-filter dropdown** (Company, Email, Phone, Notes) and sortable columns. Vendors can be tagged with **categories**.
 
 ### Categories & Taxonomy
-A unified category taxonomy that spans every entity in the plugin. Categories support one level of parent → child hierarchy and can be assigned to events, invitees, connection groups, locations, food & beverage items, budget plans, vendors, and newsletters — all from the add or edit form for that entity. Every list table in the plugin shows a **Categories column** where assigned categories appear as teal chip links; clicking a chip opens the category editor directly. In the category picker widget on edit forms, each chip label is also a clickable link to the category editor, while the × button still removes the assignment.
+A unified category taxonomy that spans every entity in the plugin. Categories support one level of parent → child hierarchy and can be assigned to events, invitees, connection groups, locations, food & beverage items, budget plans, budget items, vendors, gifts, and newsletters — all from the add or edit form for that entity. Every list table in the plugin shows a **Categories column** where assigned categories appear as teal chip links; clicking a chip opens the category editor directly. In the category picker widget on edit forms, each chip label is also a clickable link to the category editor, while the × button still removes the assignment.
 
 ### Location Library
 A centralised library of reusable locations (venues, hotels, Airbnbs, etc.) maintained independently of any specific event. Locations are created once and selected by name across as many events as needed via a live autocomplete search field. The Locations admin table supports AJAX live search with a **column-filter dropdown** (Name, Type, Lodging, Address, Used In) and sortable columns. Free-text entries are not allowed — every venue or lodging assignment must reference a validated library entry.
@@ -56,21 +56,35 @@ A conversation thread system between invitees and the admin, scoped per event an
 Invitees can request additional guests be added to their invitation group via the `POST /request-guest` REST endpoint. Each request stores the proposed guest's contact details and is queued for admin review in the **Requested Invitees** admin tab. Admins can **approve** (creating the invitee, adding them to the connection group and invitation group, and auto-RSVPing them as attending) or **deny** the request. The full approve workflow runs inside a database transaction.
 
 ### Invitees
-Add and manage invitees globally, each with a first name, last name, email address, phone number, and optional postal address. The Invitees admin table supports AJAX live search with a **column-filter dropdown** (First Name, Last Name, Email, Phone, Invited Events, Connection Groups), sortable columns, event tags, connection group tags, and a **Categories column** showing assigned category chips.
+Add and manage invitees globally, each with a first name and last name (required), and optional email address, phone number, and postal address. The Invitees admin table supports AJAX live search with a **column-filter dropdown** (First Name, Last Name, Email, Phone, Invited Events, Connection Groups), sortable columns, event tags, connection group tags, and a **Categories column** showing assigned category chips. A **Has Address** column shows `True`/`False` based on whether street address, city, state, and zip code are all filled in — click-sortable like every other column.
+
+Invitees without an email address on file can still be added to events and invitation groups; sending an invite to a group whose primary invitee has no email is skipped automatically with a clear admin notice rather than failing.
 
 ### Connection Groups
 Create reusable groups of related invitees — couples, families, households, or custom groupings. These groups are independent of any one event and appear as checkbox suggestions when adding invitees to an event. The Connection Groups page supports the shared live search bar with a **column-filter dropdown** (Name, Type, Members, Invited To). The **Invited To** column shows which events each group has been invited to as clickable event tags. A **Categories column** shows assigned category chips.
 
+Members within a connection group can be **manually reordered** by dragging rows on the group's edit screen — a drag handle and position number appear whenever a group has more than one member. This order determines the sequence names are listed in wherever the group is used, most notably the `{{ group_names }}` email tag. When invitees from a connection group are added to an event, their order carries over automatically to the resulting invitation group as the default; from there it can be independently fine-tuned per event (see **Invited Invitees** below).
+
 ### Email Invites
-From an event edit screen, add existing invitees to that event. When a selected invitee belongs to connection groups, connected people appear as checkboxes so the admin can include them in one invitation group. One invite email is sent per invitation group to the primary invitee, who can RSVP for everyone in the group. Email subject lines and body content are fully customisable using template tags, including `{{ qr_code }}`, `{{ invite_url }}`, and group-aware tags.
+From an event edit screen, add existing invitees to that event. When a selected invitee belongs to connection groups, connected people appear as checkboxes so the admin can include them in one invitation group. One invite email is sent per invitation group to the primary invitee, who can RSVP for everyone in the group. Email subject lines and body content are fully customisable using template tags, including `{{ qr_code }}`, `{{ invite_url }}`, and group-aware tags. If a group's primary invitee has no email address on file, that group is skipped automatically (individually or as part of **Send All Unsent Invites**) with a clear admin notice rather than a failed send.
 
 ### QR Code RSVP
-When an invite is sent, a unique 16-character confirmation code is generated for the invitation group and matching SVG/PNG QR codes are produced in the WordPress uploads directory (`wp-uploads/eim-qr-codes/event_{event_id}_group_{group_id}/`). The QR code encodes a URL of the form `{site}/?eim_confirmation={code}`. When scanned, the plugin intercepts the request via `template_redirect` and forwards the visitor to the configured RSVP page, or to the configured before-start page when RSVP has not opened yet. The RSVP API drives a multi-step flow: `rsvp_form` → `menu_required` → `lodging_required` → `dashboard_redirect`, with each step gated by the event's configuration. The `next_action` field in every response tells the frontend exactly what to present next. RSVP submissions before the configured start or after the configured deadline are rejected. QR codes are automatically removed from disk and the database when their invitation group is deleted.
+When an invite is sent, a unique 16-character confirmation code is generated for the invitation group and matching SVG/PNG QR codes are produced in the WordPress uploads directory (`wp-uploads/eim-qr-codes/event_{event_id}_group_{group_id}/`). The QR code encodes a URL of the form `{domain}/?eim_confirmation={code}`, and the embedded email image is wrapped in a link to the same URL so it's clickable directly from the inbox, not just scannable. When scanned, the plugin intercepts the request via `template_redirect` and forwards the visitor to the configured RSVP page, or to the configured before-start page when RSVP has not opened yet. The RSVP API drives a multi-step flow: `rsvp_form` → `menu_required` → `lodging_required` → `dashboard_redirect`, with each step gated by the event's configuration. The `next_action` field in every response tells the frontend exactly what to present next. RSVP submissions before the configured start or after the configured deadline are rejected. QR codes are automatically removed from disk and the database when their invitation group is deleted.
+
+**QR Code Domain** — a site-wide setting on the Invited Invitees tab, directly above the Generate/Delete All QR Codes buttons, controls which domain `{domain}` resolves to above. By default it follows the current site's `home_url()`, but it can be pinned to a fixed custom domain instead — useful for local/staging environments (e.g. Local WP) that need to generate QR codes encoding the live production domain rather than the local one. Changing this setting only affects newly generated QR codes; use **Delete All QR Codes** followed by **Generate All QR Codes** on an event to re-encode its existing codes with the new domain.
 
 ### Invited Invitees — search & sort
-The **Invited Invitees** list on every event edit screen supports AJAX live search with a **column-filter dropdown** (Group Members, Email, Invite Sent, Registered) and sortable column headers (Group Members, Email, Invite Sent, Registered). Sorting and filtering occur without a page reload; both operate simultaneously.
+The **Invited Invitees** list on every event edit screen supports AJAX live search with a **column-filter dropdown** (Group Members, Email, Invite Sent, Registered) and sortable column headers (Group Members, Email, Has Address, Invite Sent, Registered). Sorting and filtering occur without a page reload; both operate simultaneously.
+
+A **Has Address** column is displayed between Email (Primary) and Invite Sent, showing `True`/`False` for whether the group's **primary invitee** has a complete postal address (street address, city, state, and zip code all filled in) — the same check used on the global Invitees list, just scoped to the primary recipient of each group.
 
 A **Confirmation Code** column is displayed between the Registered and RSVP Notes columns, showing each invitation group's unique 16-character QR confirmation code at a glance — useful for cross-referencing exports or diagnosing RSVP issues without opening the export.
+
+### Invitation Group Member Ordering
+Each group member's display order — shown as a `#N` badge before their name — controls the sequence names appear in the `{{ group_names }}` email tag and everywhere else the group's members are listed (the guest-facing RSVP/dashboard pages, CSV/JSON exports). New groups default to whatever order the members held in their shared connection group; members added without a connection-group relationship append to the end. To adjust the order for one event without affecting the connection group, open a member's dropdown from their name tag and choose **Change Order Number** — it opens an inline position field that saves via AJAX and instantly renumbers the rest of the group, with no page reload.
+
+### Seating Assignments
+Each invitation group row on the Invited Invitees table has an expandable accordion (▶) revealing a per-member seat input — type a value like "Table 5, Seat 2" and it saves automatically via AJAX as you tab away or press Enter, no page reload. Below the main table, a flat **Seating Assignments** section lists every member across the whole event who has a seat assigned, with its own live search and sortable columns (First Name, Last Name, Email, Phone, Connection Group, Seat) so a caterer or venue coordinator can see the full seating chart at a glance without expanding each group individually.
 
 ### Newsletters
 A **Newsletters** tab provides a full editorial workspace for newsletter posts intended for email blasts and website display. Each newsletter has a **title**, rich HTML **content** (authored in the WordPress TinyMCE editor), **status** (Draft or Published), and a **publish date**. Newsletters support:
@@ -79,6 +93,9 @@ A **Newsletters** tab provides a full editorial workspace for newsletter posts i
 - **Managed categories and tags** — a taxonomy-style system where categories and tags are maintained from a collapsible inline panel on the list page. Categories use a checkbox picker on the edit form; tags use the same.
 - **AJAX live search** with a column-filter dropdown (Title, Events, Categories, Tags, Status) and sortable columns for all fields.
 - **Content preview** — a "Preview Content" button below the editor renders the newsletter HTML in an isolated `<iframe>` so admin CSS cannot interfere. On desktop the preview opens **side-by-side** with the editor; on tablet and mobile it stacks below. Closing the preview returns the editor to full width. The preview **live-refreshes 1 second after typing stops** (debounced, covers both TinyMCE visual mode and raw HTML text mode).
+
+### Budget Items Library
+A **Budget Line Items** tab holds a reusable global library of budget items — separate from any one plan — each with a label, an optional linked vendor, unit cost, and notes. Items are created once here and then added to individual budget plans' line-item tables, the same relationship the Food & Beverages library has to per-event menu assignments. The library table supports AJAX live search, sortable columns, and a **Categories column**.
 
 ### Budget
 A **Budget** tab provides financial planning and tracking across one or more events. Budget plans contain:
@@ -276,11 +293,11 @@ Navigate to **Events Invite Manager → Invitees** and add each guest with their
 
 ### 8 — Create connection groups
 
-Navigate to **Events Invite Manager → Connection Groups** and create reusable groups for people who commonly RSVP together (couples, families, households). Connection groups provide checkbox suggestions when adding invitees to an event.
+Navigate to **Events Invite Manager → Connection Groups** and create reusable groups for people who commonly RSVP together (couples, families, households). Connection groups provide checkbox suggestions when adding invitees to an event. Drag rows on a group's edit screen to set the order members should be listed in — this carries over automatically when the group is added to an event.
 
 ### 9 — Send invites
 
-Open the event edit screen, navigate to the **Invited Invitees** tab, add existing invitees, and optionally check connected people to include them in the same invitation group. Use **Send Invite** on an individual group row or **Send All Unsent Invites** to dispatch one email per unsent group.
+Open the event edit screen, navigate to the **Invited Invitees** tab, add existing invitees, and optionally check connected people to include them in the same invitation group. Use **Send Invite** on an individual group row or **Send All Unsent Invites** to dispatch one email per unsent group. If you're moving between local, staging, and production environments, check the **QR Code Domain** setting above the Generate/Delete All QR Codes buttons — pin it to your production domain so QR codes generated locally still resolve correctly once the site goes live.
 
 ### 10 — Build your RSVP page
 
@@ -301,7 +318,7 @@ Navigate to **Events Invite Manager → Newsletters** to create newsletter posts
 
 ### 13 — Track your budget (optional)
 
-Navigate to **Events Invite Manager → Budget** to create a budget plan. Add line items with vendor, quantity, unit cost, and optional total overrides. Plans can span multiple events and the totals row shows estimated, paid, and remaining amounts at a glance.
+Optionally build a reusable item library first at **Events Invite Manager → Budget Line Items** — the same "create once, use everywhere" pattern as the vendor and menu item libraries. Then navigate to **Events Invite Manager → Budget** to create a budget plan. Add line items with vendor, quantity, unit cost, and optional total overrides. Plans can span multiple events and the totals row shows estimated, paid, and remaining amounts at a glance.
 
 ### 14 — Add a calendar link widget (optional)
 
@@ -330,9 +347,10 @@ Template tags are replaced with live values at send time. Tags are case-insensit
 | `{{ email }}`      | Invitee's email address |
 | `{{ qr_code }}`       | An `<img>` tag containing the invitation group's unique PNG QR code, displayed at 480 × 480 px |
 | `{{ invite_url }}`    | The same personalized RSVP URL encoded in the invitation group's QR code |
-| `{{ group_names }}`   | Comma-separated names of every invitee in the invitation group |
+| `{{ group_names }}`   | Comma-separated names of every invitee in the invitation group, in their configured display order (see **Invitation Group Member Ordering**) |
 | `{{ invitee_names }}` | Alias of `{{ group_names }}` |
 | `{{ invitee_count }}` | Number of people in the invitation group |
+| `{{ non_primary_names }}` | The group's other invitees, with the primary invitee (the recipient) referred to as "You" — e.g. "You, Jamie and Alex" |
 
 ### From Email field
 
@@ -426,9 +444,9 @@ Sends a new invitee message for a specific event/group thread.
 | `{prefix}eim_event_lodging` | Pivot table linking events to their lodging location options; includes a `notes` column for event-specific notes unique to each event/location pairing |
 | `{prefix}eim_qr_codes` | QR code records: confirmation code, event/group FKs, and uploads-relative SVG path with companion PNG beside it |
 | `{prefix}eim_invitee_connection_groups` | Reusable global relationship groups (couples, families, households, custom) |
-| `{prefix}eim_invitee_connection_group_members` | Pivot table linking global invitees to reusable connection groups |
+| `{prefix}eim_invitee_connection_group_members` | Pivot table linking global invitees to reusable connection groups; includes a `sort_order` column controlling display order, drag-and-drop reorderable on the group's edit screen |
 | `{prefix}eim_event_invitation_groups` | Event-specific invitation groups; each group has one primary invitee and one email/QR code |
-| `{prefix}eim_event_invitation_group_members` | Per-person RSVP status, registration timestamp, food/beverage/lodging selections, and dietary notes |
+| `{prefix}eim_event_invitation_group_members` | Per-person RSVP status, registration timestamp, food/beverage/lodging selections, dietary notes, seat assignment, and a `sort_order` column controlling display order (defaults from the connection group's order, independently adjustable per event) |
 | `{prefix}eim_menu_items` | Global food and beverage menu item library — label, description, price, vendor FK |
 | `{prefix}eim_event_menu_items` | Pivot table linking events to their assigned menu items from the global library |
 | `{prefix}eim_vendors` | Global vendor library — company name, contact details, and free-text notes |
@@ -453,7 +471,7 @@ Sends a new invitee message for a specific event/group thread.
 ## Developer Notes
 
 - **PHP 8.1+ features in use:** readonly constructor properties, named arguments, `match` expressions, `str_contains`, `str_starts_with`.
-- **JavaScript:** ES2022 classes with private fields (`#field`), async/await, dynamic `import()`. Separate IIFE scripts handle each admin page: `admin-events.js` (events list search/sort/pagination), `admin-invitees.js` (invitee table, event invitee picker, connection group list/member picker, event groups search/sort, menu item pickers), `admin-locations.js` (locations table search/sort), `admin-menu-items.js` (food and beverage tables search/sort/pagination), `admin-budget.js` (budget plans and line items), `admin-newsletters.js` (newsletter list search/sort), `admin-categories.js` (category picker widget and category list). The location autocomplete system is split into ES modules under `assets/js/modules/`. Tab switching on the event edit screen and the newsletter content preview are implemented as inline IIFE scripts. No build tool or transpilation step is required.
+- **JavaScript:** ES2022 classes with private fields (`#field`), async/await, dynamic `import()`. Separate IIFE scripts handle each admin page: `admin-events.js` (events list search/sort/pagination), `admin-invitees.js` (invitee table, event invitee picker, connection group list/member picker and drag-and-drop reordering, event groups search/sort, seat assignment AJAX saves and the flat seating table, invitation group member order editing, menu item pickers), `admin-locations.js` (locations table search/sort), `admin-menu-items.js` (food and beverage tables search/sort/pagination), `admin-budget.js` (budget plans and line items), `admin-newsletters.js` (newsletter list search/sort), `admin-categories.js` (category picker widget and category list). The location autocomplete system is split into ES modules under `assets/js/modules/`. Tab switching on the event edit screen and the newsletter content preview are implemented as inline IIFE scripts. No build tool or transpilation step is required.
 - **No build tool required:** JS is authored in native ES2022 and loaded directly — no bundler or transpilation step.
 - **Autoloading:** PSR-4 via Composer. All classes live under the `EventsInviteManager\` namespace in `src/`.
 - **QR code storage:** SVG and PNG files are written to `{wp-uploads}/eim-qr-codes/event_{event_id}_group_{group_id}/` via `wp_upload_dir()` — not inside the plugin directory — so they survive plugin updates. Files are deleted from disk whenever the associated DB record is removed.
@@ -461,6 +479,7 @@ Sends a new invitee message for a specific event/group thread.
 - **Category system:** `Category::forEntities(string $entityType, array $entityIds)` bulk-loads categories for an entire list in one JOIN query (keyed by entity ID), avoiding N+1 lookups in list-table renders. `Category::forEntity()` loads for a single entity. `Category::syncToEntity()` atomically replaces all category assignments for an entity.
 - **`eim_change` hook:** `EimChangeEvent::dispatch(string $type, string $changeType, mixed $data)` fires `do_action('eim_change', $event)` after every successful create, update, or delete. The `EimChangeEvent` value object (in `EventsInviteManager\Hooks\EimChangeEvent`) carries `TYPE_*` and `ADDED`/`EDITED`/`DELETED` constants. For deletes, the data snapshot is captured before the record is removed.
 - **REST API architecture:** `RestController` is a slim router. Each feature area has its own controller class (`RsvpController`, `DashboardController`, `NewsletterController`, `RegistryController`, `GuestRequestController`, `MessagesController`) extending `AbstractApiController`, which holds all shared payload-building helpers.
+- **Server-rendered template integration:** `RsvpFlowResolver::resolveConfirmationCodeToArray(string $confirmationCode): array|false` resolves a confirmation code straight to a flat, snake_case-keyed array — event, group, per-member RSVP/menu/lodging state (including each member's `sort_order`), and QR code URLs — without going through the REST API. Intended for WordPress theme page templates that need RSVP state server-side (e.g. rendering a custom RSVP page in PHP rather than via `fetch()`), sparing them an extra HTTP round-trip. Returns `false` when the code doesn't resolve.
 
 ---
 

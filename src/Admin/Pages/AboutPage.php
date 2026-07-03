@@ -221,6 +221,7 @@ final class AboutPage extends AbstractAdminPage
                             Go to <strong>Connection Groups</strong> to define reusable relationships like couples, families, or households.
                             These groups become checkbox suggestions when adding invitees to an event.
                             The <strong>Invited To</strong> column shows which events each group has already been invited to.
+                            Drag member rows on a group's edit screen to set their display order — it carries over automatically when the group is added to an event.
                             <a href="<?= esc_url($groupsUrl); ?>">Go to Connection Groups →</a>
                         </p>
                     </div>
@@ -237,6 +238,9 @@ final class AboutPage extends AbstractAdminPage
                             A unique QR code is generated automatically for each group — add <code>{{ qr_code }}</code>
                             anywhere in your invite email to embed the scannable image, or
                             <code>{{ invite_url }}</code> to include the RSVP link as text.
+                            If you're generating QR codes on a local or staging environment before going live, set the
+                            <strong>QR Code Domain</strong> option (above the Generate/Delete All QR Codes buttons) to your
+                            production domain so codes generated now still resolve correctly once the site is live.
                         </p>
                     </div>
                 </div>
@@ -277,7 +281,8 @@ final class AboutPage extends AbstractAdminPage
                     <div>
                         <h3>Track your budget <em style="font-weight:400;color:#646970;">(optional)</em></h3>
                         <p>
-                            Go to <strong>Budget</strong> to create a budget plan. Add line items with vendor, quantity, unit cost, and optional total overrides. Plans can span multiple events; the totals row shows estimated, paid, and remaining amounts at a glance.
+                            Optionally build a reusable item library first at <strong>Budget Line Items</strong> — the same create-once, use-everywhere pattern as vendors and menu items.
+                            Then go to <strong>Budget</strong> to create a budget plan. Add line items with vendor, quantity, unit cost, and optional total overrides. Plans can span multiple events; the totals row shows estimated, paid, and remaining amounts at a glance.
                             <a href="<?= esc_url($budgetUrl); ?>">Go to Budget →</a>
                         </p>
                     </div>
@@ -315,7 +320,7 @@ final class AboutPage extends AbstractAdminPage
             [
                 'icon'  => 'dashicons-tag',
                 'title' => 'Categories & Taxonomy',
-                'body'  => 'A unified category taxonomy spanning every entity in the plugin. Categories support one level of parent → child hierarchy and can be assigned to events, invitees, connection groups, locations, menu items, budget plans, vendors, and newsletters. Every list table shows a Categories column with teal chip links — clicking a chip opens the category editor. The category picker in add/edit forms also makes chip labels clickable.',
+                'body'  => 'A unified category taxonomy spanning every entity in the plugin. Categories support one level of parent → child hierarchy and can be assigned to events, invitees, connection groups, locations, menu items, budget plans, budget items, vendors, gifts, and newsletters. Every list table shows a Categories column with teal chip links — clicking a chip opens the category editor. The category picker in add/edit forms also makes chip labels clickable.',
             ],
             [
                 'icon'  => 'dashicons-location',
@@ -345,17 +350,17 @@ final class AboutPage extends AbstractAdminPage
             [
                 'icon'  => 'dashicons-groups',
                 'title' => 'Invitee Management',
-                'body'  => 'Add guests globally with name, email, phone, and optional address. The Invitees table supports AJAX live search with a column-filter dropdown (First Name, Last Name, Email, Phone, Invited Events, Connection Groups), sortable columns, event tags, and connection group tags.',
+                'body'  => 'Add guests globally with name (required), and optional email, phone, and address. The Invitees table supports AJAX live search with a column-filter dropdown (First Name, Last Name, Email, Phone, Invited Events, Connection Groups), sortable columns, event tags, and connection group tags. A sortable Has Address column shows True/False based on whether street address, city, state, and zip are all filled in. Invitees with no email on file can still be added to events — sending them an invite is skipped automatically with a clear notice.',
             ],
             [
                 'icon'  => 'dashicons-networking',
                 'title' => 'Connection Groups',
-                'body'  => 'Create reusable relationships for couples, families, households, or custom groups. The Connection Groups list has its own live search bar with a column-filter dropdown (Name, Type, Members, Invited To) and searches group names, member details, and event names. The Invited To column shows which events each group has been invited to as clickable event tags.',
+                'body'  => 'Create reusable relationships for couples, families, households, or custom groups. The Connection Groups list has its own live search bar with a column-filter dropdown (Name, Type, Members, Invited To) and searches group names, member details, and event names. The Invited To column shows which events each group has been invited to as clickable event tags. Members can be reordered by dragging rows on the group\'s edit screen — this order carries over automatically wherever the group is used, including as the default order when its members join an event.',
             ],
             [
                 'icon'  => 'dashicons-email-alt',
                 'title' => 'Invitation Groups',
-                'body'  => 'When adding invitees to an event, connected people can be checked into the same event-specific invitation group. One email and QR code are sent per group to the primary invitee. The Invited Invitees list supports AJAX live search and a column-filter dropdown (Group Members, Email, Invite Sent, Registered). A Confirmation Code column displays each group\'s unique 16-character QR code at a glance — useful for cross-referencing exports without opening them.',
+                'body'  => 'When adding invitees to an event, connected people can be checked into the same event-specific invitation group. One email and QR code are sent per group to the primary invitee. The Invited Invitees list supports AJAX live search and a column-filter dropdown (Group Members, Email, Invite Sent, Registered), with sortable columns including a Has Address column for the primary invitee\'s address completeness. A Confirmation Code column displays each group\'s unique 16-character QR code at a glance. Each member shows a #N order badge; use the "Change Order Number" option in their dropdown to reorder within that event without affecting the connection group.',
             ],
             [
                 'icon'  => 'dashicons-edit',
@@ -365,7 +370,12 @@ final class AboutPage extends AbstractAdminPage
             [
                 'icon'  => 'dashicons-shield-alt',
                 'title' => 'QR Code RSVP',
-                'body'  => 'Each invitation group receives a unique QR code. Scanning it redirects to the configured RSVP page with the confirmation code and lets the recipient RSVP for every member in the group, choose food/beverage preferences, and enter dietary notes.',
+                'body'  => 'Each invitation group receives a unique QR code, clickable directly from the invite email as well as scannable. Scanning it redirects to the configured RSVP page with the confirmation code and lets the recipient RSVP for every member in the group, choose food/beverage preferences, and enter dietary notes. A site-wide QR Code Domain setting lets you pin the encoded URL to a fixed domain — useful when generating codes on a local or staging environment ahead of a production launch.',
+            ],
+            [
+                'icon'  => 'dashicons-editor-table',
+                'title' => 'Seating Assignments',
+                'body'  => 'Expand any invitation group\'s row on the Invited Invitees table to reveal a per-member seat input that saves automatically via AJAX. A flat Seating Assignments section below the main table lists every seated member across the whole event, with its own live search and sortable columns (First Name, Last Name, Email, Phone, Connection Group, Seat) for a full seating-chart overview.',
             ],
             [
                 'icon'  => 'dashicons-products',
@@ -405,7 +415,7 @@ final class AboutPage extends AbstractAdminPage
             [
                 'icon'  => 'dashicons-chart-bar',
                 'title' => 'Budget Tracking',
-                'body'  => 'Plan and track event costs with named budget plans that can span multiple events. Each plan contains categorised line items with vendor, quantity (fixed or per-attending-guest), unit cost, total override, and paid amount. Estimated, paid, and remaining totals are computed and displayed in a summary row. Line items support drag-to-reorder.',
+                'body'  => 'Plan and track event costs with named budget plans that can span multiple events. Each plan contains categorised line items with vendor, quantity (fixed or per-attending-guest), unit cost, total override, and paid amount. Estimated, paid, and remaining totals are computed and displayed in a summary row. Line items support drag-to-reorder. A separate Budget Line Items library holds reusable global items — label, vendor, unit cost, notes — that can be added to any plan, the same create-once pattern as the vendor and menu item libraries.',
             ],
             [
                 'icon'  => 'dashicons-download',
