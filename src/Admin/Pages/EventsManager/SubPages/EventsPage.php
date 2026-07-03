@@ -3538,7 +3538,7 @@ final class EventsPage extends AbstractAdminPage
     private function sanitizeEventGroupSortKey(string $key): string
     {
         $key = sanitize_key($key);
-        return in_array($key, ['name', 'email', 'members', 'invite_sent', 'attending', 'rsvp_notes'], true) ? $key : 'name';
+        return in_array($key, ['name', 'email', 'has_address', 'members', 'invite_sent', 'attending', 'rsvp_notes'], true) ? $key : 'name';
     }
 
     private function sanitizeEventGiftSortKey(string $key): string
@@ -3821,7 +3821,7 @@ final class EventsPage extends AbstractAdminPage
     private function sortEventGroups(array $groups, string $sort, string $order): array
     {
         $primaryInviteeMap = [];
-        if (in_array($sort, ['name', 'email'], true) && !empty($groups)) {
+        if (in_array($sort, ['name', 'email', 'has_address'], true) && !empty($groups)) {
             foreach (array_unique(array_map(fn($g) => $g->primaryInviteeId, $groups)) as $pid) {
                 $inv = Invitee::find($pid);
                 if ($inv) {
@@ -3844,6 +3844,13 @@ final class EventsPage extends AbstractAdminPage
                 $aInv = $primaryInviteeMap[$a->primaryInviteeId] ?? null;
                 $bInv = $primaryInviteeMap[$b->primaryInviteeId] ?? null;
                 return $mul * strcasecmp($aInv?->email ?? '', $bInv?->email ?? '');
+            }
+            if ($sort === 'has_address') {
+                $aInv = $primaryInviteeMap[$a->primaryInviteeId] ?? null;
+                $bInv = $primaryInviteeMap[$b->primaryInviteeId] ?? null;
+                $aHas = (int) ($aInv?->hasAddress() ?? false);
+                $bHas = (int) ($bInv?->hasAddress() ?? false);
+                return $mul * ($aHas <=> $bHas);
             }
             if ($sort === 'members') {
                 return $mul * ($a->memberCount() <=> $b->memberCount());
@@ -4126,6 +4133,13 @@ final class EventsPage extends AbstractAdminPage
                 <td>
                     <?php if ($primaryInvitee): ?>
                         <a href="mailto:<?= esc_attr($primaryInvitee->email); ?>"><?= esc_html($primaryInvitee->email); ?></a>
+                    <?php else: ?>
+                        <span style="color:#999;">—</span>
+                    <?php endif; ?>
+                </td>
+                <td>
+                    <?php if ($primaryInvitee): ?>
+                        <?= $primaryInvitee->hasAddress() ? 'True' : 'False'; ?>
                     <?php else: ?>
                         <span style="color:#999;">—</span>
                     <?php endif; ?>
@@ -4617,6 +4631,7 @@ final class EventsPage extends AbstractAdminPage
                     <th style="width:30px;" title="Seating"></th>
                     <th style="width:20%;"><?= $this->sortLink('Group Members',   'name',        AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
                     <th style="width:14%;"><?= $this->sortLink('Email (Primary)', 'email',       AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
+                    <th style="width:8%;"><?= $this->sortLink('Has Address',      'has_address', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
                     <th style="width:10%;"><?= $this->sortLink('Invite Sent',     'invite_sent', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
                     <th style="width:9%;"><?= $this->sortLink('Registered',       'attending',   AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
                     <th style="width:10%;">Confirmation Code</th>
