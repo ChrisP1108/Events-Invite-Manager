@@ -175,8 +175,10 @@ final class QrCodeService
                 return null;
             }
 
-            file_put_contents($absPath, $cleanSvg);
-            $this->writePng($url, $paths['png_abs']);
+            if (file_put_contents($absPath, $cleanSvg) === false || !$this->writePng($url, $paths['png_abs'])) {
+                $this->deleteGeneratedFiles($paths);
+                return null;
+            }
         } catch (\Throwable) {
             $this->deleteGeneratedFiles($paths);
             return null;
@@ -210,15 +212,11 @@ final class QrCodeService
         try {
             $result = Builder::create()
                 ->writer(new SvgWriter())
-                ->writerOptions([
-                    SvgWriter::WRITER_OPTION_COMPACT => true,
-                    SvgWriter::WRITER_OPTION_EXCLUDE_XML_DECLARATION => true,
-                ])
                 ->data($url)
                 ->encoding(new Encoding('UTF-8'))
                 ->errorCorrectionLevel(ErrorCorrectionLevel::Medium)
-                ->size(self::QR_SIZE)
                 ->roundBlockSizeMode(RoundBlockSizeMode::Margin)
+                ->foregroundColor(new Color(0, 0, 0))
                 ->backgroundColor(new Color(0, 0, 0, 127))
                 ->margin(0)
                 ->build();
@@ -264,8 +262,9 @@ final class QrCodeService
                 return null;
             }
 
-            file_put_contents($absPath, $cleanSvg);
-            $this->writePng($url, $paths['png_abs']);
+            if (file_put_contents($absPath, $cleanSvg) === false || !$this->writePng($url, $paths['png_abs'])) {
+                return null;
+            }
 
         } catch (\Throwable) {
             return null;
@@ -300,9 +299,9 @@ final class QrCodeService
      *
      * @param string $url
      * @param string $absPath
-     * @return void
+     * @return bool True when the PNG was written to disk successfully.
      */
-    private function writePng(string $url, string $absPath): void
+    private function writePng(string $url, string $absPath): bool
     {
         $result = Builder::create()
             ->writer(new PngWriter())
@@ -316,7 +315,7 @@ final class QrCodeService
             ->margin(0)
             ->build();
 
-        $result->saveToFile($absPath);
+        return file_put_contents($absPath, $result->getString()) !== false;
     }
 
     /**

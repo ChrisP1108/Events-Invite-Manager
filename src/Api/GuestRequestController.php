@@ -42,8 +42,12 @@ class GuestRequestController extends AbstractApiController
             );
         }
 
+        if (($throttled = $this->throttleGuestWrite($code, 'request_guest')) !== null) {
+            return $throttled;
+        }
+
         $email = strtolower(trim((string) $request->get_param('email')));
-        if ($email === '' || !is_email($email)) {
+        if ($email === '' || mb_strlen($email) > 255 || !is_email($email)) {
             return $this->validationErrorResponse(['email' => 'Enter a valid email address.']);
         }
 
@@ -70,19 +74,23 @@ class GuestRequestController extends AbstractApiController
             );
         }
 
+        // Cap field lengths server-side, matched to the table's column sizes —
+        // MySQL strict mode rejects (not truncates) over-length inserts.
+        $capped = static fn(mixed $value, int $max): string => mb_substr(trim((string) ($value ?? '')), 0, $max);
+
         $id = RequestedInviteeAddOn::create([
             'connection_group_id' => $connectionGroupId,
             'event_id'            => $qrCode->eventId,
             'invitation_group_id' => $group->id,
-            'first_name'          => (string) $request->get_param('first_name'),
-            'last_name'           => (string) $request->get_param('last_name'),
+            'first_name'          => $capped($request->get_param('first_name'), 100),
+            'last_name'           => $capped($request->get_param('last_name'), 100),
             'email'               => $email,
-            'phone'               => (string) ($request->get_param('phone') ?? ''),
-            'street_address'      => (string) ($request->get_param('street_address') ?? ''),
-            'city'                => (string) ($request->get_param('city') ?? ''),
-            'state'               => (string) ($request->get_param('state') ?? ''),
-            'zip_code'            => (string) ($request->get_param('zip_code') ?? ''),
-            'notes'               => (string) ($request->get_param('notes') ?? ''),
+            'phone'               => $capped($request->get_param('phone'), 40),
+            'street_address'      => $capped($request->get_param('street_address'), 255),
+            'city'                => $capped($request->get_param('city'), 100),
+            'state'               => $capped($request->get_param('state'), 50),
+            'zip_code'            => $capped($request->get_param('zip_code'), 20),
+            'notes'               => $capped($request->get_param('notes'), 2000),
         ]);
 
         if ($id === false) {

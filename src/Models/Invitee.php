@@ -48,6 +48,7 @@ final class Invitee
      * @param string  $createdAt           MySQL datetime of row creation.
      * @param string  $updatedAt           MySQL datetime of last update.
      * @param int     $sortOrder           Display order within the current group context (invitation or connection group), 0 when not loaded from a group.
+     * @param string  $role                Member role within the current connection-group context (e.g. "Bride", "Groomsman"), '' when not loaded from a connection group.
      */
     public function __construct(
         public readonly int     $id,
@@ -79,6 +80,7 @@ final class Invitee
         public readonly string  $updatedAt,
         public readonly string  $seatAssignment,
         public readonly int     $sortOrder = 0,
+        public readonly string  $role = '',
     ) {}
 
     // -------------------------------------------------------------------------
@@ -153,6 +155,40 @@ final class Invitee
         $row   = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id = %d LIMIT 1", $id));
 
         return $row ? self::fromPublicRow($row) : null;
+    }
+
+    /**
+     * Finds multiple invitees by primary key in a single query.
+     *
+     * Used to batch what would otherwise be one find() per row when rendering
+     * lists (e.g. one lookup per invitation group's primary invitee).
+     *
+     * @param int[] $ids
+     * @return array<int, self> Keyed by invitee ID; missing IDs are simply absent.
+     */
+    public static function findMany(array $ids): array
+    {
+        global $wpdb;
+
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+        if (empty($ids)) {
+            return [];
+        }
+
+        $table        = DatabaseManager::inviteesTable();
+        $placeholders = implode(', ', array_fill(0, count($ids), '%d'));
+
+        $rows = $wpdb->get_results(
+            $wpdb->prepare("SELECT * FROM {$table} WHERE id IN ({$placeholders})", ...$ids)
+        );
+
+        $invitees = [];
+        foreach ($rows ?? [] as $row) {
+            $invitee = self::fromPublicRow($row);
+            $invitees[$invitee->id] = $invitee;
+        }
+
+        return $invitees;
     }
 
     /**
@@ -702,6 +738,7 @@ final class Invitee
             updatedAt:                  $row->updated_at ?? '',
             seatAssignment:             $row->invitation_seat_assignment ?? '',
             sortOrder:            (int) ($row->invitation_sort_order ?? $row->cg_sort_order ?? 0),
+            role:              (string) ($row->cg_role ?? ''),
         );
     }
 

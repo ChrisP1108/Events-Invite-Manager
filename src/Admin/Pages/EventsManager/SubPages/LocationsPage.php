@@ -58,7 +58,7 @@ final class LocationsPage extends AbstractAdminPage
         $order   = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
         $field   = $this->sanitizeLocationFieldKey((string) ($_GET['field'] ?? ''));
         $page    = max(1, (int) ($_GET['page']     ?? 1));
-        $perPage = in_array((int) ($_GET['per_page'] ?? 10), [5, 10, 25, 50, 100], true) ? (int) $_GET['per_page'] : 10;
+        $perPage = $this->perPageParam();
         $all     = Location::listForAdmin($query, $sort, $order, $field);
         $total   = count($all);
         $paged   = array_slice($all, ($page - 1) * $perPage, $perPage);

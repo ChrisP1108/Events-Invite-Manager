@@ -96,6 +96,22 @@ abstract class AbstractAdminPage
     }
 
     /**
+     * Returns the validated per-page size from the request, defaulting to 10.
+     *
+     * Shared by every paginated list handler so the allowlist and fallback live
+     * in one place. Values outside the allowlist (including a missing param)
+     * fall back to 10.
+     *
+     * @return int One of 5, 10, 25, 50, 100.
+     */
+    protected function perPageParam(): int
+    {
+        $perPage = (int) ($_GET['per_page'] ?? 10);
+
+        return in_array($perPage, [5, 10, 25, 50, 100], true) ? $perPage : 10;
+    }
+
+    /**
      * Renders the reusable bulk action control shown above list tables.
      *
      * Row checkboxes live inside the table and point back to this form via the

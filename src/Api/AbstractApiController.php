@@ -38,6 +38,35 @@ abstract class AbstractApiController
         ], 422);
     }
 
+    /**
+     * Enforces a simple per-code write throttle via a transient counter.
+     *
+     * Call only AFTER the confirmation code has been validated, so unknown
+     * codes cannot flood the transients table with counter rows.
+     *
+     * @param string $code          Validated confirmation code.
+     * @param string $action        Short slug isolating each endpoint's counter (e.g. 'messages').
+     * @param int    $maxWrites     Writes allowed per window.
+     * @param int    $windowSeconds Window length in seconds.
+     * @return WP_REST_Response|null A 429 response when over the limit; null when the write may proceed.
+     */
+    protected function throttleGuestWrite(string $code, string $action, int $maxWrites = 10, int $windowSeconds = HOUR_IN_SECONDS): ?WP_REST_Response
+    {
+        $key   = 'eim_throttle_' . $action . '_' . md5($code);
+        $count = (int) get_transient($key);
+
+        if ($count >= $maxWrites) {
+            return new WP_REST_Response(
+                ['success' => false, 'message' => 'Too many requests. Please try again later.'],
+                429
+            );
+        }
+
+        set_transient($key, $count + 1, $windowSeconds);
+
+        return null;
+    }
+
     protected function toBool(mixed $value): bool
     {
         return filter_var($value, FILTER_VALIDATE_BOOLEAN);

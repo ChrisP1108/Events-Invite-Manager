@@ -137,7 +137,12 @@ final class Plugin
         $flowResult = (new RsvpFlowResolver())->resolve($code);
 
         // Redirect to the holding page before RSVPs open.
-        if ($flowResult->success && $flowResult->rsvpStartPending && $flowResult->rsvpBeforeStartUrl !== null) {
+        if (
+            $flowResult->success
+            && $flowResult->rsvpStartPending
+            && $flowResult->rsvpBeforeStartUrl !== null
+            && $this->isPublishedPage($event->rsvpBeforeStartPageId)
+        ) {
             wp_safe_redirect($flowResult->rsvpBeforeStartUrl, 302);
             exit;
         }
@@ -149,6 +154,7 @@ final class Plugin
             $flowResult->success
             && $flowResult->isComplete()
             && $flowResult->dashboardUrl !== null
+            && $this->isPublishedPage($event->dashboardPageId)
         ) {
             wp_safe_redirect($flowResult->dashboardUrl, 302);
             exit;
@@ -162,6 +168,14 @@ final class Plugin
         // If the visitor is already on the configured RSVP page and still has
         // required steps, let the page load normally.
         if ($currentPageId === $event->rsvpPageId) {
+            return;
+        }
+
+        // A trashed (but not deleted) page still returns a permalink, yet
+        // visiting it 404s — so redirecting to it would re-trigger this
+        // handler on every request, an infinite redirect loop. Treat any
+        // non-published page the same as a deleted one.
+        if (!$this->isPublishedPage($event->rsvpPageId)) {
             return;
         }
 
@@ -179,6 +193,17 @@ final class Plugin
 
         wp_safe_redirect($redirectUrl, 302);
         exit;
+    }
+
+    /**
+     * Returns true when the given page ID refers to a published page.
+     *
+     * @param ?int $pageId
+     * @return bool
+     */
+    private function isPublishedPage(?int $pageId): bool
+    {
+        return $pageId !== null && $pageId > 0 && get_post_status($pageId) === 'publish';
     }
 
     /**

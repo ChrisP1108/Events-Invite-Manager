@@ -74,7 +74,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
         $order   = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
         $field   = $this->sanitizeGroupFieldKey((string) ($_GET['field'] ?? ''));
         $page    = max(1, (int) ($_GET['page']     ?? 1));
-        $perPage = in_array((int) ($_GET['per_page'] ?? 10), [5, 10, 25, 50, 100], true) ? (int) $_GET['per_page'] : 10;
+        $perPage = $this->perPageParam();
         $all     = ConnectionGroup::listForAdmin($query, $sort, $order, $field);
 
         $allIds        = array_map(static fn(ConnectionGroup $g) => $g->id, $all);
@@ -705,7 +705,7 @@ final class ConnectionGroupsPage extends AbstractAdminPage
                                     <td class="eim-order-cell"><?= esc_html($displayOrder); ?></td>
                                     <td><a href="<?= esc_url($editUrl); ?>"><?= esc_html($member->fullName()); ?></a></td>
                                     <td><?= esc_html($member->email); ?></td>
-                                    <td><span style="color:#646970;">—</span></td>
+                                    <td><?php if ($member->role !== ''): ?><?= esc_html($member->role); ?><?php else: ?><span style="color:#646970;">—</span><?php endif; ?></td>
                                     <td>
                                         <a href="<?= esc_url($removeUrl); ?>"
                                            onclick="return confirm('Remove <?= esc_js($member->fullName()); ?> from this group?');">Remove</a>

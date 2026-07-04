@@ -424,6 +424,32 @@ final class Location
         $snapshot = self::find($id);
 
         $wpdb->update(DatabaseManager::eventsTable(), ['venue_id' => null], ['venue_id' => $id]);
+
+        // Clear guest lodging selections that point at this location's
+        // event-lodging rows before deleting them, so members aren't left
+        // with a dangling lodging_id that renders as a blank label.
+        $lodgingIds = array_map(
+            'intval',
+            $wpdb->get_col(
+                $wpdb->prepare(
+                    "SELECT id FROM " . DatabaseManager::eventLodgingTable() . " WHERE location_id = %d",
+                    $id
+                )
+            )
+        );
+
+        if (!empty($lodgingIds)) {
+            $placeholders = implode(', ', array_fill(0, count($lodgingIds), '%d'));
+            $wpdb->query(
+                $wpdb->prepare(
+                    "UPDATE " . DatabaseManager::invitationGroupMembersTable() . "
+                     SET lodging_id = NULL, lodging_confirmed_at = NULL
+                     WHERE lodging_id IN ({$placeholders})",
+                    ...$lodgingIds
+                )
+            );
+        }
+
         $wpdb->delete(DatabaseManager::eventLodgingTable(), ['location_id' => $id]);
 
         $result = $wpdb->delete(DatabaseManager::locationsTable(), ['id' => $id]);

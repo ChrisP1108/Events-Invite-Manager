@@ -113,6 +113,10 @@ class MessagesController extends AbstractApiController
             );
         }
 
+        if (($throttled = $this->throttleGuestWrite($code, 'messages', 20)) !== null) {
+            return $throttled;
+        }
+
         $connectionGroupId = $this->resolveConnectionGroupId($group);
         if ($connectionGroupId === null) {
             return new WP_REST_Response(
@@ -120,6 +124,9 @@ class MessagesController extends AbstractApiController
                 422
             );
         }
+
+        // Cap message length server-side rather than relying on the TEXT column.
+        $message = mb_substr($message, 0, 5000);
 
         $id = EventMessage::create($eventId, $connectionGroupId, $message);
 

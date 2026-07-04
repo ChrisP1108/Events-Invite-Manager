@@ -1059,7 +1059,7 @@ final class EventsPage extends AbstractAdminPage
         $order   = $this->sanitizeSortOrder((string) ($_GET['order'] ?? 'asc'));
         $field   = $this->sanitizeEventGiftFieldKey(sanitize_key($_GET['field'] ?? ''));
         $page    = max(1, (int) ($_GET['page'] ?? 1));
-        $perPage = in_array((int) ($_GET['per_page'] ?? 10), [5, 10, 25, 50, 100], true) ? (int) $_GET['per_page'] : 10;
+        $perPage = $this->perPageParam();
         $all     = Gift::forEvent($eventId, $query, $sort, $order, $field);
         $total   = count($all);
         $gifts   = array_slice($all, ($page - 1) * $perPage, $perPage);
@@ -1927,7 +1927,7 @@ final class EventsPage extends AbstractAdminPage
         $order   = $this->sanitizeSortOrder((string) ($_GET['order']  ?? 'desc'));
         $field   = $this->sanitizeEventFieldKey((string) ($_GET['field']  ?? ''));
         $page    = max(1, (int) ($_GET['page']     ?? 1));
-        $perPage = in_array((int) ($_GET['per_page'] ?? 10), [5, 10, 25, 50, 100], true) ? (int) $_GET['per_page'] : 10;
+        $perPage = $this->perPageParam();
 
         $all   = Event::listForAdmin($query, $sort, $order, $field);
         $total = count($all);
@@ -1961,8 +1961,7 @@ final class EventsPage extends AbstractAdminPage
         $order   = $this->sanitizeSortOrder((string) ($_GET['order']   ?? 'desc'));
         $field   = $this->sanitizeRiarFieldKey((string) ($_GET['field']   ?? ''));
         $page    = max(1, (int) ($_GET['page']      ?? 1));
-        $perPage = in_array((int) ($_GET['per_page'] ?? 10), [5, 10, 25, 50, 100], true)
-            ? (int) $_GET['per_page'] : 10;
+        $perPage = $this->perPageParam();
 
         $all   = RequestedInviteeAddOn::listForEvent($eventId, $query, $sort, $order, $field);
         $total = count($all);
@@ -3838,12 +3837,7 @@ final class EventsPage extends AbstractAdminPage
     {
         $primaryInviteeMap = [];
         if (in_array($sort, ['name', 'email', 'has_address'], true) && !empty($groups)) {
-            foreach (array_unique(array_map(fn($g) => $g->primaryInviteeId, $groups)) as $pid) {
-                $inv = Invitee::find($pid);
-                if ($inv) {
-                    $primaryInviteeMap[$pid] = $inv;
-                }
-            }
+            $primaryInviteeMap = Invitee::findMany(array_map(fn($g) => $g->primaryInviteeId, $groups));
         }
 
         $mul = $order === 'desc' ? -1 : 1;
@@ -3909,7 +3903,7 @@ final class EventsPage extends AbstractAdminPage
         $query   = sanitize_text_field(wp_unslash($_GET['query'] ?? ''));
         $field   = $this->sanitizeEventGroupFieldKey((string) ($_GET['field']   ?? ''));
         $page    = max(1, (int) ($_GET['page']     ?? 1));
-        $perPage = in_array((int) ($_GET['per_page'] ?? 10), [5, 10, 25, 50, 100], true) ? (int) $_GET['per_page'] : 10;
+        $perPage = $this->perPageParam();
 
         $event = $eventId > 0 ? Event::find($eventId) : null;
         if (!$event) {
@@ -4034,9 +4028,12 @@ final class EventsPage extends AbstractAdminPage
         $groupIds   = array_map(static fn(InvitationGroup $g): int => $g->id, $groups);
         $qrByGroup  = QrCode::mapByGroupIds($groupIds);
 
+        // Pre-fetch all primary invitees in one query.
+        $primariesById = Invitee::findMany(array_map(static fn(InvitationGroup $g): int => $g->primaryInviteeId, $groups));
+
         foreach ($groups as $i => $group) {
             $members              = $group->getMembers();
-            $primaryInvitee       = Invitee::find($group->primaryInviteeId);
+            $primaryInvitee       = $primariesById[$group->primaryInviteeId] ?? null;
 
             // Identify the primary group member for group-level lodging display.
             $primaryMember = null;
@@ -5031,9 +5028,11 @@ final class EventsPage extends AbstractAdminPage
      */
     private function renderSeatingAssignmentsSection(array $groups): void
     {
+        $primariesById = Invitee::findMany(array_map(static fn(InvitationGroup $g): int => $g->primaryInviteeId, $groups));
+
         $seated = [];
         foreach ($groups as $group) {
-            $primary    = Invitee::find($group->primaryInviteeId);
+            $primary    = $primariesById[$group->primaryInviteeId] ?? null;
             $groupLabel = $primary ? $primary->fullName() : 'Group ' . $group->id;
             foreach ($group->getMembers() as $member) {
                 if ($member->seatAssignment !== '') {

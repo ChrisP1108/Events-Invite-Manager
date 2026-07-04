@@ -49,7 +49,7 @@ final class BudgetItemsPage extends AbstractAdminPage
         $order   = strtolower((string) ($_GET['order'] ?? 'asc')) === 'desc' ? 'desc' : 'asc';
         $field   = sanitize_key($_GET['field']    ?? '');
         $page    = max(1, (int) ($_GET['page']     ?? 1));
-        $perPage = in_array((int) ($_GET['per_page'] ?? 10), [5, 10, 25, 50, 100], true) ? (int) $_GET['per_page'] : 10;
+        $perPage = $this->perPageParam();
 
         $all   = BudgetItem::listForAdmin($query, $sort, $order, $field);
         $total = count($all);
