@@ -1720,61 +1720,87 @@ final class EventsPage extends AbstractAdminPage
             wp_send_json_error('Insufficient permissions.', 403);
         }
 
-        $eventId = (int) ($_POST['event_id'] ?? 0);
-        $event   = Event::find($eventId);
+        $eventId    = (int) ($_POST['event_id'] ?? 0);
+        $event      = Event::find($eventId);
+        $excludeIds = array_map('intval', (array) wp_unslash($_POST['exclude_ids'] ?? []));
 
         if (!$event) {
             wp_send_json_error('Event not found.');
         }
 
+        // One send per request: the JS panel loops with a delay between calls
+        // so emails are paced instead of bursting out of a single long-running
+        // request (which risked both provider throttling and PHP timeouts).
+        // exclude_ids carries group IDs that already failed this run, so a
+        // persistently failing group can't be picked again forever.
         $groups = InvitationGroup::forEvent($eventId);
-        $unsent = array_values(array_filter($groups, static fn(InvitationGroup $g) => $g->inviteSentAt === null));
+        $unsent = array_values(array_filter(
+            $groups,
+            static fn(InvitationGroup $g) => $g->inviteSentAt === null && !in_array($g->id, $excludeIds, true)
+        ));
 
         if (empty($unsent)) {
-            wp_send_json_error('No unsent invitation groups found for this event.');
+            wp_send_json_success(['done' => true, 'remaining' => 0]);
         }
 
-        $sent   = 0;
-        $failed = 0;
+        $group     = $unsent[0];
+        $remaining = count($unsent) - 1;
 
-        foreach ($unsent as $group) {
-            $primaryInvitee = Invitee::find($group->primaryInviteeId);
-            if ($primaryInvitee === null || $primaryInvitee->email === '') {
-                $failed++;
-                continue;
-            }
-
-            $qrCode = $this->qrCodeService->getOrCreateForGroup($event, $group);
-            if ($qrCode === null) {
-                $failed++;
-                continue;
-            }
-
-            $members = $group->getMembers();
-
-            if ($this->emailService->sendGroupInvite(
-                $event,
-                $group,
-                $primaryInvitee,
-                $members,
-                fn(array $attrs): string => $this->qrCodeService->imgTag(
-                    $qrCode,
-                    isset($attrs['width']) ? (int) $attrs['width'] : null,
-                    isset($attrs['height']) ? (int) $attrs['height'] : null
-                ),
-                $this->qrCodeService->inviteUrl($qrCode)
-            )) {
-                InvitationGroup::markInviteSent($group->id);
-                $sent++;
-            } else {
-                $failed++;
-            }
+        $primaryInvitee = Invitee::find($group->primaryInviteeId);
+        if ($primaryInvitee === null || $primaryInvitee->email === '') {
+            wp_send_json_success([
+                'done'      => false,
+                'status'    => 'failed',
+                'group_id'  => $group->id,
+                'remaining' => $remaining,
+            ]);
         }
+
+        $qrCode = $this->qrCodeService->getOrCreateForGroup($event, $group);
+        if ($qrCode === null) {
+            wp_send_json_success([
+                'done'      => false,
+                'status'    => 'failed',
+                'group_id'  => $group->id,
+                'remaining' => $remaining,
+            ]);
+        }
+
+        $sentOk = $this->emailService->sendGroupInvite(
+            $event,
+            $group,
+            $primaryInvitee,
+            $group->getMembers(),
+            fn(array $attrs): string => $this->qrCodeService->imgTag(
+                $qrCode,
+                isset($attrs['width']) ? (int) $attrs['width'] : null,
+                isset($attrs['height']) ? (int) $attrs['height'] : null
+            ),
+            $this->qrCodeService->inviteUrl($qrCode)
+        );
+
+        if (!$sentOk) {
+            wp_send_json_success([
+                'done'      => false,
+                'status'    => 'failed',
+                'group_id'  => $group->id,
+                'remaining' => $remaining,
+            ]);
+        }
+
+        InvitationGroup::markInviteSent($group->id);
+
+        $fresh       = InvitationGroup::find($group->id);
+        $sentDisplay = $fresh?->inviteSentAt !== null
+            ? date_i18n(get_option('date_format'), strtotime($fresh->inviteSentAt))
+            : '';
 
         wp_send_json_success([
-            'sent'   => $sent,
-            'failed' => $failed,
-            'total'  => count($unsent),
+            'done'                => false,
+            'status'              => 'sent',
+            'group_id'            => $group->id,
+            'invite_sent_display' => $sentDisplay,
+            'remaining'           => $remaining,
         ]);
     }
 
@@ -4157,7 +4183,7 @@ final class EventsPage extends AbstractAdminPage
                         <span style="color:#999;">—</span>
                     <?php endif; ?>
                 </td>
-                <td>
+                <td class="eim-invite-sent-cell" data-group-id="<?= esc_attr($group->id); ?>">
                     <?php if ($group->inviteSentAt): ?>
                         <?= esc_html(date_i18n($dateFormat, strtotime($group->inviteSentAt))); ?>
                     <?php else: ?>

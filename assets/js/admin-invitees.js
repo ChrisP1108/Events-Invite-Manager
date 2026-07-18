@@ -3155,6 +3155,10 @@
             this.#testBtn?.addEventListener('click',    () => this.#handleSendTest());
         }
 
+        /** Milliseconds to wait between individual invite sends, pacing emails
+         *  so they don't burst out at the mail provider all at once. */
+        static SEND_DELAY_MS = 2000;
+
         async #handleSendAll() {
             const eventId = this.#sendAllBtn?.dataset.eventId;
             if (!eventId) return;
@@ -3164,37 +3168,88 @@
             }
 
             this.#setLoading(this.#sendAllBtn, true);
-            this.#showResult(this.#sendAllResult, '', '');
+            this.#showResult(this.#sendAllResult, 'Starting…', '');
+
+            // One email per request, with a delay between requests. failedIds
+            // is sent back to the server so a failing group isn't retried
+            // endlessly within this run.
+            const failedIds = [];
+            let sent = 0;
 
             try {
-                const body = new FormData();
-                body.append('action',   'eim_send_all_invites_ajax');
-                body.append('nonce',    config.event?.inviteAllNonce || '');
-                body.append('event_id', eventId);
+                for (;;) {
+                    const body = new FormData();
+                    body.append('action',   'eim_send_all_invites_ajax');
+                    body.append('nonce',    config.event?.inviteAllNonce || '');
+                    body.append('event_id', eventId);
+                    failedIds.forEach((id) => body.append('exclude_ids[]', String(id)));
 
-                const { success, data } = await fetch(ajaxurl, {
-                    method: 'POST', credentials: 'same-origin', body,
-                }).then(r => r.json());
+                    const { success, data } = await fetch(ajaxurl, {
+                        method: 'POST', credentials: 'same-origin', body,
+                    }).then(r => r.json());
 
-                if (success) {
-                    const { sent, failed, total } = data;
-                    const msg = failed > 0
-                        ? `Sent ${sent} of ${total}. ${failed} failed — check your server mail configuration.`
-                        : `Successfully sent to all ${sent} group${sent === 1 ? '' : 's'}.`;
-                    this.#showResult(this.#sendAllResult, msg, failed > 0 ? 'warning' : 'success');
-                    if (this.#sendAllBtn) {
-                        this.#sendAllBtn.textContent = 'Send to All Unsent (0)';
-                        this.#sendAllBtn.disabled    = true;
+                    if (!success) {
+                        this.#showResult(this.#sendAllResult, data?.message || 'Failed to send.', 'error');
+                        this.#setLoading(this.#sendAllBtn, false);
+                        return;
                     }
-                } else {
-                    this.#showResult(this.#sendAllResult, data?.message || 'Failed to send.', 'error');
+
+                    if (data.done) break;
+
+                    if (data.status === 'sent') {
+                        sent++;
+                        this.#updateInviteSentCell(data.group_id, data.invite_sent_display);
+                    } else {
+                        failedIds.push(data.group_id);
+                    }
+
+                    const progress = `Sent ${sent}, ${data.remaining} remaining`
+                        + (failedIds.length ? `, ${failedIds.length} failed` : '') + '…';
+                    this.#showResult(this.#sendAllResult, progress, '');
+
+                    if (this.#sendAllBtn) {
+                        this.#sendAllBtn.textContent = `Sending… (${data.remaining} left)`;
+                    }
+
+                    if (data.remaining > 0) {
+                        await new Promise((resolve) => setTimeout(resolve, InviteEmailSendPanel.SEND_DELAY_MS));
+                    }
+                }
+
+                const failed = failedIds.length;
+                const msg = failed > 0
+                    ? `Sent ${sent} of ${sent + failed}. ${failed} failed — check the group's primary email and your server mail configuration.`
+                    : `Successfully sent to all ${sent} group${sent === 1 ? '' : 's'}.`;
+                this.#showResult(this.#sendAllResult, msg, failed > 0 ? 'warning' : 'success');
+
+                if (this.#sendAllBtn) {
+                    // setLoading(false) restores the pre-run label, so re-apply
+                    // the corrected count after it (and persist it as the new
+                    // origText for any subsequent run).
                     this.#setLoading(this.#sendAllBtn, false);
+                    this.#sendAllBtn.textContent      = `Send to All Unsent (${failed})`;
+                    this.#sendAllBtn.dataset.origText = `Send to All Unsent (${failed})`;
+                    this.#sendAllBtn.disabled         = failed === 0;
                 }
             } catch (err) {
                 console.error('[EIM] Send all invites failed:', err);
-                this.#showResult(this.#sendAllResult, 'Unexpected error. Check the browser console.', 'error');
+                const note = sent > 0 ? ` ${sent} email(s) were already sent — re-clicking resumes with the rest.` : '';
+                this.#showResult(this.#sendAllResult, `Unexpected error.${note} Check the browser console.`, 'error');
                 this.#setLoading(this.#sendAllBtn, false);
             }
+        }
+
+        /**
+         * Replaces a group's "Invite Sent" table cell content with the freshly
+         * saved send date, so the table reflects each send as it happens.
+         *
+         * @param {number|string} groupId     The invitation group whose cell to update.
+         * @param {string}        displayDate Pre-formatted date string from the server.
+         * @returns {void}
+         */
+        #updateInviteSentCell(groupId, displayDate) {
+            const cell = document.querySelector(`.eim-invite-sent-cell[data-group-id="${CSS.escape(String(groupId))}"]`);
+            if (cell && displayDate) cell.textContent = displayDate;
         }
 
         async #handleSendTest() {
