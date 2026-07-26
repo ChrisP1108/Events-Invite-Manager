@@ -103,7 +103,7 @@ final class AboutPage extends AbstractAdminPage
                     Events Invite Manager
                     <span class="eim-about-version">v<?= esc_html(EIM_VERSION); ?></span>
                 </h1>
-                <p>Manage private event invitations, grouped RSVPs, attendee registration, venue and lodging assignments (with event-specific notes), a global food &amp; beverage menu library with vendor linkage, a gifts &amp; registry system, invitee messaging, a guest-request workflow, budget tracking, newsletter posts, a unified category taxonomy, and automated email workflows — all from the WordPress admin.</p>
+                <p>Manage private event invitations, grouped RSVPs, attendee registration, parent/child event relationships, venue and lodging assignments (with event-specific notes), a global food &amp; beverage menu library with vendor linkage, a gifts &amp; registry system, invitee messaging, a guest-request workflow, budget tracking, newsletter posts, a unified category taxonomy, and automated email workflows — all from the WordPress admin.</p>
             </div>
         </div>
         <?php
@@ -303,6 +303,19 @@ final class AboutPage extends AbstractAdminPage
                     </div>
                 </div>
 
+                <div class="eim-about-step">
+                    <div class="eim-about-step-num">14</div>
+                    <div>
+                        <h3>Link child events <em style="font-weight:400;color:#646970;">(optional)</em></h3>
+                        <p>
+                            If you have events tied to a main event — a rehearsal dinner and reception around a wedding ceremony, for example — open the parent event and go to its new <strong>Child Events</strong> tab.
+                            Link any existing, eligible event (one with no invitees of its own yet) as a child. Everyone already invited to the parent becomes eligible to RSVP for the child too, with a fully independent RSVP status, food/beverage selection, and lodging choice per event.
+                            Children share the parent's QR code and confirmation code, so no separate invite email is needed.
+                            Use <strong>Unlink</strong> to detach a child (blocked while anyone has already responded to it, or left shared RSVP/lodging notes), <strong>Reorder</strong> to control display order, or <strong>Resync Guest List to Children</strong> to repair drift after editing the parent's invitees — it adds members the parent has gained, removes ones it has lost (only while still untouched on the child), and fixes a mismatched primary invitee or order.
+                        </p>
+                    </div>
+                </div>
+
             </div>
         </div>
         <?php
@@ -335,7 +348,12 @@ final class AboutPage extends AbstractAdminPage
             [
                 'icon'  => 'dashicons-calendar-alt',
                 'title' => 'Event Management',
-                'body'  => 'Create events with name, description, date, start/end time, time zone, an optional all-day Save the Date calendar span with title/description overrides, an optional invitee cap, RSVP start/deadline, and food/beverage option flags. The QR Code & RSVP tab lets you configure a Before RSVP Start Page (redirects early visitors) and an After RSVP Deadline Page (redirects first-time RSVP attempts after the deadline). The edit screen is organised into eight tabs — Details, Venue/Location, Invite Email, QR Code & RSVP, Lodging, Food & Beverage, Gifts & Registry, and Invited Invitees — with tab state persisted via localStorage and URL hash. A monthly calendar grid gives a visual overview of all dated events. The events list below the calendar supports AJAX live search, sortable columns, and pagination.',
+                'body'  => 'Create events with name, description, date, start/end time, time zone, an optional all-day Save the Date calendar span with title/description overrides, an optional invitee cap, RSVP start/deadline, and food/beverage option flags. The QR Code & RSVP tab lets you configure a Before RSVP Start Page (redirects early visitors) and an After RSVP Deadline Page (redirects first-time RSVP attempts after the deadline). The edit screen is organised into ten tabs — Details, Venue/Location, Invite Email, QR Code & RSVP, Lodging, Food & Beverage, Gifts & Registry, Invited Invitees, Messages, and Child Events — with tab state persisted via localStorage and URL hash. A monthly calendar grid gives a visual overview of all dated events. The events list below the calendar supports AJAX live search, sortable columns, and pagination.',
+            ],
+            [
+                'icon'  => 'dashicons-networking',
+                'title' => 'Child Events',
+                'body'  => 'Link events in a parent → child relationship — e.g. a wedding ceremony with a rehearsal dinner and reception as children. Everyone invited to the parent automatically becomes eligible to RSVP for each child too, with a fully independent RSVP status, food/beverage selection, lodging choice, and seat assignment per event. Children share the parent\'s QR code and confirmation code — there\'s no separate invite email to send, and a parent\'s dashboard bundle stays visible as upcoming for as long as any of its children haven\'t ended yet. Child guest lists are strictly inherited and read-only — enforced server-side, not just hidden in the UI — managed only from the parent\'s Child Events tab, which also offers link, unlink, reorder, and a Resync action that genuinely diffs and repairs an existing child\'s guest list rather than only creating a missing one. Every parent-to-child sync is transactional: a failure anywhere rolls the whole change back instead of leaving the parent and its children out of sync. Linking requires the target to have no invitees of its own yet; unlinking and removal from the parent are blocked whenever they would discard a child event\'s existing RSVP, selection, or shared notes data. Only one hierarchy level is supported.',
             ],
             [
                 'icon'  => 'dashicons-admin-home',
@@ -395,7 +413,7 @@ final class AboutPage extends AbstractAdminPage
             [
                 'icon'  => 'dashicons-rest-api',
                 'title' => 'REST API',
-                'body'  => 'Nine JSON endpoints power the front-end experience: GET /rsvp and POST /register drive the multi-step RSVP flow (rsvp_required → menu → lodging → dashboard); GET /dashboard returns upcoming events, RSVP summaries, newsletters, and registry; GET /newsletters and GET /registry serve content to dashboard visitors; POST /registry/purchase marks gifts as purchased; POST /request-guest submits guest requests; and GET + POST /messages handle invitee/admin conversation threads.',
+                'body'  => 'Nine JSON endpoints power the front-end experience: GET /rsvp and POST /register drive the multi-step RSVP flow (rsvp_required → menu → lodging → dashboard) and both accept an optional event_id to act on a linked child event using the same confirmation code; GET /dashboard returns upcoming events, RSVP summaries, newsletters, registry, and each event\'s child_events summary; GET /newsletters and GET /registry serve content to dashboard visitors; POST /registry/purchase marks gifts as purchased; POST /request-guest submits guest requests; and GET + POST /messages handle invitee/admin conversation threads.',
             ],
             [
                 'icon'  => 'dashicons-admin-generic',
@@ -585,6 +603,7 @@ PHP;
                 </div>
                 <div class="eim-about-endpoint-body">
                     <p>Returns the current RSVP flow state: event details, food/beverage options, lodging options (each with an optional <code>notes</code> field for event-specific context), all group members, and a <code>next_action</code> field (<code>rsvp_required</code>, <code>menu_required</code>, <code>lodging_required</code>, <code>dashboard_redirect</code>, or <code>declined</code>) that tells the frontend exactly what to present next. The event payload includes <code>rsvp_before_start_url</code> (redirect when RSVPs haven't opened yet) and <code>rsvp_after_deadline_url</code> (redirect when a pending invitee attempts to RSVP after the deadline). Call this on every RSVP page load.</p>
+                    <p>The response also includes a <code>child_events</code> array — a lightweight summary (<code>event_id</code>, <code>name</code>, <code>date</code>) of any events linked as children of this one. Pass an optional <code>event_id</code> query parameter matching one of those IDs to load the full flow state for that child instead, reusing the same confirmation code and identical response shape. That child response's <code>rsvp_before_start_url</code>, <code>rsvp_after_deadline_url</code>, and <code>dashboard_url</code> each carry the same <code>event_id</code>, so reloading one of those links resolves back to that specific child rather than the parent.</p>
                 </div>
             </div>
 
@@ -595,6 +614,7 @@ PHP;
                 </div>
                 <div class="eim-about-endpoint-body">
                     <p>Validates the confirmation code and updates RSVP status for the invitation group. With a <code>members</code> array each listed member can be set individually with RSVP status, food/beverage selection, dietary notes, and lodging choice. Members omitted while still pending are auto-declined. Accepts top-level lodging fields (<code>lodging_id</code>, <code>lodging_is_other</code>, <code>lodging_undisclosed</code>, <code>lodging_booked</code>, <code>lodging_notes</code>) and shared <code>rsvp_notes</code>. Returns the full updated flow state including the new <code>next_action</code>.</p>
+                    <p>Pass an optional <code>event_id</code> to submit the RSVP for a linked child event instead of the confirmation code's own event — the target must be a direct child of that event. Omit it (or pass the code's own event ID) for the parent, exactly as before.</p>
                 </div>
             </div>
 
@@ -604,7 +624,7 @@ PHP;
                     <code>/wp-json/eim/v1/dashboard?confirmation_code={code}</code>
                 </div>
                 <div class="eim-about-endpoint-body">
-                    <p>Returns all upcoming events the primary invitee has been invited to, including pending, declined, incomplete, and registered events. Each event includes its per-event <code>confirmation_code</code>, <code>invitation_group_id</code>, RSVP details with invitee contact information, published newsletters when the event flow is complete, and registry data when available. Requires the current QR code's RSVP flow to be complete before the dashboard can load.</p>
+                    <p>Returns all upcoming events the primary invitee has been invited to, including pending, declined, incomplete, and registered events. Each event includes its per-event <code>confirmation_code</code>, <code>invitation_group_id</code>, RSVP details with invitee contact information, published newsletters when the event flow is complete, registry data when available, and a <code>child_events</code> summary of any events linked as its children. Requires the current QR code's RSVP flow to be complete before the dashboard can load.</p>
                 </div>
             </div>
 

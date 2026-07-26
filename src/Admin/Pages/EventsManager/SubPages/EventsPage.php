@@ -21,6 +21,7 @@ use EventsInviteManager\Models\Invitee;
 use EventsInviteManager\Models\Location;
 use EventsInviteManager\Models\QrCode;
 use EventsInviteManager\Models\RequestedInviteeAddOn;
+use EventsInviteManager\Services\ChildEventInvitationSync;
 use EventsInviteManager\Services\QrCodeService;
 
 /**
@@ -77,6 +78,10 @@ final class EventsPage extends AbstractAdminPage
             'add_menu_item_to_event'     => $this->handleAddMenuItemToEvent(),
             'remove_menu_item_from_event' => $this->handleRemoveMenuItemFromEvent(),
             'bulk_remove_menu_items_from_event' => $this->handleBulkRemoveMenuItemsFromEvent(),
+            'link_child_event'          => $this->handleLinkChildEvent(),
+            'unlink_child_event'        => $this->handleUnlinkChildEvent(),
+            'reorder_child_event'       => $this->handleReorderChildEvent(),
+            'reconcile_child_events'    => $this->handleReconcileChildEvents(),
             default                     => null,
         };
     }
@@ -372,6 +377,13 @@ final class EventsPage extends AbstractAdminPage
             wp_die('Security check failed.');
         }
 
+        // Must be checked BEFORE any destructive side effect (e.g. clearing
+        // category assignments) — a blocked delete must leave the event intact.
+        if (!Event::canDelete($id)['ok']) {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['eim_error' => 'parent_event_delete_blocked_has_children']));
+            exit;
+        }
+
         Category::syncToEntity('event', $id, []);
         Event::delete($id);
 
@@ -396,12 +408,119 @@ final class EventsPage extends AbstractAdminPage
             exit;
         }
 
+        $deleted = 0;
+        $blocked = 0;
+
         foreach ($ids as $id) {
+            if (!Event::canDelete($id)['ok']) {
+                $blocked++;
+                continue;
+            }
+
             Category::syncToEntity('event', $id, []);
             Event::delete($id);
+            $deleted++;
         }
 
-        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['eim_message' => 'bulk_deleted']));
+        $args = ['eim_message' => 'bulk_deleted', 'count' => $deleted];
+        if ($blocked > 0) {
+            $args['blocked_count'] = $blocked;
+        }
+
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, $args));
+        exit;
+    }
+
+    /** Links an existing, eligible standalone event as a child of a parent event. */
+    private function handleLinkChildEvent(): void
+    {
+        $parentEventId = (int) ($_POST['event_id'] ?? 0);
+        $childEventId  = (int) ($_POST['child_event_id'] ?? 0);
+
+        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_link_child_event_' . $parentEventId)) {
+            wp_die('Security check failed.');
+        }
+
+        $result = ChildEventInvitationSync::linkChildEvent($childEventId, $parentEventId);
+
+        $args = $result['success']
+            ? ['eim_message' => 'child_event_linked']
+            : ['eim_error' => 'child_event_ineligible_' . ($result['error'] ?? 'unknown')];
+
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $parentEventId] + $args) . '#eim-etab-children');
+        exit;
+    }
+
+    /** Unlinks a child event from its parent, if no inherited data would be lost. */
+    private function handleUnlinkChildEvent(): void
+    {
+        $childEventId = (int) ($_GET['id'] ?? 0);
+        $nonce        = (string) ($_GET['_wpnonce'] ?? '');
+
+        if (!wp_verify_nonce($nonce, 'eim_unlink_child_event_' . $childEventId)) {
+            wp_die('Security check failed.');
+        }
+
+        $result = ChildEventInvitationSync::unlinkChildEvent($childEventId);
+
+        $errorKey = ($result['error'] ?? '') === 'has_responses'
+            ? 'child_event_unlink_blocked'
+            : 'child_event_sync_failed';
+
+        $args = $result['success']
+            ? ['action' => 'edit', 'id' => $childEventId, 'eim_message' => 'child_event_unlinked']
+            : ['action' => 'edit', 'id' => $childEventId, 'eim_error' => $errorKey];
+
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, $args) . '#eim-etab-children');
+        exit;
+    }
+
+    /** Reorders a child event among its siblings for display purposes only. */
+    private function handleReorderChildEvent(): void
+    {
+        $parentEventId = (int) ($_POST['event_id'] ?? 0);
+        $childEventId  = (int) ($_POST['child_event_id'] ?? 0);
+        $sortOrder     = (int) ($_POST['child_sort_order'] ?? 0);
+
+        if (!wp_verify_nonce($_POST['_wpnonce'] ?? '', 'eim_reorder_child_event_' . $parentEventId)) {
+            wp_die('Security check failed.');
+        }
+
+        $child = Event::find($childEventId);
+        if ($child !== null && $child->parentEventId === $parentEventId) {
+            Event::update($childEventId, ['child_sort_order' => $sortOrder]);
+        }
+
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
+            'action'      => 'edit',
+            'id'          => $parentEventId,
+            'eim_message' => 'child_event_reordered',
+        ]) . '#eim-etab-children');
+        exit;
+    }
+
+    /**
+     * Explicit, admin-triggered self-heal: idempotently re-materializes any
+     * missing inherited child group. Never invoked automatically from a read
+     * request — see ChildEventInvitationSync::reconcile().
+     */
+    private function handleReconcileChildEvents(): void
+    {
+        $parentEventId = (int) ($_GET['id'] ?? 0);
+        $nonce         = (string) ($_GET['_wpnonce'] ?? '');
+
+        if (!wp_verify_nonce($nonce, 'eim_reconcile_child_events_' . $parentEventId)) {
+            wp_die('Security check failed.');
+        }
+
+        $result = ChildEventInvitationSync::reconcile($parentEventId);
+
+        $args = ['action' => 'edit', 'id' => $parentEventId];
+        $args += $result['success']
+            ? ['eim_message' => 'child_events_reconciled', 'count' => $result['synced']]
+            : ['eim_error' => 'child_event_sync_failed'];
+
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, $args) . '#eim-etab-children');
         exit;
     }
 
@@ -520,6 +639,16 @@ final class EventsPage extends AbstractAdminPage
             exit;
         }
 
+        // Child event membership is 100% inherited from the parent and read-only.
+        if ($event->parentEventId !== null) {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
+                'action'    => 'edit',
+                'id'        => $eventId,
+                'eim_error' => 'child_event_readonly',
+            ]) . '#eim-etab-invitees');
+            exit;
+        }
+
         if (Invitee::findForEvent($inviteeId, $eventId) !== null) {
             wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
                 'action'    => 'edit',
@@ -562,14 +691,15 @@ final class EventsPage extends AbstractAdminPage
             Invitee::addToEvent($cid, $eventId);
         }
 
-        // Create one invitation group for all of them.
-        InvitationGroup::create($eventId, $inviteeId, $filteredConnectedIds);
+        // Create one invitation group for all of them, syncing to any linked children.
+        $result = ChildEventInvitationSync::createGroupWithSync($eventId, $inviteeId, $filteredConnectedIds);
 
-        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
-            'action'      => 'edit',
-            'id'          => $eventId,
-            'eim_message' => 'event_invitee_added',
-        ]) . '#eim-etab-invitees');
+        $args = ['action' => 'edit', 'id' => $eventId];
+        $args += $result['success']
+            ? ['eim_message' => 'event_invitee_added']
+            : ['eim_error' => 'child_event_sync_failed'];
+
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, $args) . '#eim-etab-invitees');
         exit;
     }
 
@@ -584,13 +714,24 @@ final class EventsPage extends AbstractAdminPage
             wp_die('Security check failed.');
         }
 
-        InvitationGroup::removeMemberFromEvent($inviteeId, $eventId);
+        $event = Event::find($eventId);
+        if ($event !== null && $event->parentEventId !== null) {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
+                'action'    => 'edit',
+                'id'        => $eventId,
+                'eim_error' => 'child_event_readonly',
+            ]) . '#eim-etab-invitees');
+            exit;
+        }
 
-        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
-            'action'      => 'edit',
-            'id'          => $eventId,
-            'eim_message' => 'event_invitee_removed',
-        ]) . '#eim-etab-invitees');
+        $result = ChildEventInvitationSync::removeMemberWithSync($eventId, $inviteeId);
+
+        $args = ['action' => 'edit', 'id' => $eventId];
+        $args += $result['success']
+            ? ['eim_message' => 'event_invitee_removed']
+            : ['eim_error' => 'child_event_removal_blocked'];
+
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, $args) . '#eim-etab-invitees');
         exit;
     }
 
@@ -606,7 +747,17 @@ final class EventsPage extends AbstractAdminPage
             wp_die('Security check failed.');
         }
 
-        InvitationGroup::setPrimaryMember($groupId, $inviteeId);
+        $event = Event::find($eventId);
+        if ($event !== null && $event->parentEventId !== null) {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
+                'action'    => 'edit',
+                'id'        => $eventId,
+                'eim_error' => 'child_event_readonly',
+            ]) . '#eim-etab-invitees');
+            exit;
+        }
+
+        ChildEventInvitationSync::setPrimaryWithSync($groupId, $eventId, $inviteeId);
 
         wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
             'action'      => 'edit',
@@ -641,6 +792,15 @@ final class EventsPage extends AbstractAdminPage
             exit;
         }
 
+        if ($event->parentEventId !== null) {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
+                'action'    => 'edit',
+                'id'        => $eventId,
+                'eim_error' => 'child_event_readonly',
+            ]) . '#eim-etab-invitees');
+            exit;
+        }
+
         if (Invitee::findForEvent($inviteeId, $eventId) !== null) {
             wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
                 'action'    => 'edit',
@@ -659,13 +819,14 @@ final class EventsPage extends AbstractAdminPage
             exit;
         }
 
-        InvitationGroup::addMemberToGroup($groupId, $inviteeId, $eventId);
+        $result = ChildEventInvitationSync::addMemberWithSync($groupId, $inviteeId, $eventId);
 
-        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
-            'action'      => 'edit',
-            'id'          => $eventId,
-            'eim_message' => 'event_invitee_added',
-        ]) . '#eim-etab-invitees');
+        $args = ['action' => 'edit', 'id' => $eventId];
+        $args += $result['success']
+            ? ['eim_message' => 'event_invitee_added']
+            : ['eim_error' => 'child_event_sync_failed'];
+
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, $args) . '#eim-etab-invitees');
         exit;
     }
 
@@ -680,13 +841,24 @@ final class EventsPage extends AbstractAdminPage
             wp_die('Security check failed.');
         }
 
-        InvitationGroup::deleteGroup($groupId, $eventId);
+        $event = Event::find($eventId);
+        if ($event !== null && $event->parentEventId !== null) {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
+                'action'    => 'edit',
+                'id'        => $eventId,
+                'eim_error' => 'child_event_readonly',
+            ]) . '#eim-etab-invitees');
+            exit;
+        }
 
-        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
-            'action'      => 'edit',
-            'id'          => $eventId,
-            'eim_message' => 'event_invitee_removed',
-        ]) . '#eim-etab-invitees');
+        $result = ChildEventInvitationSync::deleteGroupWithSync($groupId, $eventId);
+
+        $args = ['action' => 'edit', 'id' => $eventId];
+        $args += $result['success']
+            ? ['eim_message' => 'event_invitee_removed']
+            : ['eim_error' => 'child_event_removal_blocked'];
+
+        wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, $args) . '#eim-etab-invitees');
         exit;
     }
 
@@ -700,6 +872,12 @@ final class EventsPage extends AbstractAdminPage
 
         $redirectUrl = AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $eventId]);
 
+        $event = Event::find($eventId);
+        if ($event !== null && $event->parentEventId !== null) {
+            wp_redirect($redirectUrl . '&eim_error=child_event_readonly#eim-etab-invitees');
+            exit;
+        }
+
         if ($this->requestedBulkAction() !== 'delete') {
             wp_redirect($redirectUrl . '&eim_error=bulk_invalid_action#eim-etab-invitees');
             exit;
@@ -711,14 +889,25 @@ final class EventsPage extends AbstractAdminPage
             exit;
         }
 
+        $removed = 0;
+        $blocked = 0;
+
         foreach ($ids as $groupId) {
             $group = InvitationGroup::find($groupId);
-            if ($group !== null && $group->eventId === $eventId) {
-                InvitationGroup::deleteGroup($groupId, $eventId);
+            if ($group === null || $group->eventId !== $eventId) {
+                continue;
+            }
+
+            $result = ChildEventInvitationSync::deleteGroupWithSync($groupId, $eventId);
+            if ($result['success']) {
+                $removed++;
+            } else {
+                $blocked++;
             }
         }
 
-        wp_redirect($redirectUrl . '&eim_message=bulk_deleted#eim-etab-invitees');
+        $blockedParam = $blocked > 0 ? '&blocked_count=' . $blocked : '';
+        wp_redirect($redirectUrl . '&eim_message=bulk_deleted&count=' . $removed . $blockedParam . '#eim-etab-invitees');
         exit;
     }
 
@@ -1089,6 +1278,15 @@ final class EventsPage extends AbstractAdminPage
         $event = Event::find($eventId);
         $group = InvitationGroup::find($groupId);
 
+        if ($event && $event->parentEventId !== null) {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
+                'action'    => 'edit',
+                'id'        => $eventId,
+                'eim_error' => 'child_event_readonly',
+            ]) . '#eim-etab-invitees');
+            exit;
+        }
+
         if ($event && $group && $group->eventId === $eventId) {
             $primaryInvitee = Invitee::find($group->primaryInviteeId);
             $members        = $group->getMembers();
@@ -1143,7 +1341,16 @@ final class EventsPage extends AbstractAdminPage
             wp_die('Security check failed.');
         }
 
-        $event     = Event::find($eventId);
+        $event = Event::find($eventId);
+        if ($event && $event->parentEventId !== null) {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
+                'action'    => 'edit',
+                'id'        => $eventId,
+                'eim_error' => 'child_event_readonly',
+            ]) . '#eim-etab-invitees');
+            exit;
+        }
+
         $sentCount = 0;
 
         if ($event) {
@@ -1206,7 +1413,16 @@ final class EventsPage extends AbstractAdminPage
             wp_die('Security check failed.');
         }
 
-        $event     = Event::find($eventId);
+        $event = Event::find($eventId);
+        if ($event && $event->parentEventId !== null) {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
+                'action'    => 'edit',
+                'id'        => $eventId,
+                'eim_error' => 'child_event_readonly',
+            ]) . '#eim-etab-invitees');
+            exit;
+        }
+
         $generated = 0;
 
         if ($event) {
@@ -1242,7 +1458,17 @@ final class EventsPage extends AbstractAdminPage
             wp_die('Security check failed.');
         }
 
-        $deleted = Event::find($eventId) !== null
+        $event = Event::find($eventId);
+        if ($event && $event->parentEventId !== null) {
+            wp_redirect(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, [
+                'action'    => 'edit',
+                'id'        => $eventId,
+                'eim_error' => 'child_event_readonly',
+            ]) . '#eim-etab-invitees');
+            exit;
+        }
+
+        $deleted = $event !== null
             ? QrCode::deleteForEvent($eventId)
             : 0;
 
@@ -1695,6 +1921,10 @@ final class EventsPage extends AbstractAdminPage
             wp_send_json_error('Event not found.');
         }
 
+        if ($event->parentEventId !== null) {
+            wp_send_json_error('Child events share the parent event\'s invite — they do not send their own.');
+        }
+
         if (!is_email($email)) {
             wp_send_json_error('Please enter a valid email address.');
         }
@@ -1726,6 +1956,10 @@ final class EventsPage extends AbstractAdminPage
 
         if (!$event) {
             wp_send_json_error('Event not found.');
+        }
+
+        if ($event->parentEventId !== null) {
+            wp_send_json_error('Child events share the parent event\'s invite — they do not send their own.');
         }
 
         // One send per request: the JS panel loops with a delay between calls
@@ -2048,7 +2282,16 @@ final class EventsPage extends AbstractAdminPage
             <?php endif; ?>
             <hr class="wp-header-end">
 
-            <?php $this->renderNotice($message, $error); ?>
+            <?php $this->renderNotice($message, $error, (int) ($_GET['count'] ?? 0)); ?>
+
+            <?php $blockedDeleteCount = (int) ($_GET['blocked_count'] ?? 0); if ($blockedDeleteCount > 0): ?>
+                <div class="notice notice-warning">
+                    <p>
+                        <?= esc_html($blockedDeleteCount); ?> event(s) could not be deleted because they still have
+                        linked child events. Unlink or delete the children first.
+                    </p>
+                </div>
+            <?php endif; ?>
 
             <?php if (!$hasLocations): ?>
                 <div class="notice notice-warning">
@@ -2479,6 +2722,7 @@ final class EventsPage extends AbstractAdminPage
 	                    <a href="#eim-etab-gifts" class="nav-tab" data-etab="gifts">Gifts &amp; Registry</a>
 	                    <a href="#eim-etab-invitees" class="nav-tab" data-etab="invitees">Invited Invitees</a>
 	                    <a href="#eim-etab-messages" class="nav-tab" data-etab="messages">Messages</a>
+	                    <a href="#eim-etab-children" class="nav-tab" data-etab="children">Child Events</a>
 	                <?php endif; ?>
             </nav>
 
@@ -3043,6 +3287,9 @@ final class EventsPage extends AbstractAdminPage
                 <div id="eim-etab-messages" class="eim-etab-ext-panel">
                     <?php $this->renderEventMessagesSection($event); ?>
                 </div>
+                <div id="eim-etab-children" class="eim-etab-ext-panel">
+                    <?php $this->renderEventChildrenSection($event); ?>
+                </div>
             <?php endif; ?>
         </div>
 
@@ -3061,7 +3308,7 @@ final class EventsPage extends AbstractAdminPage
             const eventId    = nav.dataset.eventId || '0';
             const storageKey = 'eim_event_tab_' + eventId;
 
-	            const panelIds = ['details', 'venue', 'email', 'qr', 'lodging', 'food', 'gifts', 'invitees', 'messages'];
+	            const panelIds = ['details', 'venue', 'email', 'qr', 'lodging', 'food', 'gifts', 'invitees', 'messages', 'children'];
             const extMap   = { food: 'food-ext', email: 'email-ext' };
 
             const getEl = (id) => document.getElementById('eim-etab-' + id);
@@ -4004,9 +4251,21 @@ final class EventsPage extends AbstractAdminPage
             wp_send_json_error('Missing required parameters.');
         }
 
-        $success = InvitationGroup::updateMemberSortOrder($groupId, $inviteeId, $sortOrder);
+        $group = InvitationGroup::find($groupId);
+        $event = $group !== null ? Event::find($group->eventId) : null;
 
-        if (!$success) {
+        if ($group === null || $event === null) {
+            wp_send_json_error('Invitation group not found.');
+        }
+
+        // Order is inherited, not independently editable on a child event.
+        if ($event->parentEventId !== null) {
+            wp_send_json_error('Member order is managed from the parent event.');
+        }
+
+        $result = ChildEventInvitationSync::updateMemberSortOrderWithSync($groupId, $event->id, $inviteeId, $sortOrder);
+
+        if (!$result['success']) {
             wp_send_json_error('Could not save order.');
         }
 
@@ -4031,6 +4290,11 @@ final class EventsPage extends AbstractAdminPage
      */
     private function renderEventGroupRows(Event $event, array $groups, string $dateFormat, string $search = '', int $offset = 0): void
     {
+        // Membership, order, primary, and QR/invite actions are all inherited
+        // and read-only on a child event — the server already rejects these
+        // mutations, but the child view should look genuinely read-only too.
+        $isChild = $event->parentEventId !== null;
+
         if (empty($groups)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No invitees have been added to this event yet.';
             echo '<tr><td colspan="10">' . esc_html($msg) . '</td></tr>';
@@ -4128,6 +4392,7 @@ final class EventsPage extends AbstractAdminPage
                                                 class="eim-rsvp-details-trigger"
                                                 role="menuitem"
                                                 data-eim-rsvp-details="<?= $this->rsvpDetailsAttribute($detailsPayload); ?>">Details</button>
+                                        <?php if (!$isChild): ?>
                                         <?php if (!$isPrimary): ?>
                                         <a href="<?= esc_url($makePrimaryUrl); ?>"
                                            role="menuitem"
@@ -4151,6 +4416,7 @@ final class EventsPage extends AbstractAdminPage
                                             <button type="button" class="button-link eim-cancel-order">Cancel</button>
                                             <span class="eim-order-save-status"></span>
                                         </span>
+                                        <?php endif; ?>
                                     </div>
                                 </span>
                                 <?php if ($foodLabel || $bevLabel || $member->dietaryNotes): ?>
@@ -4161,10 +4427,12 @@ final class EventsPage extends AbstractAdminPage
                                     <?php if ($member->dietaryNotes): ?><span style="display:block;font-style:italic;"><?= esc_html($member->dietaryNotes); ?></span><?php endif; ?>
                                 </span>
                                 <?php endif; ?>
+                                <?php if (!$isChild): ?>
                                 <a href="<?= esc_url($removeUrl); ?>"
                                    class="eim-member-remove-link"
                                    onclick="return confirm('Remove <?= esc_js($member->fullName()); ?> from this event? Their profile will remain.');"
                                    title="Remove">×</a>
+                                <?php endif; ?>
                             </span>
                         <?php endforeach; ?>
                     </span>
@@ -4233,6 +4501,9 @@ final class EventsPage extends AbstractAdminPage
                     <?php endif; ?>
                 </td>
                 <td class="eim-group-actions">
+                    <?php if ($isChild): ?>
+                        <span style="color:#999;" title="Managed from the parent event">Read-only</span>
+                    <?php else: ?>
                     <a href="<?= esc_url($sendUrl); ?>">Send Invite</a>
                     <span class="eim-action-sep">|</span>
                     <button type="button"
@@ -4248,6 +4519,7 @@ final class EventsPage extends AbstractAdminPage
                     <a href="<?= esc_url($removeGroupUrl); ?>"
                        class="eim-remove-group-link"
                        onclick="return confirm('Remove this entire group from the event? All group members will be removed.');">Remove Group</a>
+                    <?php endif; ?>
                 </td>
             </tr>
             <?php $accordionGroupLabel = $primaryInvitee ? $primaryInvitee->fullName() : 'Group ' . $group->id; ?>
@@ -4308,6 +4580,7 @@ final class EventsPage extends AbstractAdminPage
                     </table>
                 </td>
             </tr>
+            <?php if (!$isChild): ?>
             <tr class="eim-add-member-row" id="eim-add-member-row-<?= esc_attr($group->id); ?>" style="display:none;">
                 <td colspan="9" class="eim-add-member-cell">
                     <form method="post"
@@ -4361,6 +4634,7 @@ final class EventsPage extends AbstractAdminPage
                     </form>
                 </td>
             </tr>
+            <?php endif; ?>
             <?php endif; ?>
             <?php
         }
@@ -4554,6 +4828,136 @@ final class EventsPage extends AbstractAdminPage
     }
 
     /**
+     * Renders the Child Events section on the event edit screen.
+     *
+     * If this event is itself a child, shows a read-only note, a link back to
+     * the parent, and an Unlink action (blocked while any inherited data has
+     * left its default pending/empty state). Otherwise, lists this event's
+     * linked children and offers a dropdown of eligible standalone events
+     * (no parent, no children, zero invitation groups) to link as new children.
+     *
+     * @param Event $event The event being edited.
+     */
+    private function renderEventChildrenSection(Event $event): void
+    {
+        if ($event->parentEventId !== null) {
+            $parent = Event::find($event->parentEventId);
+            ?>
+            <h2 style="margin-top:20px;">Child Events</h2>
+            <p class="description" style="margin-bottom:12px;">
+                This event is a <strong>child</strong> of
+                <?php if ($parent !== null): ?>
+                    <a href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $parent->id])); ?>"><?= esc_html($parent->name); ?></a>.
+                <?php else: ?>
+                    another event.
+                <?php endif; ?>
+                Its guest list is entirely inherited and managed from the parent event — invitees, groups, and QR codes cannot be edited here.
+            </p>
+            <a href="<?= esc_url(wp_nonce_url(
+                AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'unlink_child_event', 'id' => $event->id]),
+                'eim_unlink_child_event_' . $event->id
+            )); ?>"
+               class="button"
+               onclick="return confirm('Unlink this event from its parent? This is only possible while no one has responded to it yet.');">
+                Unlink from Parent
+            </a>
+            <?php
+            return;
+        }
+
+        $children = Event::childrenOf($event->id);
+        ?>
+        <h2 style="margin-top:20px;">Child Events</h2>
+        <p class="description" style="margin-bottom:12px;">
+            Child events automatically inherit this event's invitees — everyone invited here becomes eligible to
+            RSVP for each child too, with an independent RSVP status per event. Child guest lists are managed only
+            from this parent; they cannot be edited directly on the child.
+        </p>
+
+        <?php if (empty($children)): ?>
+            <p><em>No child events linked yet.</em></p>
+        <?php else: ?>
+            <table class="wp-list-table widefat fixed striped" style="margin-bottom:16px;">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Date</th>
+                        <th>Invited</th>
+                        <th>Attending</th>
+                        <th style="width:220px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($children as $child): ?>
+                        <tr>
+                            <td>
+                                <a href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $child->id])); ?>">
+                                    <?= esc_html($child->name); ?>
+                                </a>
+                            </td>
+                            <td><?= esc_html($child->formattedDateTimeRange()); ?></td>
+                            <td><?= esc_html((string) $child->inviteeCount()); ?></td>
+                            <td><?= esc_html((string) $child->registeredCount()); ?></td>
+                            <td>
+                                <form method="post" action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS)); ?>" style="display:inline;">
+                                    <?php wp_nonce_field('eim_reorder_child_event_' . $event->id); ?>
+                                    <input type="hidden" name="eim_action" value="reorder_child_event">
+                                    <input type="hidden" name="event_id" value="<?= esc_attr($event->id); ?>">
+                                    <input type="hidden" name="child_event_id" value="<?= esc_attr($child->id); ?>">
+                                    <input type="number" name="child_sort_order" value="<?= esc_attr((string) $child->childSortOrder); ?>"
+                                           style="width:60px;" min="0">
+                                    <button type="submit" class="button button-small">Reorder</button>
+                                </form>
+                                <a href="<?= esc_url(wp_nonce_url(
+                                    AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'unlink_child_event', 'id' => $child->id]),
+                                    'eim_unlink_child_event_' . $child->id
+                                )); ?>"
+                                   class="button button-small"
+                                   onclick="return confirm('Unlink &quot;<?= esc_js($child->name); ?>&quot; from this parent?');">
+                                    Unlink
+                                </a>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+
+            <a href="<?= esc_url(wp_nonce_url(
+                AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'reconcile_child_events', 'id' => $event->id]),
+                'eim_reconcile_child_events_' . $event->id
+            )); ?>" class="button" style="margin-bottom:16px;">
+                Resync Guest List to Children
+            </a>
+        <?php endif; ?>
+
+        <?php
+        $eligible = array_filter(
+            Event::all(),
+            static fn(Event $e): bool => $e->id !== $event->id && Event::canLinkAsChild($e->id)['ok']
+        );
+        ?>
+        <div style="border:1px solid #dcdcde;border-radius:4px;padding:14px;background:#f6f7f7;max-width:520px;">
+            <h3 style="margin:0 0 8px;font-size:14px;">Link an Existing Event as a Child</h3>
+            <?php if (empty($eligible)): ?>
+                <p class="description">No eligible events available. An event must have no invitee groups yet, and cannot already be a parent or child, to be linked.</p>
+            <?php else: ?>
+                <form method="post" action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS)); ?>">
+                    <?php wp_nonce_field('eim_link_child_event_' . $event->id); ?>
+                    <input type="hidden" name="eim_action" value="link_child_event">
+                    <input type="hidden" name="event_id" value="<?= esc_attr($event->id); ?>">
+                    <select name="child_event_id">
+                        <?php foreach ($eligible as $candidate): ?>
+                            <option value="<?= esc_attr($candidate->id); ?>"><?= esc_html($candidate->name); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <button type="submit" class="button">Link as Child</button>
+                </form>
+            <?php endif; ?>
+        </div>
+        <?php
+    }
+
+    /**
      * Renders the Invited Invitees section on the event edit screen.
      *
      * Includes the add-invitee picker, the Send All button, the search bar,
@@ -4596,6 +5000,11 @@ final class EventsPage extends AbstractAdminPage
             <div class="notice notice-warning inline" style="margin:8px 0;"><p>This event has reached its maximum of <?= esc_html($maxInvitees); ?> invitees.</p></div>
         <?php endif; ?>
 
+        <?php if ($event->parentEventId !== null): ?>
+            <div class="notice notice-info inline" style="margin:8px 0;">
+                <p>This is a child event — its guest list is entirely inherited from its parent and cannot be edited here. Invitees, groups, and invites are managed on the parent event's Invitees tab.</p>
+            </div>
+        <?php else: ?>
         <form method="post" action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS)); ?>"
               class="eim-event-invitee-add-form"
               id="eim-add-invitee-form">
@@ -4632,6 +5041,7 @@ final class EventsPage extends AbstractAdminPage
                 </a>
             </p>
         <?php endif; ?>
+        <?php endif; ?>
 
         <?php $this->renderSearchBar(
             'eim-event-groups-search',
@@ -4649,6 +5059,7 @@ final class EventsPage extends AbstractAdminPage
             ]
         ); ?>
 
+        <?php if ($event->parentEventId === null): ?>
         <?php $this->renderBulkActions(
             'eim-event-groups-bulk-form',
             AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'edit', 'id' => $event->id]),
@@ -4656,6 +5067,7 @@ final class EventsPage extends AbstractAdminPage
             'eim_bulk_remove_groups_from_event_' . $event->id,
             ['event_id' => $event->id]
         ); ?>
+        <?php endif; ?>
 
         <?php $sortArgs = ['action' => 'edit', 'id' => $event->id, 'tab' => AdminMenu::TAB_EVENTS]; ?>
         <table id="eim-event-groups-table"
@@ -4685,6 +5097,7 @@ final class EventsPage extends AbstractAdminPage
         </table>
         <?php $this->renderPaginationBar('eim-event-groups-search'); ?>
 
+        <?php if ($event->parentEventId === null): ?>
         <?php
         $qrDomainOption  = get_option('eim_qr_code_domain', '');
         $qrDomainMode    = $qrDomainOption !== '' ? 'custom' : 'auto';
@@ -4754,6 +5167,9 @@ final class EventsPage extends AbstractAdminPage
                 Removes this event's stored QR files and database rows so new codes can be generated for the current website domain.
             </span>
         </p>
+        <?php endif; ?>
+        <?php else: ?>
+        <p class="description" style="margin-top:20px;">This is a child event — it shares its parent's QR code and confirmation code, so there's nothing to generate here.</p>
         <?php endif; ?>
 
         <?php $this->renderEventRequestedInviteesSection($event); ?>

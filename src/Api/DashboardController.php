@@ -6,6 +6,7 @@ namespace EventsInviteManager\Api;
 
 if (!defined('ABSPATH')) exit;
 
+use EventsInviteManager\Models\Event;
 use EventsInviteManager\Models\Newsletter;
 use EventsInviteManager\Services\RsvpFlowResult;
 use WP_REST_Request;
@@ -77,6 +78,13 @@ class DashboardController extends AbstractApiController
                     fn(Newsletter $nl): array => $this->newsletterSummaryPayload($nl),
                     $newsletters
                 ),
+                'child_events'      => $event->parentEventId === null
+                    ? array_map(static fn(Event $child): array => [
+                        'event_id' => $child->id,
+                        'name'     => $child->name,
+                        'date'     => $child->formattedDateTimeRange(),
+                    ], Event::childrenOf($event->id))
+                    : [],
             ];
         }
 

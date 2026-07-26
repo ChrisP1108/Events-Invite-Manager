@@ -31,7 +31,25 @@ Create and manage events with full details: name, description, date, start and e
 
 Below the calendar, the events list supports **AJAX live search** with a **column-filter dropdown** (Name, Description), sortable columns (Name, Date/Time), and pagination — filtering and sorting happen without a page reload.
 
-The event **edit screen uses a tabbed interface** with eight tabs — Details, Venue/Location, Invite Email, QR Code & RSVP, Lodging, Food & Beverage, Gifts & Registry, and Invited Invitees — so each concern has its own dedicated panel. The active tab is persisted via `localStorage` and restored via URL hash after redirect actions.
+The event **edit screen uses a tabbed interface** with ten tabs — Details, Venue/Location, Invite Email, QR Code & RSVP, Lodging, Food & Beverage, Gifts & Registry, Invited Invitees, Messages, and Child Events — so each concern has its own dedicated panel. The active tab is persisted via `localStorage` and restored via URL hash after redirect actions.
+
+### Child Events
+Events can be linked in a **parent → child** relationship — for example a wedding ceremony (parent) with a rehearsal dinner and reception (children). Everyone invited to the parent automatically becomes eligible to RSVP for each child event too, while their RSVP status, food/beverage selections, lodging, dietary notes, and seating remain **entirely independent per event** — attending the ceremony and reception but declining the rehearsal dinner is a normal, supported case.
+
+Child events share the **parent's single QR code and confirmation code** — there's no separate invite email or QR code to manage per child. A scanned code (or manually entered confirmation code) authorizes the whole family of events; the frontend RSVP form calls the same `GET /rsvp` / `POST /register` endpoints once per event, passing an optional `event_id` for each child.
+
+Child event membership is **strictly inherited and read-only** — invitees, groups, member order, and QR/invite generation are managed only from the parent; a child event's own Invited Invitees tab shows a read-only notice instead of add/remove controls. On the parent's new **Child Events** tab, admins can:
+
+- **Link** an existing standalone event as a child (only events with no parent, no children of their own, and no invitees yet are eligible)
+- **Unlink** a child back to a standalone event — blocked while anyone has already responded to it, made a food/lodging/seating selection, or left shared RSVP/lodging notes on it, so a live RSVP is never silently discarded
+- **Reorder** children for display purposes
+- **Resync Guest List to Children** — an explicit, manually-triggered repair: diffs each child's inherited guest list against its parent's current membership and fixes any drift (adds members the parent has gained, removes members the parent has lost — only while that person is still fully untouched on the child — and corrects a mismatched primary invitee or display order), materializing the child group from scratch if it's missing entirely. This is the only path that can create or repair these records outside of a live parent-side mutation, so a read request can never write to the database.
+
+Every parent-to-child sync runs inside its own transaction and is checked end-to-end — if any step fails, the whole change (including the parent's own edit) rolls back rather than leaving the parent and its children out of sync, and the admin sees an error with a pointer to Resync rather than a false success message.
+
+On the invitee dashboard, a parent event's bundle (including its children) stays visible as upcoming for as long as **any** of its children haven't ended yet — so a reception that runs later than the ceremony doesn't disappear from the dashboard just because the ceremony itself is over.
+
+Guardrails: only one hierarchy level is supported (no grandchildren); deleting a parent is blocked while it still has linked children (enforced by the `Event` model itself, not just the admin page); removing someone from the parent, or deleting an entire invitation group, is blocked (not partially applied) whenever doing so would discard a child event's existing RSVP/food/lodging/seating/notes data. Messages, the registry, and newsletters remain scoped to the parent event in this version — child events are RSVP-only.
 
 ### Venue Assignment
 Each event can have a single venue selected from the location library. Typing in the venue field triggers a live search and shows matching locations with their addresses. Selecting a location auto-fills the hidden address fields and displays the formatted address below the input as read-only confirmation text.
@@ -184,8 +202,8 @@ JSON endpoints powering the front-end RSVP experience, invitee dashboard, regist
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET`  | `/wp-json/eim/v1/rsvp`              | Loads the current RSVP flow state — event details, food/beverage options, lodging, all group members, and the `next_action` step |
-| `POST` | `/wp-json/eim/v1/register`          | Submits RSVP status, food/beverage selections, dietary notes, and lodging choice for the invitation group |
+| `GET`  | `/wp-json/eim/v1/rsvp`              | Loads the current RSVP flow state — event details, food/beverage options, lodging, all group members, the `next_action` step, and a `child_events` summary. Accepts an optional `event_id` to load a linked child event using the same confirmation code |
+| `POST` | `/wp-json/eim/v1/register`          | Submits RSVP status, food/beverage selections, dietary notes, and lodging choice for the invitation group. Accepts an optional `event_id` to register for a linked child event using the same confirmation code |
 | `GET`  | `/wp-json/eim/v1/dashboard`         | Returns all upcoming registered events for the invitation group, with RSVP details, newsletters, and registry per event |
 | `GET`  | `/wp-json/eim/v1/newsletters`       | Returns published newsletters for all events the group is registered for; supports single-newsletter detail view |
 | `GET`  | `/wp-json/eim/v1/registry`          | Returns registry gifts for all complete, upcoming events accessible from the QR code |
@@ -330,6 +348,10 @@ Place `[eim_calendar_links]` in the content of your RSVP page, dashboard page, o
 | `includes` | `google,ical,outlook` | Comma-separated list of calendar types — e.g. `includes="google,ical"` to show only those two |
 | `mode` | `event` | Calendar data to render: `event`, `save_the_date`, or `both` |
 
+### 15 — Link child events (optional)
+
+If you have events tied to a main event — a rehearsal dinner and reception around a wedding ceremony, for example — open the parent event and go to its **Child Events** tab. Link any existing, eligible event (no invitees of its own yet) as a child; everyone already invited to the parent becomes eligible to RSVP for it too, with a fully independent RSVP status per event. Children reuse the parent's QR code and confirmation code, so no separate invite email is needed — the frontend RSVP form just calls the same endpoints again with the child's `event_id`. Child guest lists are managed only from the parent; use **Unlink** or **Resync Guest List to Children** on the same tab if you need to detach a child or repair an inconsistency.
+
 ---
 
 ## Email Template Tags
@@ -368,6 +390,8 @@ All endpoints are under the `eim/v1` namespace. All are publicly accessible — 
 
 Returns the current RSVP flow state for a confirmation code: event details, food/beverage options, lodging options, all group members, and a `next_action` field indicating what the frontend should present next. The event payload includes `rsvp_start_datetime`, `rsvp_start_pending`, `rsvp_before_start_url`, `rsvp_deadline`, `rsvp_deadline_passed`, `rsvp_after_deadline_url`, and `can_rsvp`. Each lodging option in the `lodging` array includes a `notes` field for event-specific context.
 
+The response also includes a `child_events` array — a lightweight summary (`event_id`, `name`, `date`) of any events linked as children of this one, empty when there are none or when this event is itself a child. Pass an optional `event_id` query parameter matching one of those child event IDs to load the **full** flow state for that child instead, reusing the same confirmation code and identical response shape — no separate QR code or code lookup is needed per child. When resolving a child event this way, its `rsvp_before_start_url`, `rsvp_after_deadline_url`, and `dashboard_url` each carry an `&event_id=` query parameter too, so reloading one of those generated links resolves back to that specific child rather than defaulting to the parent.
+
 **`next_action` values**
 
 | Value | Meaning |
@@ -382,11 +406,14 @@ Returns the current RSVP flow state for a confirmation code: event details, food
 
 Validates the confirmation code and updates RSVP status for the invitation group. With a `members` array, each listed member can be updated individually. Members omitted from the payload when pending are auto-declined. Accepts group-level and member-level lodging selections, shared RSVP notes, and lodging booking notes.
 
+Pass an optional `event_id` to submit the RSVP for a linked **child** event instead of the confirmation code's own event — the target must be a direct child of that event, and the request is rejected otherwise. Omit it (or pass the code's own event ID) for the parent, exactly as before.
+
 **Key fields**
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `confirmation_code` | string | 16-character code |
+| `event_id` | integer | Optional — targets a linked child event of the code's own event; omitted defaults to the code's own event |
 | `members` | array | Per-member objects: `invitee_id`, `rsvp_status`, `food_option_id`, `beverage_option_id`, `dietary_notes`, `lodging_id`, `lodging_is_other`, `lodging_undisclosed` |
 | `rsvp_notes` | string | Shared group notes |
 | `lodging_id` | integer | Group-level lodging assignment |
@@ -437,7 +464,7 @@ Sends a new invitee message for a specific event/group thread.
 
 | Table | Description |
 |-------|-------------|
-| `{prefix}eim_events` | Event records including venue FK, RSVP page ID, before-start page ID, after-deadline page ID, dashboard page ID, date/time, food/beverage flags, RSVP start/deadline, and invite email template |
+| `{prefix}eim_events` | Event records including venue FK, RSVP page ID, before-start page ID, after-deadline page ID, dashboard page ID, date/time, food/beverage flags, RSVP start/deadline, invite email template, and an optional `parent_event_id` FK + `child_sort_order` for the parent/child event relationship |
 | `{prefix}eim_invitees` | Global invitee profile records |
 | `{prefix}eim_event_invitees` | Event membership assignments for individual invitees |
 | `{prefix}eim_locations` | Global location catalogue — venues and lodging options shared across all events; includes an optional `booking_url`, `description` (admin notes), and `image_attachment_id` for a WordPress Media Library thumbnail |
@@ -445,7 +472,7 @@ Sends a new invitee message for a specific event/group thread.
 | `{prefix}eim_qr_codes` | QR code records: confirmation code, event/group FKs, and uploads-relative SVG path with companion PNG beside it |
 | `{prefix}eim_invitee_connection_groups` | Reusable global relationship groups (couples, families, households, custom) |
 | `{prefix}eim_invitee_connection_group_members` | Pivot table linking global invitees to reusable connection groups; includes a `sort_order` column controlling display order, drag-and-drop reorderable on the group's edit screen |
-| `{prefix}eim_event_invitation_groups` | Event-specific invitation groups; each group has one primary invitee and one email/QR code |
+| `{prefix}eim_event_invitation_groups` | Event-specific invitation groups; each group has one primary invitee and one email/QR code. An optional `inherited_from_group_id` FK marks a group as materialized from a parent event's group for a linked child event |
 | `{prefix}eim_event_invitation_group_members` | Per-person RSVP status, registration timestamp, food/beverage/lodging selections, dietary notes, seat assignment, and a `sort_order` column controlling display order (defaults from the connection group's order, independently adjustable per event) |
 | `{prefix}eim_menu_items` | Global food and beverage menu item library — label, description, price, vendor FK |
 | `{prefix}eim_event_menu_items` | Pivot table linking events to their assigned menu items from the global library |
@@ -475,10 +502,11 @@ Sends a new invitee message for a specific event/group thread.
 - **No build tool required:** JS is authored in native ES2022 and loaded directly — no bundler or transpilation step.
 - **Autoloading:** PSR-4 via Composer. All classes live under the `EventsInviteManager\` namespace in `src/`.
 - **QR code storage:** SVG and PNG files are written to `{wp-uploads}/eim-qr-codes/event_{event_id}_group_{group_id}/` via `wp_upload_dir()` — not inside the plugin directory — so they survive plugin updates. Files are deleted from disk whenever the associated DB record is removed.
-- **Referential integrity:** No database-level foreign keys are used. Deletion cascades are handled in PHP: deleting an event removes its invitee assignments, lodging assignments, menu item assignments, invitation groups, invitation group members, messages, requested add-ons, gift links, and QR codes; deleting a location nulls `events.venue_id` and removes its lodging pivot rows; deleting a menu item removes its event pivot rows; deleting a vendor nulls `menu_items.vendor_id` and `budget_line_items.vendor_id`; deleting an invitee removes them from connection groups and invitation groups; deleting a gift removes its event links and purchase records; deleting any entity removes its `eim_category_map` rows.
+- **Referential integrity:** No database-level foreign keys are used. Deletion cascades are handled in PHP: deleting an event removes its invitee assignments, lodging assignments, menu item assignments, invitation groups, invitation group members, messages, requested add-ons, gift links, and QR codes; deleting a location nulls `events.venue_id` and removes its lodging pivot rows; deleting a menu item removes its event pivot rows; deleting a vendor nulls `menu_items.vendor_id` and `budget_line_items.vendor_id`; deleting an invitee removes them from connection groups and invitation groups; deleting a gift removes its event links and purchase records; deleting any entity removes its `eim_category_map` rows. `Event::delete()` itself (not just the admin caller) refuses to delete an event that still has linked child events, so no code path can leave a child pointing at a nonexistent parent.
 - **Category system:** `Category::forEntities(string $entityType, array $entityIds)` bulk-loads categories for an entire list in one JOIN query (keyed by entity ID), avoiding N+1 lookups in list-table renders. `Category::forEntity()` loads for a single entity. `Category::syncToEntity()` atomically replaces all category assignments for an entity.
 - **`eim_change` hook:** `EimChangeEvent::dispatch(string $type, string $changeType, mixed $data)` fires `do_action('eim_change', $event)` after every successful create, update, or delete. The `EimChangeEvent` value object (in `EventsInviteManager\Hooks\EimChangeEvent`) carries `TYPE_*` and `ADDED`/`EDITED`/`DELETED` constants. For deletes, the data snapshot is captured before the record is removed.
 - **REST API architecture:** `RestController` is a slim router. Each feature area has its own controller class (`RsvpController`, `DashboardController`, `NewsletterController`, `RegistryController`, `GuestRequestController`, `MessagesController`) extending `AbstractApiController`, which holds all shared payload-building helpers.
+- **Parent/child event architecture:** `ChildEventInvitationSync` (`EventsInviteManager\Services`) is the transactional orchestrator for keeping a child event's materialized invitation groups in sync with its parent — it wraps a parent-side mutation and all of its child-side effects in one transaction whenever the event actually has children, and exposes the explicit `linkChildEvent()` / `unlinkChildEvent()` / `reconcile()` operations used by the admin's Child Events tab. Every write inside `InvitationGroup`'s inheritance-propagation methods (`createInheritedFrom()`, `reconcileInheritedGroup()`, and the private `*ToInheritedChildren()`/`deleteInheritedChildGroups()` helpers) checks its own result and returns/bubbles up failure rather than continuing silently, so a mid-cascade database error rolls back the whole mutation instead of committing a parent and its children out of sync. `reconcileInheritedGroup()` is a genuine diff against the parent's current membership (add missing members, remove stale-but-untouched ones, fix a mismatched primary or sort order) — not just a re-run of the initial creation step, so "Resync Guest List to Children" can actually repair an existing child group, not only create a missing one. `RelatedEventAccessResolver` centralizes the REST layer's cross-event authorization: given a confirmation code and an optional target `event_id`, it verifies the QR's own group actually belongs to the QR's own event, then verifies the target is a direct child of that event, before handing back the resolved `Event`/`InvitationGroup` pair — it never authorizes access based on a shared invitee alone, and it never creates data (that only happens through a live mutation or the explicit reconcile action).
 - **Server-rendered template integration:** `RsvpFlowResolver::resolveConfirmationCodeToArray(string $confirmationCode): array|false` resolves a confirmation code straight to a flat, snake_case-keyed array — event, group, per-member RSVP/menu/lodging state (including each member's `sort_order`), and QR code URLs — without going through the REST API. Intended for WordPress theme page templates that need RSVP state server-side (e.g. rendering a custom RSVP page in PHP rather than via `fetch()`), sparing them an extra HTTP round-trip. Returns `false` when the code doesn't resolve.
 
 ---

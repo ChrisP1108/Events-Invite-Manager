@@ -13,16 +13,35 @@ use EventsInviteManager\Models\Invitee;
 use EventsInviteManager\Models\Location;
 use EventsInviteManager\Models\MenuItem;
 use EventsInviteManager\Models\QrCode;
+use EventsInviteManager\Services\RelatedEventAccessResolver;
+use EventsInviteManager\Services\RelatedEventAccessResult;
+use EventsInviteManager\Services\RsvpFlowResolver;
 use EventsInviteManager\Services\RsvpFlowResult;
 use WP_REST_Request;
 use WP_REST_Response;
 
 class RsvpController extends AbstractApiController
 {
+    private RelatedEventAccessResolver $accessResolver;
+
+    public function __construct(?RsvpFlowResolver $resolver = null, ?RelatedEventAccessResolver $accessResolver = null)
+    {
+        parent::__construct($resolver);
+        $this->accessResolver = $accessResolver ?? new RelatedEventAccessResolver();
+    }
+
     public function handleRsvp(WP_REST_Request $request): WP_REST_Response
     {
-        $code   = trim((string) $request->get_param('confirmation_code'));
-        $result = $this->resolver->resolve($code);
+        $code        = trim((string) $request->get_param('confirmation_code'));
+        $rawEventId  = $request->get_param('event_id');
+        $eventId     = $rawEventId !== null ? (int) $rawEventId : null;
+
+        $access = $this->accessResolver->resolve($code, $eventId);
+        if (!$access->success) {
+            return $this->accessErrorResponse($access);
+        }
+
+        $result = $this->resolver->resolveFor($access->event, $access->group, $code);
 
         return $this->flowResponse($result);
     }
@@ -35,26 +54,24 @@ class RsvpController extends AbstractApiController
      * menu-item IDs are submitted alongside the RSVP.
      *
      * If `members` is omitted, all pending members are marked attending (legacy path).
+     *
+     * An optional `event_id` targets a direct child of the confirmation code's own
+     * event, reusing the same code as the bearer credential for the whole family
+     * of events. Omitted (or equal to the code's own event), behavior is unchanged.
      */
     public function handleRegister(WP_REST_Request $request): WP_REST_Response
     {
-        $code = trim((string) $request->get_param('confirmation_code'));
+        $code       = trim((string) $request->get_param('confirmation_code'));
+        $rawEventId = $request->get_param('event_id');
+        $eventId    = $rawEventId !== null ? (int) $rawEventId : null;
 
-        $qrCode = QrCode::findByCode($code);
-        if ($qrCode === null) {
-            return new WP_REST_Response(
-                ['success' => false, 'message' => 'Invalid or unrecognised confirmation code.'],
-                404
-            );
+        $access = $this->accessResolver->resolve($code, $eventId);
+        if (!$access->success) {
+            return $this->accessErrorResponse($access);
         }
 
-        $group = InvitationGroup::find($qrCode->groupId);
-        if ($group === null) {
-            return new WP_REST_Response(
-                ['success' => false, 'message' => 'No invitation group was found for this confirmation code.'],
-                404
-            );
-        }
+        $event = $access->event;
+        $group = $access->group;
 
         $primaryInvitee = Invitee::find($group->primaryInviteeId);
         if ($primaryInvitee === null) {
@@ -76,15 +93,7 @@ class RsvpController extends AbstractApiController
         $rawLodgingNotes  = $request->get_param('lodging_notes');
         $hasLodgingNotes  = $rawLodgingNotes !== null;
         $lodgingNotes     = $hasLodgingNotes ? sanitize_textarea_field((string) $rawLodgingNotes) : null;
-        $currentFlow      = $this->resolver->resolve($code);
-        $event            = $currentFlow->event ?? Event::find($group->eventId);
-
-        if ($event === null) {
-            return new WP_REST_Response(
-                ['success' => false, 'message' => 'Event not found.'],
-                404
-            );
-        }
+        $currentFlow      = $this->resolver->resolveFor($event, $group, $code);
 
         if ($currentFlow->rsvpStartPending) {
             return new WP_REST_Response(
@@ -404,7 +413,7 @@ class RsvpController extends AbstractApiController
                 }
 
                 return $this->flowResponse(
-                    $this->resolver->resolve($code),
+                    $this->resolver->resolveFor($event, $group, $code),
                     [
                         'already_registered' => true,
                         'message'            => 'You are already registered for this event.',
@@ -431,7 +440,7 @@ class RsvpController extends AbstractApiController
         }
 
         return $this->flowResponse(
-            $this->resolver->resolve($code),
+            $this->resolver->resolveFor($event, $group, $code),
             [
                 'already_registered' => false,
                 'message'            => 'You have successfully registered for the event!',
@@ -561,9 +570,35 @@ class RsvpController extends AbstractApiController
                 'is_other'    => $location->isOther,
                 'notes'       => $location->notes,
             ], $lodging),
+            // Lightweight summary only — the frontend fetches full detail per
+            // child via GET /rsvp?event_id={childId} using this same code, which
+            // reuses this exact response shape rather than a bespoke one.
+            'child_events' => $event->parentEventId === null
+                ? array_map(static fn(Event $child): array => [
+                    'event_id' => $child->id,
+                    'name'     => $child->name,
+                    'date'     => $child->formattedDateTimeRange(),
+                ], Event::childrenOf($event->id))
+                : [],
         ];
 
         return new WP_REST_Response(array_merge($payload, $extra), 200);
+    }
+
+    /**
+     * Maps a failed RelatedEventAccessResult to a response, using the same
+     * shape/status code as the other error paths in this controller.
+     */
+    private function accessErrorResponse(RelatedEventAccessResult $access): WP_REST_Response
+    {
+        $message = match ($access->reason) {
+            RelatedEventAccessResult::REASON_EVENT_NOT_FOUND  => 'Event not found.',
+            RelatedEventAccessResult::REASON_NOT_A_CHILD      => 'The requested event is not accessible via this confirmation code.',
+            RelatedEventAccessResult::REASON_SYNC_INCOMPLETE  => 'This event is not yet available for this confirmation code. Please try again shortly.',
+            default                                            => 'Invalid or unrecognised confirmation code.',
+        };
+
+        return new WP_REST_Response(['success' => false, 'message' => $message], 404);
     }
 
     /**

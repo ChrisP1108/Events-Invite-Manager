@@ -603,9 +603,25 @@ abstract class AbstractApiController
 
     /**
      * Event datetimes are stored in UTC, so this compares against UTC WordPress time.
+     *
+     * A parent event's dashboard/newsletter/registry entry bundles its child
+     * events' lightweight summaries alongside it (children never get their own
+     * cross-event entry, since they share the parent's QR code). So a parent
+     * whose own end time has passed is still treated as upcoming as long as at
+     * least one of its children hasn't ended yet — otherwise a later reception
+     * would disappear from the dashboard the moment an earlier ceremony ends.
      */
     protected function isUpcomingEvent(Event $event, string $nowUtc): bool
     {
+        if ($event->parentEventId === null) {
+            foreach (Event::childrenOf($event->id) as $child) {
+                $childEnd = $child->endDatetime ?? $child->startDatetime ?? null;
+                if ($childEnd === null || $childEnd >= $nowUtc) {
+                    return true;
+                }
+            }
+        }
+
         $endDatetime = $event->endDatetime ?? $event->startDatetime ?? null;
 
         return $endDatetime === null || $endDatetime >= $nowUtc;

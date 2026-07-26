@@ -18,7 +18,7 @@ final class DatabaseManager
     /**
      * The current database schema version.
      */
-    private const SCHEMA_VERSION = '45';
+    private const SCHEMA_VERSION = '46';
 
     /**
      * The database table names.
@@ -136,9 +136,12 @@ final class DatabaseManager
                 rsvp_start_datetime       DATETIME            NULL DEFAULT NULL,
                 rsvp_deadline             DATETIME            NULL DEFAULT NULL,
                 rsvp_after_deadline_page_id BIGINT(20) UNSIGNED NULL DEFAULT NULL,
+                parent_event_id           BIGINT(20) UNSIGNED NULL DEFAULT NULL,
+                child_sort_order          INT                 NOT NULL DEFAULT 0,
                 created_at                DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at                DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                PRIMARY KEY (id)
+                PRIMARY KEY (id),
+                KEY parent_event_id (parent_event_id)
             ) ENGINE=InnoDB {$charset};
             CREATE TABLE {$inviteesTable} (
                 id              BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -240,11 +243,14 @@ final class DatabaseManager
                 lodging_booked        TINYINT(1)          NOT NULL DEFAULT 0,
                 lodging_booked_at     DATETIME            NULL DEFAULT NULL,
                 lodging_notes         TEXT,
+                inherited_from_group_id BIGINT(20) UNSIGNED NULL DEFAULT NULL,
                 created_at            DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at            DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 PRIMARY KEY (id),
+                UNIQUE KEY event_inherited (event_id, inherited_from_group_id),
                 KEY event_id (event_id),
-                KEY primary_invitee_id (primary_invitee_id)
+                KEY primary_invitee_id (primary_invitee_id),
+                KEY inherited_from_group_id (inherited_from_group_id)
             ) ENGINE=InnoDB {$charset};
             CREATE TABLE {$invMembersTable} (
                 id                 BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,

@@ -8,6 +8,7 @@ if (!defined('ABSPATH')) exit;
 
 use EventsInviteManager\Database\DatabaseManager;
 use EventsInviteManager\Hooks\EimChangeEvent;
+use EventsInviteManager\Services\ChildEventInvitationSync;
 
 /**
  * Represents a frontend-submitted request to add a new person to a connection group.
@@ -381,6 +382,26 @@ final class RequestedInviteeAddOn
             if ($inserted === false) {
                 $wpdb->query('ROLLBACK');
                 return ['success' => false, 'error' => 'invitation_group_add_failed'];
+            }
+
+            // Make the newly-approved guest eligible for any of this event's
+            // linked child events too (as pending — child RSVP status is always
+            // independent, never copied from this attending status). Checked
+            // and rolled back on failure like every other step here, so the
+            // guest is never left attending on the parent but missing from
+            // its children.
+            if ($request->eventId) {
+                $syncResult = ChildEventInvitationSync::addMemberWithSync(
+                    (int) $request->invitationGroupId,
+                    $inviteeId,
+                    (int) $request->eventId,
+                    withinTransaction: true
+                );
+
+                if (!$syncResult['success']) {
+                    $wpdb->query('ROLLBACK');
+                    return ['success' => false, 'error' => 'child_event_sync_failed'];
+                }
             }
         }
 

@@ -509,6 +509,10 @@ abstract class AbstractAdminPage
             'category_updated'           => 'Category updated.',
             'category_deleted'           => 'Category deleted.',
             'bulk_deleted'               => 'Selected items deleted.',
+            'child_event_linked'         => 'Event linked as a child successfully.',
+            'child_event_unlinked'       => 'Event unlinked from its parent.',
+            'child_event_reordered'      => 'Child event order updated.',
+            'child_events_reconciled'    => "Resync complete — {$count} change(s) applied to child event guest lists.",
         ];
 
         $errors = [
@@ -550,6 +554,21 @@ abstract class AbstractAdminPage
             'riar_not_found'             => 'Request not found.',
             'riar_create_failed'         => 'Could not create the invitee. Please try again.',
             'qr_domain_invalid'          => 'Please enter a valid custom domain including https:// (e.g. https://example.com).',
+            'child_event_readonly'                       => 'This event is a child of another event — its guest list is managed from the parent and cannot be edited here.',
+            'child_event_removal_blocked'                => 'Cannot remove this invitee: they have already responded to one of this event\'s child events. Manage their response there first.',
+            'child_event_unlink_blocked'                  => 'Cannot unlink this event: someone has already responded to it, or made a food/lodging/seating selection. Unlinking would discard that data.',
+            'parent_event_delete_blocked_has_children'    => 'Cannot delete this event while it still has linked child events. Unlink or delete the children first.',
+            'child_event_ineligible_not_found'            => 'That event could not be found.',
+            'child_event_ineligible_already_a_child'      => 'That event is already a child of another event.',
+            'child_event_ineligible_already_a_parent'     => 'That event already has its own child events — an event cannot have both a parent and children.',
+            'child_event_ineligible_has_invitation_groups' => 'That event already has its own invitees and cannot be linked as a child without losing them.',
+            'child_event_ineligible_has_invitees'         => 'That event already has invitees assigned and cannot be linked as a child without losing them.',
+            'child_event_ineligible_update_failed'        => 'Could not link that event as a child. Please try again.',
+            'child_event_ineligible_self_link'            => 'An event cannot be linked as its own child.',
+            'child_event_ineligible_parent_is_a_child'    => 'This event is itself a child of another event — only one level of child events is supported.',
+            'child_event_ineligible_sync_failed'          => 'Could not sync the guest list to this child event. Nothing was linked — please try again.',
+            'child_event_ineligible_unknown'              => 'That event is not eligible to be linked as a child.',
+            'child_event_sync_failed'                     => 'Could not sync this change to one or more child events. Please review the Invited Invitees and Child Events tabs, then use "Resync Guest List to Children" or try again.',
         ];
 
         if (isset($successes[$messageKey])) {

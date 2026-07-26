@@ -60,6 +60,11 @@ class RestController
                         'type'              => 'string',
                         'sanitize_callback' => 'sanitize_text_field',
                     ],
+                    'event_id' => [
+                        'required'          => false,
+                        'type'              => 'integer',
+                        'sanitize_callback' => 'absint',
+                    ],
                 ],
             ]);
 
@@ -187,6 +192,11 @@ class RestController
                         'required'          => true,
                         'type'              => 'string',
                         'sanitize_callback' => 'sanitize_text_field',
+                    ],
+                    'event_id' => [
+                        'required'          => false,
+                        'type'              => 'integer',
+                        'sanitize_callback' => 'absint',
                     ],
                     'members' => [
                         'required' => false,

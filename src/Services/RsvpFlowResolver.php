@@ -60,6 +60,24 @@ final class RsvpFlowResolver
             return $this->error(RsvpFlowResult::ACTION_INVALID_CODE, 'Event or invitation group not found.');
         }
 
+        return $this->resolveFor($event, $group, $code);
+    }
+
+    /**
+     * Resolves the flow state for an already-resolved Event/InvitationGroup
+     * pair, bypassing the QR lookup in resolve(). Used for child events, where
+     * the pair comes from RelatedEventAccessResolver instead of directly from
+     * a QrCode row.
+     *
+     * Read-only, like resolve() — never writes anything to the database.
+     *
+     * @param Event           $event
+     * @param InvitationGroup $group
+     * @param string          $code Original confirmation code, threaded through for URL-building.
+     * @return RsvpFlowResult
+     */
+    public function resolveFor(Event $event, InvitationGroup $group, string $code = ''): RsvpFlowResult
+    {
         // ── Step 3: load members ──────────────────────────────────────────────
         $members = $group->getMembers();
 

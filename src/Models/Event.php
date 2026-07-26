@@ -51,6 +51,8 @@ final class Event
      * @param ?int    $maxInvitees            Maximum number of invitees allowed, or null for unlimited.
      * @param ?string $rsvpStartDatetime      MySQL DATETIME string for when RSVP opens, or null if not set.
      * @param ?string $rsvpDeadline           MySQL DATETIME string for the RSVP deadline, or null if not set.
+     * @param ?int    $parentEventId          FK to eim_events.id for the parent event, or null if this is not a child event.
+     * @param int     $childSortOrder         Display order among siblings when this event is a child.
      * @param string  $createdAt              MySQL datetime string.
      * @param string  $updatedAt              MySQL datetime string.
      */
@@ -81,6 +83,8 @@ final class Event
         public readonly ?int    $maxInvitees,
         public readonly ?string $rsvpStartDatetime,
         public readonly ?string $rsvpDeadline,
+        public readonly ?int    $parentEventId,
+        public readonly int     $childSortOrder,
         public readonly string  $createdAt,
         public readonly string  $updatedAt,
     ) {}
@@ -216,6 +220,8 @@ final class Event
             'max_invitees'             => isset($data['max_invitees']) && $data['max_invitees'] > 0 ? (int) $data['max_invitees'] : null,
             'rsvp_start_datetime'      => !empty($data['rsvp_start_datetime']) ? $data['rsvp_start_datetime'] : null,
             'rsvp_deadline'            => !empty($data['rsvp_deadline']) ? $data['rsvp_deadline'] : null,
+            'parent_event_id'          => isset($data['parent_event_id']) && (int) $data['parent_event_id'] > 0 ? (int) $data['parent_event_id'] : null,
+            'child_sort_order'         => isset($data['child_sort_order']) ? (int) $data['child_sort_order'] : 0,
         ]);
 
         $id = $result ? (int) $wpdb->insert_id : false;
@@ -236,37 +242,45 @@ final class Event
     {
         global $wpdb;
 
-        $result = $wpdb->update(
-            DatabaseManager::eventsTable(),
-            [
-                'name'                  => $data['name']                 ?? '',
-                'description'           => $data['description']          ?? '',
-                'from_name'             => $data['from_name']            ?? '',
-                'from_email'            => $data['from_email']           ?? '',
-                'invite_email_subject'  => $data['invite_email_subject'] ?? '',
-                'invite_email_template' => $data['invite_email_template'] ?? '',
-                'rsvp_page_id'          => isset($data['rsvp_page_id']) && (int) $data['rsvp_page_id'] > 0 ? (int) $data['rsvp_page_id'] : null,
-                'rsvp_before_start_page_id'  => isset($data['rsvp_before_start_page_id'])  && (int) $data['rsvp_before_start_page_id']  > 0 ? (int) $data['rsvp_before_start_page_id']  : null,
-                'rsvp_after_deadline_page_id' => isset($data['rsvp_after_deadline_page_id']) && (int) $data['rsvp_after_deadline_page_id'] > 0 ? (int) $data['rsvp_after_deadline_page_id'] : null,
-                'venue_id'              => isset($data['venue_id']) && (int) $data['venue_id'] > 0 ? (int) $data['venue_id'] : null,
-                'start_datetime'        => !empty($data['start_datetime']) ? $data['start_datetime'] : null,
-                'end_datetime'          => !empty($data['end_datetime'])   ? $data['end_datetime']   : null,
-                'timezone'              => $data['timezone'] ?? '',
-                'calendar_span_start_date'  => !empty($data['calendar_span_start_date']) ? $data['calendar_span_start_date'] : null,
-                'calendar_span_end_date'    => !empty($data['calendar_span_end_date'])   ? $data['calendar_span_end_date']   : null,
-                'calendar_span_title'       => $data['calendar_span_title']       ?? '',
-                'calendar_span_description' => $data['calendar_span_description'] ?? '',
-                'lodging_enabled'          => isset($data['lodging_enabled']) ? (int) $data['lodging_enabled'] : 0,
-                'food_options_enabled'     => isset($data['food_options_enabled']) ? (int) $data['food_options_enabled'] : 0,
-                'beverage_options_enabled' => isset($data['beverage_options_enabled']) ? (int) $data['beverage_options_enabled'] : 0,
-                'newsletter_page_id'       => isset($data['newsletter_page_id']) && (int) $data['newsletter_page_id'] > 0 ? (int) $data['newsletter_page_id'] : null,
-                'dashboard_page_id'        => isset($data['dashboard_page_id']) && (int) $data['dashboard_page_id'] > 0 ? (int) $data['dashboard_page_id'] : null,
-                'max_invitees'             => isset($data['max_invitees']) && $data['max_invitees'] > 0 ? (int) $data['max_invitees'] : null,
-                'rsvp_start_datetime'      => !empty($data['rsvp_start_datetime']) ? $data['rsvp_start_datetime'] : null,
-                'rsvp_deadline'            => !empty($data['rsvp_deadline']) ? $data['rsvp_deadline'] : null,
-            ],
-            ['id' => $id]
-        );
+        $candidates = [
+            'name'                  => $data['name']                 ?? '',
+            'description'           => $data['description']          ?? '',
+            'from_name'             => $data['from_name']            ?? '',
+            'from_email'            => $data['from_email']           ?? '',
+            'invite_email_subject'  => $data['invite_email_subject'] ?? '',
+            'invite_email_template' => $data['invite_email_template'] ?? '',
+            'rsvp_page_id'          => isset($data['rsvp_page_id']) && (int) $data['rsvp_page_id'] > 0 ? (int) $data['rsvp_page_id'] : null,
+            'rsvp_before_start_page_id'  => isset($data['rsvp_before_start_page_id'])  && (int) $data['rsvp_before_start_page_id']  > 0 ? (int) $data['rsvp_before_start_page_id']  : null,
+            'rsvp_after_deadline_page_id' => isset($data['rsvp_after_deadline_page_id']) && (int) $data['rsvp_after_deadline_page_id'] > 0 ? (int) $data['rsvp_after_deadline_page_id'] : null,
+            'venue_id'              => isset($data['venue_id']) && (int) $data['venue_id'] > 0 ? (int) $data['venue_id'] : null,
+            'start_datetime'        => !empty($data['start_datetime']) ? $data['start_datetime'] : null,
+            'end_datetime'          => !empty($data['end_datetime'])   ? $data['end_datetime']   : null,
+            'timezone'              => $data['timezone'] ?? '',
+            'calendar_span_start_date'  => !empty($data['calendar_span_start_date']) ? $data['calendar_span_start_date'] : null,
+            'calendar_span_end_date'    => !empty($data['calendar_span_end_date'])   ? $data['calendar_span_end_date']   : null,
+            'calendar_span_title'       => $data['calendar_span_title']       ?? '',
+            'calendar_span_description' => $data['calendar_span_description'] ?? '',
+            'lodging_enabled'          => isset($data['lodging_enabled']) ? (int) $data['lodging_enabled'] : 0,
+            'food_options_enabled'     => isset($data['food_options_enabled']) ? (int) $data['food_options_enabled'] : 0,
+            'beverage_options_enabled' => isset($data['beverage_options_enabled']) ? (int) $data['beverage_options_enabled'] : 0,
+            'newsletter_page_id'       => isset($data['newsletter_page_id']) && (int) $data['newsletter_page_id'] > 0 ? (int) $data['newsletter_page_id'] : null,
+            'dashboard_page_id'        => isset($data['dashboard_page_id']) && (int) $data['dashboard_page_id'] > 0 ? (int) $data['dashboard_page_id'] : null,
+            'max_invitees'             => isset($data['max_invitees']) && $data['max_invitees'] > 0 ? (int) $data['max_invitees'] : null,
+            'rsvp_start_datetime'      => !empty($data['rsvp_start_datetime']) ? $data['rsvp_start_datetime'] : null,
+            'rsvp_deadline'            => !empty($data['rsvp_deadline']) ? $data['rsvp_deadline'] : null,
+            'parent_event_id'          => array_key_exists('parent_event_id', $data) && (int) $data['parent_event_id'] > 0 ? (int) $data['parent_event_id'] : null,
+            'child_sort_order'         => isset($data['child_sort_order']) ? (int) $data['child_sort_order'] : 0,
+        ];
+
+        // Only the keys actually present in $data are written, so a caller can
+        // patch e.g. just parent_event_id without resending the whole edit form.
+        $fields = array_intersect_key($candidates, $data);
+
+        if (empty($fields)) {
+            return true;
+        }
+
+        $result = $wpdb->update(DatabaseManager::eventsTable(), $fields, ['id' => $id]);
 
         $ok = $result !== false;
         if ($ok) {
@@ -284,6 +298,13 @@ final class Event
     public static function delete(int $id): bool
     {
         global $wpdb;
+
+        // Enforced here — not just by admin callers — so no code path can ever
+        // delete a parent and leave its children pointing at a nonexistent
+        // parent_event_id.
+        if (self::hasChildren($id)) {
+            return false;
+        }
 
         $snapshot = self::find($id);
 
@@ -304,6 +325,111 @@ final class Event
             EimChangeEvent::dispatch(EimChangeEvent::TYPE_EVENT, EimChangeEvent::DELETED, $snapshot);
         }
         return $ok;
+    }
+
+    /**
+     * Returns true when this event has one or more linked children, meaning
+     * it must not be deleted until they are unlinked (see canDelete()).
+     *
+     * @return bool
+     */
+    public static function hasChildren(int $id): bool
+    {
+        return !empty(self::childrenOf($id));
+    }
+
+    /**
+     * Returns the child events linked to the given parent event, ordered for display.
+     *
+     * @param int $parentEventId
+     * @return self[]
+     */
+    public static function childrenOf(int $parentEventId): array
+    {
+        global $wpdb;
+
+        $table = DatabaseManager::eventsTable();
+        $rows  = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT * FROM {$table} WHERE parent_event_id = %d ORDER BY child_sort_order ASC, start_datetime ASC",
+                $parentEventId
+            )
+        );
+
+        return array_map(static fn(object $row) => self::fromRow($row), $rows ?? []);
+    }
+
+    /**
+     * Checks whether a candidate event is eligible to be linked as a child of
+     * some parent event: it must not already be a parent or child itself, and
+     * must have no invitation groups yet (linking never merges/discards an
+     * existing standalone guest list).
+     *
+     * @param int $candidateEventId
+     * @return array{ok: bool, reason?: string}
+     */
+    public static function canLinkAsChild(int $candidateEventId): array
+    {
+        $candidate = self::find($candidateEventId);
+
+        if ($candidate === null) {
+            return ['ok' => false, 'reason' => 'not_found'];
+        }
+
+        if ($candidate->parentEventId !== null) {
+            return ['ok' => false, 'reason' => 'already_a_child'];
+        }
+
+        if (self::hasChildren($candidateEventId)) {
+            return ['ok' => false, 'reason' => 'already_a_parent'];
+        }
+
+        if (!empty(InvitationGroup::forEvent($candidateEventId))) {
+            return ['ok' => false, 'reason' => 'has_invitation_groups'];
+        }
+
+        // Also guard against stray event_invitees rows with no invitation group
+        // (e.g. a prior partial write) — linking must start from a truly empty
+        // guest list, not just one with no groups.
+        if ($candidate->inviteeCount() > 0) {
+            return ['ok' => false, 'reason' => 'has_invitees'];
+        }
+
+        return ['ok' => true];
+    }
+
+    /**
+     * Checks whether a child event may be unlinked from its parent without losing
+     * data: blocked once any inherited invitation-group row has left its default
+     * pending/empty state (RSVP status, food/beverage/lodging, notes, or seating).
+     *
+     * @param int $childEventId
+     * @return array{ok: bool, reason?: string}
+     */
+    public static function canUnlink(int $childEventId): array
+    {
+        if (InvitationGroup::hasAnyMeaningfulInheritedData($childEventId)) {
+            return ['ok' => false, 'reason' => 'has_responses'];
+        }
+
+        return ['ok' => true];
+    }
+
+    /**
+     * Checks whether an event may be deleted. Must be called — and honored —
+     * before any destructive side effects (e.g. clearing category assignments),
+     * since a blocked delete must leave the event fully intact.
+     *
+     * @param int $id
+     * @return array{ok: bool, reason?: string}
+     */
+    public static function canDelete(int $id): array
+    {
+        if (self::hasChildren($id)) {
+            return ['ok' => false, 'reason' => 'has_children'];
+        }
+
+        return ['ok' => true];
     }
 
     /**
@@ -613,7 +739,7 @@ final class Event
             $url = add_query_arg('eim_confirmation', rawurlencode($confirmationCode), $url);
         }
 
-        return $url;
+        return $this->withChildEventId($url);
     }
 
     /**
@@ -638,7 +764,7 @@ final class Event
             $url = add_query_arg('eim_confirmation', rawurlencode($confirmationCode), $url);
         }
 
-        return $url;
+        return $this->withChildEventId($url);
     }
 
     /**
@@ -663,7 +789,22 @@ final class Event
             $url = add_query_arg('eim_confirmation', rawurlencode($confirmationCode), $url);
         }
 
-        return $url;
+        return $this->withChildEventId($url);
+    }
+
+    /**
+     * Appends ?event_id={this event} when this event is a child, so that
+     * reloading a generated URL (dashboard, before-start, after-deadline)
+     * resolves back to this specific child event rather than defaulting to
+     * the confirmation code's own (parent) event.
+     */
+    private function withChildEventId(string $url): string
+    {
+        if ($this->parentEventId === null) {
+            return $url;
+        }
+
+        return add_query_arg('event_id', (string) $this->id, $url);
     }
 
     private static function fromRow(object $row): self
@@ -695,6 +836,8 @@ final class Event
             maxInvitees:              isset($row->max_invitees) && $row->max_invitees !== null ? (int) $row->max_invitees : null,
             rsvpStartDatetime:         $row->rsvp_start_datetime  ?? null,
             rsvpDeadline:              $row->rsvp_deadline         ?? null,
+            parentEventId:       isset($row->parent_event_id) && $row->parent_event_id !== null ? (int) $row->parent_event_id : null,
+            childSortOrder:      isset($row->child_sort_order) ? (int) $row->child_sort_order : 0,
             createdAt:                 $row->created_at            ?? '',
             updatedAt:                 $row->updated_at            ?? '',
         );
