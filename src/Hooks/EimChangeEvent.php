@@ -47,6 +47,7 @@ final class EimChangeEvent
     public const TYPE_NEWSLETTER       = 'newsletter';
     public const TYPE_CATEGORY         = 'category';
     public const TYPE_GIFT             = 'gift';
+    public const TYPE_EVENT_NOTE       = 'event_note';
 
     // ── Value object ─────────────────────────────────────────────────────────
 

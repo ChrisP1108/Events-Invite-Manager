@@ -35,14 +35,18 @@ final class EventsPage extends AbstractAdminPage
     /** @var QrCodeService Generates and retrieves per-group QR codes. */
     private QrCodeService $qrCodeService;
 
+    /** @var EventNotesSection The Notes tab (list, form, exports). */
+    private EventNotesSection $notes;
+
     /**
      * @param EmailService  $emailService  Email sending service.
      * @param QrCodeService $qrCodeService QR code generation service.
      */
-    public function __construct(EmailService $emailService, QrCodeService $qrCodeService)
+    public function __construct(EmailService $emailService, QrCodeService $qrCodeService, ?EventNotesSection $notes = null)
     {
         $this->emailService  = $emailService;
         $this->qrCodeService = $qrCodeService;
+        $this->notes         = $notes ?? new EventNotesSection();
     }
 
     /**
@@ -82,6 +86,11 @@ final class EventsPage extends AbstractAdminPage
             'unlink_child_event'        => $this->handleUnlinkChildEvent(),
             'reorder_child_event'       => $this->handleReorderChildEvent(),
             'reconcile_child_events'    => $this->handleReconcileChildEvents(),
+            'save_event_note',
+            'delete_event_note',
+            'bulk_delete_event_notes',
+            'export_event_notes_csv',
+            'export_event_notes_json'   => $this->notes->handleAction($action),
             default                     => null,
         };
     }
@@ -1650,6 +1659,9 @@ final class EventsPage extends AbstractAdminPage
             fputcsv($out, [$gift->name, $gift->description, $gift->formattedPrice(), $gift->websiteUrl]);
         }
 
+        // ── Notes ──────────────────────────────────────────────────────────────
+        $this->notes->writeEventExportCsv($out, $event);
+
         fclose($out);
         exit;
     }
@@ -1801,6 +1813,7 @@ final class EventsPage extends AbstractAdminPage
                 'claimed'   => $registryClaimed,
                 'available' => $registryAvailable,
             ],
+            'notes' => $this->notes->exportRows($event),
         ];
 
         $filename = sanitize_file_name('event-' . $eventId . '-' . $event->name . '-export.json');
@@ -2722,6 +2735,7 @@ final class EventsPage extends AbstractAdminPage
 	                    <a href="#eim-etab-gifts" class="nav-tab" data-etab="gifts">Gifts &amp; Registry</a>
 	                    <a href="#eim-etab-invitees" class="nav-tab" data-etab="invitees">Invited Invitees</a>
 	                    <a href="#eim-etab-messages" class="nav-tab" data-etab="messages">Messages</a>
+	                    <a href="#eim-etab-notes" class="nav-tab" data-etab="notes">Notes</a>
 	                    <a href="#eim-etab-children" class="nav-tab" data-etab="children">Child Events</a>
 	                <?php endif; ?>
             </nav>
@@ -3287,6 +3301,9 @@ final class EventsPage extends AbstractAdminPage
                 <div id="eim-etab-messages" class="eim-etab-ext-panel">
                     <?php $this->renderEventMessagesSection($event); ?>
                 </div>
+                <div id="eim-etab-notes" class="eim-etab-ext-panel">
+                    <?php $this->notes->render($event); ?>
+                </div>
                 <div id="eim-etab-children" class="eim-etab-ext-panel">
                     <?php $this->renderEventChildrenSection($event); ?>
                 </div>
@@ -3308,7 +3325,7 @@ final class EventsPage extends AbstractAdminPage
             const eventId    = nav.dataset.eventId || '0';
             const storageKey = 'eim_event_tab_' + eventId;
 
-	            const panelIds = ['details', 'venue', 'email', 'qr', 'lodging', 'food', 'gifts', 'invitees', 'messages', 'children'];
+	            const panelIds = ['details', 'venue', 'email', 'qr', 'lodging', 'food', 'gifts', 'invitees', 'messages', 'notes', 'children'];
             const extMap   = { food: 'food-ext', email: 'email-ext' };
 
             const getEl = (id) => document.getElementById('eim-etab-' + id);

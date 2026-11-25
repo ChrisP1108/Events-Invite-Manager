@@ -18,7 +18,7 @@ final class DatabaseManager
     /**
      * The current database schema version.
      */
-    private const SCHEMA_VERSION = '46';
+    private const SCHEMA_VERSION = '47';
 
     /**
      * The database table names.
@@ -51,6 +51,7 @@ final class DatabaseManager
     private const GIFT_PURCHASES_TABLE                   = 'eim_gift_purchases';
     private const EVENT_MESSAGES_TABLE                   = 'eim_event_messages';
     private const REQUESTED_INVITEE_ADD_ONS_TABLE        = 'eim_requested_invitee_add_ons';
+    private const EVENT_NOTES_TABLE                      = 'eim_event_notes';
 
     /**
      * Upgrades the database schema if necessary.
@@ -522,7 +523,39 @@ final class DatabaseManager
                 KEY status (status)
             ) ENGINE=InnoDB {$charset};";
 
+        $sql .= self::eventNotesTableSql();
+
         dbDelta($sql);
+    }
+
+    /**
+     * CREATE TABLE statement for event notes (schema v47). Shared by
+     * createTables() and EventNote::maybeCreateTable().
+     *
+     * Admin-only planning notes about an event. event_id is the event the note
+     * is about (a master event or one of its children). Timestamps are UTC.
+     * Categories use eim_category_map with entity_type 'event_note'.
+     *
+     * @return string
+     */
+    public static function eventNotesTableSql(): string
+    {
+        global $wpdb;
+
+        $table   = self::eventNotesTable();
+        $charset = $wpdb->get_charset_collate();
+
+        return "CREATE TABLE {$table} (
+                id         BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+                event_id   BIGINT(20) UNSIGNED NOT NULL,
+                note       TEXT                NOT NULL,
+                created_by BIGINT(20) UNSIGNED NOT NULL DEFAULT 0,
+                created_at DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME            NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (id),
+                KEY event_id (event_id),
+                KEY created_at (created_at)
+            ) ENGINE=InnoDB {$charset};";
     }
 
     /** @return string Fully-qualified events table name. */
@@ -766,4 +799,10 @@ final class DatabaseManager
         return $wpdb->prefix . self::REQUESTED_INVITEE_ADD_ONS_TABLE;
     }
 
+    /** @return string Fully-qualified event notes table name. */
+    public static function eventNotesTable(): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . self::EVENT_NOTES_TABLE;
+    }
 }

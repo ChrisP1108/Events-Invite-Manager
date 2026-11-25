@@ -290,7 +290,7 @@ final class Event
     }
 
     /**
-     * Deletes an event and all of its invitation associations and lodging locations.
+     * Deletes an event and all of its invitation associations, lodging locations and notes.
      *
      * @param int $id
      * @return bool
@@ -316,6 +316,7 @@ final class Event
         Gift::deleteForEvent($id);
         EventMessage::deleteForEvent($id);
         RequestedInviteeAddOn::deleteForEvent($id);
+        EventNote::deleteForEvent($id);
         $wpdb->delete(DatabaseManager::budgetPlanEventsTable(), ['event_id' => $id]);
         $wpdb->delete(DatabaseManager::budgetLineItemsTable(),  ['event_id' => $id]);
         $result = $wpdb->delete(DatabaseManager::eventsTable(), ['id' => $id]);

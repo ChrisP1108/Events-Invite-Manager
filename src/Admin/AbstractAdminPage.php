@@ -519,6 +519,9 @@ abstract class AbstractAdminPage
             'child_event_unlinked'       => 'Event unlinked from its parent.',
             'child_event_reordered'      => 'Child event order updated.',
             'child_events_reconciled'    => "Resync complete — {$count} change(s) applied to child event guest lists.",
+            'event_note_added'           => 'Note added.',
+            'event_note_updated'         => 'Note updated.',
+            'event_note_deleted'         => 'Note deleted.',
         ];
 
         $errors = [
@@ -557,6 +560,11 @@ abstract class AbstractAdminPage
             'category_name_required'     => 'A category name is required.',
             'bulk_no_selection'          => 'Select at least one item before applying a bulk action.',
             'bulk_invalid_action'        => 'Choose a valid bulk action before applying.',
+            'event_note_required'        => 'Please enter a note.',
+            'event_note_too_long'        => 'Notes can be up to 10,000 characters.',
+            'event_note_invalid_event'   => 'Choose this event or one of its child events for the note.',
+            'event_note_not_found'       => 'That note was not found for this event.',
+            'event_note_save_failed'     => 'The note could not be saved. Please try again.',
             'riar_not_found'             => 'Request not found.',
             'riar_create_failed'         => 'Could not create the invitee. Please try again.',
             'qr_domain_invalid'          => 'Please enter a valid custom domain including https:// (e.g. https://example.com).',

@@ -70,6 +70,15 @@ The Gifts admin table supports AJAX live search, sortable columns, and bulk oper
 ### Invitee Messaging
 A conversation thread system between invitees and the admin, scoped per event and per connection group. Invitees can send messages through the frontend REST API; admins read and reply from the **Messages** admin tab. Each thread is grouped by connection group and event. Admin replies are flagged as `is_admin_reply` and are always marked read. Unread message counts are surfaced in the admin list so nothing is missed.
 
+### Event Notes
+A **Notes** tab on each event's edit screen holds private planning notes (administrators only; never returned by the REST API). Each note is plain text with line breaks, can be tagged with categories from the shared category library, and records when it was added (and by whom) and when it was last edited. Notes can be edited or deleted one at a time, or deleted in bulk.
+
+- On a **master (parent) event**, the add/edit form asks which event the note is about: the master event or one of its child events. The tab then shows two lists: **Notes for the master event**, and **Child Event Notes** (every child event's notes) with a **Filter by Child Event** dropdown.
+- A child event or a standalone event shows a single list of its own notes.
+- Each list has the shared search bar ("search in" Note, Child Event or Categories), a **Filter by Category** dropdown (a parent category also matches its sub-categories), sortable columns (Note, Child Event, Categories, Created, Edited), pagination and bulk delete.
+- Each list has its own **Export to CSV / JSON** buttons, which export the notes matching that list's current search and filters.
+- Deleting an event deletes its notes. Notes are stored in `eim_event_notes` (schema v47; timestamps in UTC) and their categories in `eim_category_map` with `entity_type = 'event_note'`.
+
 ### Requested Invitee Add-Ons
 Invitees can request additional guests be added to their invitation group via the `POST /request-guest` REST endpoint. Each request stores the proposed guest's contact details and is queued for admin review in the **Requested Invitees** admin tab. Admins can **approve** (creating the invitee, adding them to the connection group and invitation group, and auto-RSVPing them as attending) or **deny** the request. The full approve workflow runs inside a database transaction.
 
@@ -133,6 +142,7 @@ Both events and budget plans can be exported directly from the admin in two form
 - **Messages** — every invitee message and admin reply for the event, with group ID, confirmation code, direction (invitee/admin), message text, read status, and timestamp
 - **Registry: claimed items** — gift name, description, price, the purchasing group's ID and confirmation code, and purchase timestamp
 - **Registry: available items** — all unclaimed gifts with name, description, price, and website URL
+- **Notes** — every note about the event and, for a master event, its child events, with event, event type (master/child), note text, categories, created and last-edited timestamps (ISO 8601), and author
 
 **Budget plan export** includes:
 - **Plan details** — name, description, currency, target amount, estimated total, amount paid, and remaining balance, plus linked event names
@@ -159,7 +169,7 @@ add_action('eim_change', function (\EventsInviteManager\Hooks\EimChangeEvent $ev
 
 **Mental model:** admin save, REST write, or delete action → database write succeeds → the plugin dispatches `EimChangeEvent` → your listener runs.
 
-**Type constants** (`EimChangeEvent::TYPE_*`): `event`, `invitee`, `requested_add_on`, `message`, `connection_group`, `location`, `menu_item`, `budget_plan`, `budget_line_item`, `vendor`, `newsletter`, `category`, `gift`.
+**Type constants** (`EimChangeEvent::TYPE_*`): `event`, `invitee`, `requested_add_on`, `message`, `connection_group`, `location`, `menu_item`, `budget_plan`, `budget_line_item`, `vendor`, `newsletter`, `category`, `gift`, `event_note`.
 
 **Change type constants** (`EimChangeEvent::ADDED`, `EimChangeEvent::EDITED`, `EimChangeEvent::DELETED`).
 

@@ -9,6 +9,7 @@ if (!defined('ABSPATH')) exit;
 use EventsInviteManager\Admin\Pages\AboutPage;
 use EventsInviteManager\Admin\Pages\EventsManager\EventsManagerPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\ConnectionGroupsPage;
+use EventsInviteManager\Admin\Pages\EventsManager\SubPages\EventNotesSection;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\EventsPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\InviteesPage;
 use EventsInviteManager\Admin\Pages\EventsManager\SubPages\LocationsPage;
@@ -84,6 +85,7 @@ final class AdminMenu
 
     /** @var EventsPage Events sub-page handler. */
     private EventsPage           $eventsPage;
+    private EventNotesSection    $eventNotesSection;
 
     /** @var InviteesPage Invitees sub-page handler. */
     private InviteesPage         $inviteesPage;
@@ -129,7 +131,8 @@ final class AdminMenu
         $emailService  = new EmailService(new TemplateRenderer());
         $qrCodeService = new QrCodeService();
 
-        $this->eventsPage             = new EventsPage($emailService, $qrCodeService);
+        $this->eventNotesSection      = new EventNotesSection();
+        $this->eventsPage             = new EventsPage($emailService, $qrCodeService, $this->eventNotesSection);
         $this->inviteesPage           = new InviteesPage();
         $this->connectionGroupsPage   = new ConnectionGroupsPage();
         $this->locationsPage          = new LocationsPage();
@@ -230,6 +233,7 @@ final class AdminMenu
         add_action('wp_ajax_eim_search_gifts_list',   [$this->giftsPage,       'handleAjaxSearchGifts']);
         add_action('wp_ajax_eim_suggest_gifts',        [$this->giftsPage,       'handleAjaxSuggestGifts']);
         add_action('wp_ajax_eim_search_event_gifts',   [$this->eventsPage,      'handleAjaxSearchEventGifts']);
+        add_action('wp_ajax_eim_search_event_notes',   [$this->eventNotesSection, 'handleAjaxSearch']);
 
         // Requested Invitee Add-Ons.
         add_action('wp_ajax_eim_search_requested_invitees',       [$this->requestedInviteesPage, 'handleAjaxSearch']);
@@ -552,6 +556,13 @@ final class AdminMenu
         }
 
         if ($tab === self::TAB_EVENTS && $action === 'edit') {
+            wp_enqueue_script('eim-admin-event-notes', EIM_PLUGIN_URL . 'assets/js/admin-event-notes.js', ['eim-admin-pagination'], EIM_VERSION, true);
+            wp_localize_script('eim-admin-event-notes', 'eimEventNotesAdmin', [
+                'searchNonce' => wp_create_nonce('eim_search_event_notes_nonce'),
+                'eventId'     => (int) ($_GET['id'] ?? 0),
+                'table'       => ['enabled' => true],
+            ]);
+
             wp_enqueue_script('eim-admin-requested-invitees', EIM_PLUGIN_URL . 'assets/js/admin-requested-invitees.js', [], EIM_VERSION, true);
             wp_localize_script('eim-admin-requested-invitees', 'eimRiarAdmin', [
                 'approveNonce' => wp_create_nonce('eim_approve_invitee_request_nonce'),
