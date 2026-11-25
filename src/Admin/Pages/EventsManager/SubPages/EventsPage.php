@@ -4008,6 +4008,154 @@ final class EventsPage extends AbstractAdminPage
     }
 
     /**
+     * Builds the group-level Details modal payload for an event invitation row.
+     *
+     * Rendered by the same RsvpDetailsModal JS as memberDetailsPayload(): a summary
+     * of the row's columns, who is attending/declined/awaiting, the group-level
+     * RSVP form answers, then one section per member with their individual answers.
+     *
+     * @param Event                $event
+     * @param InvitationGroup      $group
+     * @param Invitee[]            $members               Group members in display order.
+     * @param Invitee|null         $primaryInvitee
+     * @param ConnectionGroup|null $connectionGroup
+     * @param QrCode|null          $qrCode
+     * @param array<int, MenuItem> $rsvpOptionMap
+     * @param string               $groupLodgingLabel
+     * @param string|null          $groupLodgingConfirmedAt
+     * @param array<int, array{name:string}> $uninvitedConnections Connected invitees not on this event.
+     * @return array<string,mixed>
+     */
+    private function groupDetailsPayload(
+        Event $event,
+        InvitationGroup $group,
+        array $members,
+        ?Invitee $primaryInvitee,
+        ?ConnectionGroup $connectionGroup,
+        ?QrCode $qrCode,
+        array $rsvpOptionMap,
+        string $groupLodgingLabel,
+        ?string $groupLodgingConfirmedAt,
+        array $uninvitedConnections,
+    ): array {
+        $namesByStatus = [
+            InvitationGroup::RSVP_ATTENDING => [],
+            InvitationGroup::RSVP_DECLINED  => [],
+            InvitationGroup::RSVP_PENDING   => [],
+        ];
+        foreach ($members as $m) {
+            $status = isset($namesByStatus[$m->rsvpStatus]) ? $m->rsvpStatus : InvitationGroup::RSVP_PENDING;
+            $namesByStatus[$status][] = $m->fullName();
+        }
+        $nameList = static fn(array $names): string => empty($names) ? 'None' : implode("\n", $names);
+
+        $attendingCount = count($namesByStatus[InvitationGroup::RSVP_ATTENDING]);
+
+        $invitationRows = [
+            ['label' => 'Connection Group',  'value' => $connectionGroup?->name ?: 'None (individual invitation)'],
+            ['label' => 'Primary Recipient', 'value' => $primaryInvitee?->fullName() ?? ''],
+            ['label' => 'Email (Primary)',   'value' => $primaryInvitee?->email ?? ''],
+            ['label' => 'Has Address',       'value' => $primaryInvitee ? ($primaryInvitee->hasAddress() ? 'True' : 'False') : ''],
+            ['label' => 'Group Members',     'value' => (string) count($members)],
+            ['label' => 'Invite Sent',       'value' => $this->formatAdminDateTime($group->inviteSentAt) ?: 'Not sent'],
+            ['label' => 'Confirmation Code', 'value' => $qrCode?->confirmationCode ?? ''],
+        ];
+        if (!empty($uninvitedConnections)) {
+            $invitationRows[] = [
+                'label' => 'Connections Not Invited',
+                'value' => implode("\n", array_map(static fn(array $c): string => (string) $c['name'], $uninvitedConnections)),
+            ];
+        }
+
+        $responseRows = [
+            ['label' => 'RSVP Notes', 'value' => $group->rsvpNotes],
+        ];
+        if (trim($group->rsvpNotes) !== '' && $group->rsvpNotesUpdatedAt) {
+            $responseRows[] = ['label' => 'Notes Updated', 'value' => $this->formatAdminDateTime($group->rsvpNotesUpdatedAt)];
+        }
+        $hasLodgingData = $groupLodgingLabel !== '' || $group->lodgingBooked || trim($group->lodgingNotes) !== '';
+        if ($event->lodgingEnabled || $hasLodgingData) {
+            $bookedValue = $group->lodgingBooked
+                ? trim('Yes ' . ($group->lodgingBookedAt ? '(' . $this->formatAdminDateTime($group->lodgingBookedAt) . ')' : ''))
+                : 'No';
+            $responseRows[] = ['label' => 'Lodging',           'value' => $groupLodgingLabel];
+            $responseRows[] = ['label' => 'Lodging Confirmed', 'value' => $this->formatAdminDateTime($groupLodgingConfirmedAt)];
+            $responseRows[] = ['label' => 'Lodging Booked',    'value' => $bookedValue];
+            $responseRows[] = ['label' => 'Lodging Notes',     'value' => $group->lodgingNotes];
+        }
+
+        $sections = [
+            ['heading' => 'Invitation', 'rows' => $invitationRows],
+            [
+                'heading' => sprintf('RSVP Status (%d of %d attending)', $attendingCount, count($members)),
+                'rows'    => [
+                    ['label' => sprintf('Attending (%d)', $attendingCount), 'value' => $nameList($namesByStatus[InvitationGroup::RSVP_ATTENDING])],
+                    ['label' => sprintf('Declined (%d)', count($namesByStatus[InvitationGroup::RSVP_DECLINED])), 'value' => $nameList($namesByStatus[InvitationGroup::RSVP_DECLINED])],
+                    ['label' => sprintf('Pending (%d)', count($namesByStatus[InvitationGroup::RSVP_PENDING])), 'value' => $nameList($namesByStatus[InvitationGroup::RSVP_PENDING])],
+                ],
+            ],
+            ['heading' => 'RSVP Form Responses (Group)', 'rows' => $responseRows],
+        ];
+
+        // Label shown in the Seating Assignments table when a seat is first assigned from the modal.
+        $seatGroupLabel = $connectionGroup?->name ?: ($primaryInvitee?->fullName() ?? 'Group ' . $group->id);
+
+        foreach ($members as $index => $m) {
+            $isAttending = $m->rsvpStatus === InvitationGroup::RSVP_ATTENDING;
+            $rows        = [
+                ['label' => 'RSVP Status', 'value' => $this->rsvpStatusLabel($m->rsvpStatus)],
+            ];
+            if ($isAttending) {
+                $rows[] = ['label' => 'Registered', 'value' => $this->formatAdminDateTime($m->registeredAt)];
+
+                $foodLabel = $this->menuSelectionLabel($m->foodOptionId, $rsvpOptionMap);
+                if ($event->foodOptionsEnabled || $foodLabel !== '') {
+                    $rows[] = ['label' => 'Food', 'value' => $foodLabel];
+                }
+                $bevLabel = $this->menuSelectionLabel($m->beverageOptionId, $rsvpOptionMap);
+                if ($event->beverageOptionsEnabled || $bevLabel !== '') {
+                    $rows[] = ['label' => 'Beverage', 'value' => $bevLabel];
+                }
+                $rows[] = ['label' => 'Dietary Notes', 'value' => $m->dietaryNotes];
+            }
+            $rows[] = ['label' => 'Email',   'value' => $m->email];
+            $rows[] = ['label' => 'Phone',   'value' => $m->phone];
+            $rows[] = ['label' => 'Address', 'value' => $m->formattedAddress()];
+
+            // Rendered by RsvpDetailsModal as an image + name + editable seat header
+            // above the rows (replaces the old per-group seating accordion).
+            $sections[] = [
+                'person' => [
+                    'name'       => $m->fullName(),
+                    'position'   => $index + 1,
+                    'isPrimary'  => $m->id === $group->primaryInviteeId,
+                    'imageThumb' => $m->imageUrl('thumbnail'),
+                    'imageFull'  => $m->imageUrl('full'),
+                    'editUrl'    => AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, ['action' => 'edit', 'id' => $m->id]),
+                    'seat'       => [
+                        'groupId'    => $group->id,
+                        'inviteeId'  => $m->id,
+                        'value'      => $m->seatAssignment,
+                        'firstName'  => $m->firstName,
+                        'lastName'   => $m->lastName,
+                        'email'      => $m->email,
+                        'phone'      => $m->phone,
+                        'groupLabel' => $seatGroupLabel,
+                    ],
+                ],
+                'rows'   => $rows,
+            ];
+        }
+
+        $title = $connectionGroup?->name ?: ($primaryInvitee?->fullName() ?? '');
+
+        return [
+            'title'    => ($title !== '' ? $title : 'Group ' . $group->id) . ' — RSVP Details',
+            'sections' => $sections,
+        ];
+    }
+
+    /**
      * Filters invitation groups by a search string, optionally restricted to one column.
      *
      * Matching is done against the values as rendered in the table so that users can type
@@ -4297,7 +4445,7 @@ final class EventsPage extends AbstractAdminPage
 
         if (empty($groups)) {
             $msg = $search !== '' ? 'No results found based upon search criteria.' : 'No invitees have been added to this event yet.';
-            echo '<tr><td colspan="10">' . esc_html($msg) . '</td></tr>';
+            echo $this->renderNoResultsRow($msg);
             return;
         }
 
@@ -4319,7 +4467,11 @@ final class EventsPage extends AbstractAdminPage
         $qrByGroup  = QrCode::mapByGroupIds($groupIds);
 
         // Pre-fetch all primary invitees in one query.
-        $primariesById = Invitee::findMany(array_map(static fn(InvitationGroup $g): int => $g->primaryInviteeId, $groups));
+        $primaryIds    = array_map(static fn(InvitationGroup $g): int => $g->primaryInviteeId, $groups);
+        $primariesById = Invitee::findMany($primaryIds);
+
+        // Pre-fetch connection groups for every primary invitee (Details modal title/summary).
+        $cgsByPrimary = ConnectionGroup::forInvitees($primaryIds);
 
         foreach ($groups as $i => $group) {
             $members              = $group->getMembers();
@@ -4349,16 +4501,24 @@ final class EventsPage extends AbstractAdminPage
             );
             $allConnections       = ConnectionGroup::connectedInviteesForEvent($group->primaryInviteeId, $event->id);
             $uninvitedConnections = array_values(array_filter($allConnections, static fn(array $c) => !$c['already_invited']));
+            // Only disambiguate (extra queries) when the primary belongs to several connection groups.
+            $primaryCgs           = $cgsByPrimary[$group->primaryInviteeId] ?? [];
+            $connectionGroup      = count($primaryCgs) > 1 ? ConnectionGroup::forInvitationGroup($group) : ($primaryCgs[0] ?? null);
+            $groupDetailsPayload  = $this->groupDetailsPayload(
+                $event,
+                $group,
+                $members,
+                $primaryInvitee,
+                $connectionGroup,
+                $qrByGroup[$group->id] ?? null,
+                $rsvpOptionMap,
+                $groupLodgingLabel,
+                $groupLodgingConfirmedAt,
+                $uninvitedConnections
+            );
             ?>
             <tr>
                 <?= $this->renderLeadingCells('eim-event-groups-bulk-form', 'event-groups-' . $event->id, $group->id, 'invitation group ' . (string) $group->id, $offset + $i + 1); ?>
-                <td style="width:30px;vertical-align:middle;text-align:center;">
-                    <button type="button"
-                            class="button-link eim-seat-accordion-toggle"
-                            data-group-id="<?= esc_attr($group->id); ?>"
-                            aria-expanded="false"
-                            title="Show/hide seating assignments">▶</button>
-                </td>
                 <td>
                     <span class="eim-tag-list">
                         <?php foreach ($members as $memberIndex => $member): ?>
@@ -4501,6 +4661,10 @@ final class EventsPage extends AbstractAdminPage
                     <?php endif; ?>
                 </td>
                 <td class="eim-group-actions">
+                    <button type="button"
+                            class="button-link eim-rsvp-details-trigger"
+                            data-eim-rsvp-details="<?= $this->rsvpDetailsAttribute($groupDetailsPayload); ?>">Details</button>
+                    <span class="eim-action-sep">|</span>
                     <?php if ($isChild): ?>
                         <span style="color:#999;" title="Managed from the parent event">Read-only</span>
                     <?php else: ?>
@@ -4522,67 +4686,9 @@ final class EventsPage extends AbstractAdminPage
                     <?php endif; ?>
                 </td>
             </tr>
-            <?php $accordionGroupLabel = $primaryInvitee ? $primaryInvitee->fullName() : 'Group ' . $group->id; ?>
-            <tr class="eim-seat-accordion-row" id="eim-seat-accordion-row-<?= esc_attr($group->id); ?>" style="display:none;" data-group-id="<?= esc_attr($group->id); ?>" data-group-label="<?= esc_attr($accordionGroupLabel); ?>">
-                <td colspan="9" style="background:#f6f7f7;padding:10px 16px;">
-                    <table class="wp-list-table widefat fixed striped eim-accordion-sortable">
-                        <thead>
-                            <tr>
-                                <th class="eim-invitee-image-column">Image</th>
-                                <th data-sort="1" style="width:15%;cursor:pointer;">First Name <span class="eim-sort-indicator"></span></th>
-                                <th data-sort="2" style="width:15%;cursor:pointer;">Last Name <span class="eim-sort-indicator"></span></th>
-                                <th data-sort="3" style="width:24%;cursor:pointer;">Email <span class="eim-sort-indicator"></span></th>
-                                <th data-sort="4" style="cursor:pointer;">Seat Assignment <span class="eim-sort-indicator"></span></th>
-                                <th style="width:80px;">Details</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($members as $member):
-                                $accFoodLabel = $this->menuSelectionLabel($member->foodOptionId, $rsvpOptionMap);
-                                $accBevLabel  = $this->menuSelectionLabel($member->beverageOptionId, $rsvpOptionMap);
-                                $accDetails   = $this->memberDetailsPayload($member, $accFoodLabel ?: null, $accBevLabel ?: null, $groupLodgingLabel, $groupLodgingConfirmedAt, $group->lodgingNotes);
-                            ?>
-                            <tr data-invitee-id="<?= esc_attr($member->id); ?>"
-                                data-group-id="<?= esc_attr($group->id); ?>">
-                                <td><?= $this->inviteeImageThumbnailMarkup($member->imageAttachmentId, $member->fullName()); ?></td>
-                                <td data-val="<?= esc_attr(strtolower($member->firstName)); ?>">
-                                    <a href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, ['action' => 'edit', 'id' => $member->id])); ?>"><?= esc_html($member->firstName); ?></a>
-                                </td>
-                                <td data-val="<?= esc_attr(strtolower($member->lastName)); ?>">
-                                    <a href="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_INVITEES, ['action' => 'edit', 'id' => $member->id])); ?>"><?= esc_html($member->lastName); ?></a>
-                                </td>
-                                <td data-val="<?= esc_attr(strtolower($member->email)); ?>"><?= esc_html($member->email); ?></td>
-                                <td data-val="<?= esc_attr(strtolower($member->seatAssignment)); ?>">
-                                    <div style="display:flex;align-items:center;gap:6px;">
-                                        <input type="text"
-                                               class="regular-text eim-seat-input"
-                                               value="<?= esc_attr($member->seatAssignment); ?>"
-                                               placeholder="e.g. Table 5, Seat 2"
-                                               data-invitee-id="<?= esc_attr($member->id); ?>"
-                                               data-group-id="<?= esc_attr($group->id); ?>"
-                                               data-original="<?= esc_attr($member->seatAssignment); ?>"
-                                               style="max-width:200px;">
-                                        <button type="button"
-                                                class="button button-small eim-save-seat"
-                                                data-invitee-id="<?= esc_attr($member->id); ?>"
-                                                data-group-id="<?= esc_attr($group->id); ?>">Save</button>
-                                        <span class="eim-seat-save-status" style="font-size:12px;"></span>
-                                    </div>
-                                </td>
-                                <td>
-                                    <button type="button"
-                                            class="button button-small eim-rsvp-details-trigger"
-                                            data-eim-rsvp-details="<?= $this->rsvpDetailsAttribute($accDetails); ?>">Details</button>
-                                </td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </td>
-            </tr>
             <?php if (!$isChild): ?>
             <tr class="eim-add-member-row" id="eim-add-member-row-<?= esc_attr($group->id); ?>" style="display:none;">
-                <td colspan="9" class="eim-add-member-cell">
+                <td colspan="100" class="eim-add-member-cell">
                     <form method="post"
                           action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'add_member_to_group'])); ?>"
                           class="eim-add-member-form">
@@ -4612,7 +4718,7 @@ final class EventsPage extends AbstractAdminPage
             </tr>
             <?php if (!empty($uninvitedConnections)): ?>
             <tr class="eim-add-connection-row" id="eim-add-connection-row-<?= esc_attr($group->id); ?>" style="display:none;">
-                <td colspan="9" class="eim-add-member-cell">
+                <td colspan="100" class="eim-add-member-cell">
                     <form method="post"
                           action="<?= esc_url(AdminMenu::tabUrl(AdminMenu::TAB_EVENTS, ['action' => 'add_member_to_group'])); ?>"
                           class="eim-add-member-form">
@@ -5079,7 +5185,6 @@ final class EventsPage extends AbstractAdminPage
             <thead>
                 <tr>
                     <?= $this->renderLeadingHeaderCells('event-groups-' . $event->id); ?>
-                    <th style="width:30px;" title="Seating"></th>
                     <th style="width:20%;"><?= $this->sortLink('Group Members',   'name',        AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
                     <th style="width:14%;"><?= $this->sortLink('Email (Primary)', 'email',       AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
                     <th style="width:8%;"><?= $this->sortLink('Has Address',      'has_address', AdminMenu::PAGE_EVENTS_MANAGER, $sort, $order, '', $sortArgs); ?></th>
@@ -5492,7 +5597,7 @@ final class EventsPage extends AbstractAdminPage
         ?>
         <h2 style="margin-top:32px;">Seating Assignments</h2>
         <p class="description" style="margin-bottom:12px;">
-            Invitees with an assigned seat. Use the group accordion toggles above to assign or update seats.
+            Invitees with an assigned seat. Assign or update seats from the Details link on each group above.
         </p>
 
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
@@ -5543,7 +5648,7 @@ final class EventsPage extends AbstractAdminPage
     private function renderSeatingAssignmentRows(array $seated, array $cgsByMember = []): void
     {
         if (empty($seated)) {
-            echo '<tr id="eim-seating-empty-row"><td colspan="6" style="color:#999;">No seating assignments yet. Use the group accordions above to assign seats.</td></tr>';
+            echo '<tr id="eim-seating-empty-row"><td colspan="6" style="color:#999;">No seating assignments yet. Use the Details link on each group above to assign seats.</td></tr>';
             return;
         }
 

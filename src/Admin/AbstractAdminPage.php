@@ -28,6 +28,10 @@ abstract class AbstractAdminPage
      * @param string                              $currentSearch  Current search value pre-filled into the input.
      * @param array<int,array{value:string,label:string}> $filterOptions Column options for the field dropdown.
      * @param string                              $currentField   Currently selected field option value.
+     * @param int|null                            $filteredCount  Row count after server-applied filters (e.g. ones
+     *                                                            restored from the URL), shown in the count label.
+     *                                                            Visibility still uses the unfiltered $count.
+     *                                                            Defaults to $count.
      * @return void
      */
     protected function renderSearchBar(
@@ -38,7 +42,8 @@ abstract class AbstractAdminPage
         int    $count,
         string $currentSearch  = '',
         array  $filterOptions  = [],
-        string $currentField   = ''
+        string $currentField   = '',
+        ?int   $filteredCount  = null
     ): void {
         // Fewer than two items and no active filter — a search bar is redundant.
         if ($count < 2 && $currentSearch === '' && $currentField === '') {
@@ -73,8 +78,9 @@ abstract class AbstractAdminPage
                 <option value="50">50 / page</option>
                 <option value="100">100 / page</option>
             </select>
+            <?php $shown = $filteredCount ?? $count; ?>
             <span id="<?= esc_attr($countId); ?>" class="description">
-                <?= esc_html($count); ?> result<?= $count === 1 ? '' : 's'; ?>
+                <?= esc_html($shown); ?> result<?= $shown === 1 ? '' : 's'; ?>
             </span>
             <span id="<?= esc_attr($spinnerId); ?>" class="spinner" aria-hidden="true"></span>
         </div>

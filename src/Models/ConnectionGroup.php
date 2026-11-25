@@ -278,6 +278,51 @@ final class ConnectionGroup
         return $groups;
     }
 
+    /**
+     * Resolves the most appropriate connection group for an invitation group.
+     *
+     * When the primary invitee belongs to a single connection group that group is
+     * returned immediately. When they belong to multiple, the method picks the one
+     * whose member set is a superset of the invitation group members — i.e. the CG
+     * the admin used when building the invitation. Falls back to alphabetically
+     * first if no perfect superset match exists.
+     *
+     * Single source of truth for this mapping — used by the guest REST API
+     * (messages, guest requests) and RsvpFlowResolver::resolveConfirmationCodeToArray().
+     *
+     * @param InvitationGroup $group
+     * @return self|null Null when the primary invitee belongs to no connection group.
+     */
+    public static function forInvitationGroup(InvitationGroup $group): ?self
+    {
+        $connectionGroups = self::forInvitee($group->primaryInviteeId);
+
+        if (empty($connectionGroups)) {
+            return null;
+        }
+
+        if (count($connectionGroups) === 1) {
+            return $connectionGroups[0];
+        }
+
+        $invitationMemberIds = array_map(
+            static fn(Invitee $m): int => $m->id,
+            $group->getMembers()
+        );
+
+        foreach ($connectionGroups as $cg) {
+            $cgMemberIds = array_map(
+                static fn(Invitee $m): int => $m->id,
+                $cg->getMembers()
+            );
+            if (empty(array_diff($invitationMemberIds, $cgMemberIds))) {
+                return $cg;
+            }
+        }
+
+        return $connectionGroups[0];
+    }
+
     // -------------------------------------------------------------------------
     // CRUD
     // -------------------------------------------------------------------------

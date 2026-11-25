@@ -75,40 +75,11 @@ abstract class AbstractApiController
     /**
      * Resolves the most appropriate connection group ID for an invitation group.
      *
-     * When the primary invitee belongs to a single connection group that group is
-     * returned immediately. When they belong to multiple, the method picks the one
-     * whose member set is a superset of the invitation group members — i.e. the CG
-     * the admin used when building the invitation. Falls back to alphabetically
-     * first if no perfect superset match exists.
+     * See ConnectionGroup::forInvitationGroup() for the matching rules.
      */
     protected function resolveConnectionGroupId(InvitationGroup $group): ?int
     {
-        $connectionGroups = ConnectionGroup::forInvitee($group->primaryInviteeId);
-
-        if (empty($connectionGroups)) {
-            return null;
-        }
-
-        if (count($connectionGroups) === 1) {
-            return $connectionGroups[0]->id;
-        }
-
-        $invitationMemberIds = array_map(
-            static fn(Invitee $m): int => $m->id,
-            $group->getMembers()
-        );
-
-        foreach ($connectionGroups as $cg) {
-            $cgMemberIds = array_map(
-                static fn(Invitee $m): int => $m->id,
-                $cg->getMembers()
-            );
-            if (empty(array_diff($invitationMemberIds, $cgMemberIds))) {
-                return $cg->id;
-            }
-        }
-
-        return $connectionGroups[0]->id;
+        return ConnectionGroup::forInvitationGroup($group)?->id;
     }
 
     /** @return array<string,mixed> */

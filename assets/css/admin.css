@@ -240,7 +240,8 @@ img {
     justify-content: center;
     padding: 24px;
     position: fixed;
-    z-index: 100000;
+    /* One above .eim-rsvp-modal-backdrop so a full-size image opened from the Details modal sits on top. */
+    z-index: 100001;
 }
 
 .eim-invitee-image-modal-backdrop[hidden] {
@@ -960,6 +961,89 @@ img {
     margin: 0;
     white-space: pre-wrap;
     word-break: break-word;
+}
+
+/* Per-person header in the group Details modal: image, name, seat assignment. */
+.eim-rsvp-person-header {
+    align-items: flex-start;
+    display: flex;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.eim-rsvp-person-header .eim-invitee-image-thumb,
+.eim-rsvp-person-placeholder {
+    flex: 0 0 52px;
+}
+
+.eim-rsvp-person-placeholder {
+    align-items: center;
+    background: #f6f7f7;
+    border: 1px solid #dcdcde;
+    border-radius: 4px;
+    box-sizing: border-box;
+    color: #a7aaad;
+    display: inline-flex;
+    height: 52px;
+    justify-content: center;
+    width: 52px;
+}
+
+.eim-rsvp-person-placeholder .dashicons {
+    font-size: 28px;
+    height: 28px;
+    width: 28px;
+}
+
+.eim-rsvp-person-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.eim-rsvp-modal-section .eim-rsvp-person-name {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 14px;
+    gap: 6px;
+    margin: 0 0 8px;
+}
+
+.eim-rsvp-person-name a {
+    text-decoration: none;
+}
+
+.eim-rsvp-person-primary {
+    background: #f0f6fc;
+    border-radius: 3px;
+    color: #2271b1;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 6px;
+}
+
+.eim-rsvp-person-seat label {
+    color: #646970;
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 3px;
+}
+
+.eim-rsvp-person-seat-controls {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.eim-rsvp-person-seat-controls .eim-seat-input {
+    max-width: 100%;
+    width: 220px;
+}
+
+.eim-rsvp-person-seat-controls .eim-seat-save-status {
+    font-size: 12px;
 }
 
 @media (max-width: 600px) {

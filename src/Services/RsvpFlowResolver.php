@@ -6,6 +6,7 @@ namespace EventsInviteManager\Services;
 
 if (!defined('ABSPATH')) exit;
 
+use EventsInviteManager\Models\ConnectionGroup;
 use EventsInviteManager\Models\Event;
 use EventsInviteManager\Models\EventLodging;
 use EventsInviteManager\Models\InvitationGroup;
@@ -314,6 +315,7 @@ final class RsvpFlowResolver
      *     qr_code: array{svg_url:string,png_url:string}|null,
      *     event: array{id:int,name:string,description:string,start_datetime:string|null,end_datetime:string|null,timezone:string,lodging_enabled:bool,food_options_enabled:bool,beverage_options_enabled:bool}|null,
      *     group: array{id:int,event_id:int,primary_invitee_id:int,rsvp_notes:string,lodging_booked:bool}|null,
+     *     connection_group: array{id:int,name:string}|null,
      *     primary_member_id: int|null,
      *     members: array<int,array{id:int,first_name:string,last_name:string,email:string,rsvp_status:string,is_registered:bool,food_option_id:int|null,beverage_option_id:int|null,dietary_notes:string,lodging_id:int|null,is_primary:bool,sort_order:int}>
      * }|false
@@ -332,7 +334,8 @@ final class RsvpFlowResolver
             return false;
         }
 
-        $qrCode = QrCode::findByCode($confirmationCode);
+        $qrCode          = QrCode::findByCode($confirmationCode);
+        $connectionGroup = $flowResult->group ? ConnectionGroup::forInvitationGroup($flowResult->group) : null;
 
         return [
             'confirmation_code'       => $confirmationCode,
@@ -367,7 +370,11 @@ final class RsvpFlowResolver
                 'rsvp_notes'         => $flowResult->group->rsvpNotes,
                 'lodging_booked'     => $flowResult->group->lodgingBooked,
             ] : null,
-            'members' => array_map(static fn(Invitee $member) => [
+            'connection_group' => $connectionGroup ? [
+                'id'   => $connectionGroup->id,
+                'name' => $connectionGroup->name,
+            ] : null,
+            'members' =>array_map(static fn(Invitee $member) => [
                 'id'                 => $member->id,
                 'first_name'         => $member->firstName,
                 'last_name'          => $member->lastName,

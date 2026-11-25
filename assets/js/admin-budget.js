@@ -45,6 +45,30 @@
         };
     };
 
+    /**
+     * Mirrors a table's current filters into the page URL (without adding a
+     * history entry) so a refresh restores them. Empty / zero values remove the
+     * param. BudgetPage::lineItemFilterParams() reads them back server-side.
+     *
+     * @param {string}                       prefix Param prefix: 'li', 'needs_payment' or 'paid'.
+     * @param {Record<string,string|number>} values e.g. { search, field, vendor }.
+     * @returns {void}
+     */
+    const syncFiltersToUrl = (prefix, values) => {
+        const url = new URL(window.location.href);
+        for (const [key, raw] of Object.entries(values)) {
+            const value = String(raw ?? '').trim();
+            if (value === '' || value === '0') {
+                url.searchParams.delete(`${prefix}_${key}`);
+            } else {
+                url.searchParams.set(`${prefix}_${key}`, value);
+            }
+        }
+        if (url.href !== window.location.href) {
+            window.history.replaceState(window.history.state, '', url);
+        }
+    };
+
     // =========================================================================
     // BudgetPlansTable — AJAX search + sort for the plans list
     // =========================================================================
@@ -260,6 +284,11 @@
         }
 
         async #refresh() {
+            syncFiltersToUrl('li', {
+                search: this.#search?.value || '',
+                field:  this.#field?.value || '',
+                vendor: this.#vendorFilter?.value || '',
+            });
             this.#spinner?.classList.add('is-active');
             try {
                 const url = ajaxUrl('eim_search_budget_line_items', {
@@ -1320,6 +1349,11 @@
 
         async #refresh() {
             if (!this.#tbody) return;
+            syncFiltersToUrl(this.#status, {
+                search: this.#search?.value || '',
+                field:  this.#field?.value || '',
+                vendor: this.#vendorFilter?.value || '',
+            });
             this.#spinner?.classList.add('is-active');
             try {
                 const url = ajaxUrl('eim_search_budget_payment_items', {

@@ -150,7 +150,10 @@
             });
 
             document.addEventListener('keydown', (event) => {
-                if (event.key === 'Escape') this.#close();
+                if (event.key !== 'Escape' || !this.#overlay || this.#overlay.hidden) return;
+                // Mark handled so a modal underneath (e.g. RSVP Details) stays open.
+                event.preventDefault();
+                this.#close();
             });
         }
 
@@ -289,15 +292,22 @@
     class RsvpDetailsModal {
         /** @type {HTMLElement|null} */
         #overlay = null;
+        /** @type {HTMLElement|null} Trigger whose payload is shown — kept after close so a late seat save still syncs. */
+        #trigger = null;
+        /** @type {object|null} */
+        #payload = null;
 
         constructor() {
             document.addEventListener('click', (e) => this.#handleClick(e));
             document.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape') {
+                // InviteeImageModal (registered first) prevents default when Escape
+                // closes a full-size image opened from inside this modal.
+                if (e.key === 'Escape' && !e.defaultPrevented) {
                     this.#closeEventMenus();
                     this.#close();
                 }
             });
+            document.addEventListener('eim:seat-saved', (e) => this.#syncSeat(e.detail || {}));
         }
 
         /**
@@ -327,7 +337,7 @@
                 }
 
                 const payload = this.#parsePayload(detailsTrigger.dataset.eimRsvpDetails || '');
-                if (payload) this.#open(payload);
+                if (payload) this.#open(payload, detailsTrigger);
                 return;
             }
 
@@ -392,11 +402,17 @@
         /**
          * Opens the modal for the given details payload.
          *
-         * @param {{title?: string, sections?: Array<{heading?: string, rows?: Array<{label?: string, value?: string}>}>}} payload
+         * A section with a `person` key renders an image + name + editable seat
+         * header (group Details on the event invitees list) instead of a heading.
+         *
+         * @param {{title?: string, sections?: Array<{heading?: string, person?: object, rows?: Array<{label?: string, value?: string}>}>}} payload
+         * @param {HTMLElement|null} trigger
          * @returns {void}
          */
-        #open(payload) {
+        #open(payload, trigger = null) {
             this.#close();
+            this.#trigger = trigger;
+            this.#payload = payload;
 
             const overlay = document.createElement('div');
             overlay.className = 'eim-rsvp-modal-backdrop';
@@ -429,7 +445,9 @@
                 const sectionEl = document.createElement('section');
                 sectionEl.className = 'eim-rsvp-modal-section';
 
-                if (section.heading) {
+                if (section.person) {
+                    sectionEl.appendChild(this.#buildPersonHeader(section.person));
+                } else if (section.heading) {
                     const heading = document.createElement('h3');
                     heading.textContent = section.heading;
                     sectionEl.appendChild(heading);
@@ -457,6 +475,141 @@
         }
 
         /**
+         * Builds the image + name + seat-assignment header for one person.
+         *
+         * The thumbnail reuses InviteeImageModal (.eim-invitee-image-thumb) for the
+         * full-size view, and the seat input/button reuse SeatAssignmentManager's
+         * delegated .eim-seat-input / .eim-save-seat handlers. The data-* fields on
+         * the input let SeatAssignmentManager add a new Seating Assignments row.
+         *
+         * @param {{name?: string, position?: number, isPrimary?: boolean, imageThumb?: string, imageFull?: string, editUrl?: string,
+         *          seat?: {groupId: number, inviteeId: number, value?: string, firstName?: string, lastName?: string, email?: string, phone?: string, groupLabel?: string}}} person
+         * @returns {HTMLElement}
+         */
+        #buildPersonHeader(person) {
+            const header = document.createElement('div');
+            header.className = 'eim-rsvp-person-header';
+
+            let media;
+            if (person.imageThumb) {
+                media = document.createElement('button');
+                media.type = 'button';
+                media.className = 'button-link eim-invitee-image-thumb';
+                media.dataset.fullSrc = person.imageFull || person.imageThumb;
+                media.dataset.caption = person.name || '';
+                media.setAttribute('aria-label', `View full-size image for ${person.name || 'invitee'}`);
+                const img = document.createElement('img');
+                img.src = person.imageThumb;
+                img.alt = '';
+                media.appendChild(img);
+            } else {
+                media = document.createElement('span');
+                media.className = 'eim-rsvp-person-placeholder';
+                media.setAttribute('aria-hidden', 'true');
+                media.innerHTML = '<span class="dashicons dashicons-admin-users"></span>';
+            }
+            header.appendChild(media);
+
+            const info = document.createElement('div');
+            info.className = 'eim-rsvp-person-info';
+
+            const name = document.createElement('h3');
+            name.className = 'eim-rsvp-person-name';
+            if (person.position) {
+                const badge = document.createElement('span');
+                badge.className = 'eim-member-order-badge';
+                badge.title = 'Order in group';
+                badge.textContent = `#${person.position}`;
+                name.appendChild(badge);
+            }
+            const nameText = document.createElement(person.editUrl ? 'a' : 'span');
+            if (person.editUrl) nameText.href = person.editUrl;
+            nameText.textContent = person.name || 'Unnamed invitee';
+            name.appendChild(nameText);
+            if (person.isPrimary) {
+                const primary = document.createElement('span');
+                primary.className = 'eim-rsvp-person-primary';
+                primary.title = 'Primary recipient';
+                primary.textContent = 'Primary';
+                name.appendChild(primary);
+            }
+            info.appendChild(name);
+
+            const seat = person.seat;
+            if (seat && seat.groupId && seat.inviteeId) {
+                const seatWrap = document.createElement('div');
+                seatWrap.className = 'eim-rsvp-person-seat';
+
+                const inputId = `eim-modal-seat-${seat.groupId}-${seat.inviteeId}`;
+                const label = document.createElement('label');
+                label.htmlFor = inputId;
+                label.textContent = 'Seat Assignment';
+
+                const controls = document.createElement('div');
+                controls.className = 'eim-rsvp-person-seat-controls';
+
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.id = inputId;
+                input.className = 'regular-text eim-seat-input';
+                input.placeholder = 'e.g. Table 5, Seat 2';
+                input.value = seat.value || '';
+                Object.assign(input.dataset, {
+                    groupId:    String(seat.groupId),
+                    inviteeId:  String(seat.inviteeId),
+                    original:   seat.value || '',
+                    firstName:  seat.firstName || '',
+                    lastName:   seat.lastName || '',
+                    email:      seat.email || '',
+                    phone:      seat.phone || '',
+                    groupLabel: seat.groupLabel || '',
+                });
+
+                const save = document.createElement('button');
+                save.type = 'button';
+                save.className = 'button button-small eim-save-seat';
+                save.dataset.groupId = String(seat.groupId);
+                save.dataset.inviteeId = String(seat.inviteeId);
+                save.textContent = 'Save';
+
+                const status = document.createElement('span');
+                status.className = 'eim-seat-save-status';
+                status.setAttribute('aria-live', 'polite');
+
+                controls.append(input, save, status);
+                seatWrap.append(label, controls);
+                info.appendChild(seatWrap);
+            }
+
+            header.appendChild(info);
+            return header;
+        }
+
+        /**
+         * Writes a saved seat back into the open payload and its trigger's
+         * data attribute so reopening the modal shows the new value.
+         *
+         * @param {{groupId?: string, inviteeId?: string, seat?: string}} detail
+         * @returns {void}
+         */
+        #syncSeat({ groupId, inviteeId, seat }) {
+            if (!this.#trigger || !this.#payload) return;
+
+            let changed = false;
+            for (const section of this.#payload.sections || []) {
+                const s = section.person?.seat;
+                if (s && String(s.groupId) === String(groupId) && String(s.inviteeId) === String(inviteeId)) {
+                    s.value = seat ?? '';
+                    changed = true;
+                }
+            }
+
+            if (changed) {
+                this.#trigger.dataset.eimRsvpDetails = JSON.stringify(this.#payload);
+            }
+        }
+
+        /**
          * Closes the active modal.
          *
          * @returns {void}
@@ -464,62 +617,6 @@
         #close() {
             this.#overlay?.remove();
             this.#overlay = null;
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // AccordionSortTable — client-side column sort for group accordion tables
-    // -----------------------------------------------------------------------
-
-    /**
-     * Enables click-to-sort on every <th data-sort="N"> inside an
-     * .eim-accordion-sortable table. Sorts <tbody> rows by each cell's
-     * data-val attribute, toggling asc/desc on repeated clicks.
-     */
-    class AccordionSortTable {
-        constructor() {
-            document.addEventListener('click', (e) => {
-                const th = e.target.closest('th[data-sort]');
-                if (!th) return;
-                const table = th.closest('.eim-accordion-sortable');
-                if (!table) return;
-                this.#sort(table, th);
-            });
-        }
-
-        /**
-         * Sorts the table rows by the column index encoded in th[data-sort].
-         *
-         * @param {HTMLTableElement} table
-         * @param {HTMLElement}      th
-         */
-        #sort(table, th) {
-            const colIndex  = parseInt(th.dataset.sort, 10);
-            const prevOrder = th.dataset.order || '';
-            const newOrder  = prevOrder === 'asc' ? 'desc' : 'asc';
-
-            // Reset all headers in this table, then set the clicked one.
-            table.querySelectorAll('th[data-sort]').forEach((h) => {
-                h.dataset.order = '';
-                const ind = h.querySelector('.eim-sort-indicator');
-                if (ind) ind.textContent = '';
-            });
-            th.dataset.order = newOrder;
-            const ind = th.querySelector('.eim-sort-indicator');
-            if (ind) ind.textContent = newOrder === 'asc' ? ' ▲' : ' ▼';
-
-            const tbody = table.querySelector('tbody');
-            if (!tbody) return;
-
-            const rows = [...tbody.querySelectorAll('tr')];
-            rows.sort((a, b) => {
-                const aVal = a.cells[colIndex]?.dataset.val ?? '';
-                const bVal = b.cells[colIndex]?.dataset.val ?? '';
-                const cmp  = aVal.localeCompare(bVal, undefined, { numeric: true, sensitivity: 'base' });
-                return newOrder === 'asc' ? cmp : -cmp;
-            });
-
-            rows.forEach((row) => tbody.appendChild(row));
         }
     }
 
@@ -2425,48 +2522,8 @@
     }
 
     // -----------------------------------------------------------------------
-    // GroupAccordion — toggles the seating accordion row per invitation group
-    // -----------------------------------------------------------------------
-
-    class GroupAccordion {
-        constructor() {
-            document.addEventListener('click', (e) => {
-                const btn = e.target.closest('.eim-seat-accordion-toggle');
-                if (!btn) return;
-                const groupId = btn.dataset.groupId;
-                if (!groupId) return;
-
-                const row = document.getElementById(`eim-seat-accordion-row-${groupId}`);
-                if (!row) return;
-
-                const isOpen = btn.getAttribute('aria-expanded') === 'true';
-                if (isOpen) {
-                    row.style.display = 'none';
-                    btn.setAttribute('aria-expanded', 'false');
-                    btn.textContent = '▶';
-                } else {
-                    row.style.display = '';
-                    btn.setAttribute('aria-expanded', 'true');
-                    btn.textContent = '▼';
-                }
-            });
-        }
-
-        /** Opens the accordion for the given group ID, scrolling it into view. */
-        static open(groupId) {
-            const toggleBtn = document.querySelector(`.eim-seat-accordion-toggle[data-group-id="${groupId}"]`);
-            const row = document.getElementById(`eim-seat-accordion-row-${groupId}`);
-            if (!row || !toggleBtn) return;
-
-            row.style.display = '';
-            toggleBtn.setAttribute('aria-expanded', 'true');
-            toggleBtn.textContent = '▼';
-            row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        }
-    }
-
-    // -----------------------------------------------------------------------
     // SeatAssignmentManager — AJAX seat saves + seating table dynamic updates
+    // (seat inputs live in the group Details modal built by RsvpDetailsModal)
     // -----------------------------------------------------------------------
 
     class SeatAssignmentManager {
@@ -2525,6 +2582,7 @@
                         setTimeout(() => { statusEl.textContent = ''; }, 2500);
                     }
                     this.#updateSeatingTable(groupId, inviteeId, seat, input);
+                    document.dispatchEvent(new CustomEvent('eim:seat-saved', { detail: { groupId, inviteeId, seat } }));
                 } else {
                     if (statusEl) { statusEl.textContent = 'Error'; statusEl.style.color = '#d63638'; }
                 }
@@ -2536,7 +2594,7 @@
             }
         }
 
-        #updateSeatingTable(groupId, inviteeId, seat, accordionInput) {
+        #updateSeatingTable(groupId, inviteeId, seat, input) {
             const tbody      = document.getElementById('eim-seating-assignments-tbody');
             const countEl    = document.getElementById('eim-seating-count');
             const emptyRow   = document.getElementById('eim-seating-empty-row');
@@ -2553,15 +2611,8 @@
                 const cells = existing.querySelectorAll('td');
                 if (cells[5]) cells[5].textContent = seat;
             } else {
-                // Add new row — collect data from the accordion sub-table
-                const accRow    = document.getElementById(`eim-seat-accordion-row-${groupId}`);
-                const memberRow = accRow?.querySelector(`tr[data-invitee-id="${inviteeId}"]`);
-                if (!memberRow) return;
-
-                const firstName  = memberRow.querySelectorAll('td')[1]?.textContent || '';
-                const lastName   = memberRow.querySelectorAll('td')[2]?.textContent || '';
-                const email      = memberRow.querySelectorAll('td')[3]?.textContent || '';
-                const groupLabel = accRow?.dataset.groupLabel || '';
+                // Add new row — person data is carried on the Details modal's seat input.
+                const { firstName = '', lastName = '', email = '', phone = '', groupLabel = '' } = input.dataset;
 
                 const tr = document.createElement('tr');
                 tr.dataset.inviteeId = inviteeId;
@@ -2569,7 +2620,7 @@
                 tr.dataset.firstName = firstName.toLowerCase();
                 tr.dataset.lastName  = lastName.toLowerCase();
                 tr.dataset.email     = email.toLowerCase();
-                tr.dataset.phone     = '';
+                tr.dataset.phone     = phone.toLowerCase();
                 tr.dataset.groupName = groupLabel.toLowerCase();
                 tr.dataset.seat      = seat.toLowerCase();
 
@@ -2579,7 +2630,7 @@
                     <td>${escHtml(firstName)}</td>
                     <td>${escHtml(lastName)}</td>
                     <td>${escHtml(email)}</td>
-                    <td>—</td>
+                    <td>${escHtml(phone || '—')}</td>
                     <td>${escHtml(groupLabel)}</td>
                     <td>${escHtml(seat)}</td>
                 `;
@@ -3315,7 +3366,6 @@
         new InviteeImageModal();
         new InviteeImagePicker();
         new RsvpDetailsModal();
-        new AccordionSortTable();
         if (config.table?.enabled)                new InviteeTable();
         if (config.connectionGroupTable?.enabled) new ConnectionGroupTable();
         if (config.event?.enabled)                new EventInviteePicker();
@@ -3329,7 +3379,6 @@
             new EventMenuItemFilter();
             new EventAssignmentSorter();
             new LodgingNotesEditor();
-            new GroupAccordion();
             new SeatAssignmentManager(config.event?.seatNonce || '');
             seatingTableInstance = new SeatingAssignmentsTable();
             new InviteEmailSendPanel();

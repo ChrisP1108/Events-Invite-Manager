@@ -861,8 +861,6 @@ final class BudgetPage extends AbstractAdminPage
         $liSort  = $this->sanitizeLineItemSortKey(sanitize_key($_GET['li_sort']  ?? 'sort_order'));
         $liOrder = strtolower((string) ($_GET['li_order'] ?? 'asc')) === 'desc' ? 'desc' : 'asc';
         $liAll    = BudgetLineItem::searchForPlan($plan->id, '', $liSort, $liOrder);
-        $liTotal  = count($liAll);
-        $liItems  = array_slice($liAll, 0, 10);
 
         // Build vendor list for the filter dropdown (only vendors used by this plan's line items).
         $liVendorIds    = array_values(array_unique(array_filter(
@@ -879,20 +877,34 @@ final class BudgetPage extends AbstractAdminPage
         asort($liVendorOptions);
         $planCats = Category::forEntity('budget_plan', $plan->id);
 
+        // Search/vendor filters persisted in the URL by admin-budget.js (history.replaceState)
+        // so a refresh keeps the last selection. Each table has its own param prefix.
+        $liFilters   = $this->lineItemFilterParams('li', $liVendorOptions);
+        $npFilters   = $this->lineItemFilterParams('needs_payment', $liVendorOptions);
+        $paidFilters = $this->lineItemFilterParams('paid', $liVendorOptions);
+        $applyFilters = static fn(array $f): array => ($f['search'] === '' && $f['vendor'] === 0)
+            ? $liAll
+            : BudgetLineItem::searchForPlan($plan->id, $f['search'], $liSort, $liOrder, $f['field'], $f['vendor']);
+
+        $liFiltered = $applyFilters($liFilters);
+        $liTotal    = count($liFiltered);
+        $liItems    = array_slice($liFiltered, 0, 10);
+
         // Payments tab — counts only; the full lists are loaded via AJAX on accordion expand.
+        $npFiltered        = $applyFilters($npFilters);
         $needsPaymentCount = count(array_filter(
-            $liAll,
+            $npFiltered,
             static fn(BudgetLineItem $i): bool => $i->paidAmountCents < $i->estimatedCents()
         ));
         $paidCount = count(array_filter(
-            $liAll,
+            $applyFilters($paidFilters),
             static fn(BudgetLineItem $i): bool => $i->estimatedCents() > 0 && $i->paidAmountCents >= $i->estimatedCents()
         ));
 
         // Count needs-payment items whose deadline falls within the next 30 days (or is already past).
         $thirtyDaysFromNow        = strtotime('+30 days');
         $needsPaymentDueSoonCount = count(array_filter(
-            $liAll,
+            $npFiltered,
             static fn(BudgetLineItem $i): bool =>
                 $i->paidAmountCents < $i->estimatedCents() &&
                 !empty($i->paymentDeadline) &&
@@ -1049,26 +1061,27 @@ final class BudgetPage extends AbstractAdminPage
                     'eim-line-item-count',
                     'eim-line-item-loading',
                     'Search line items…',
-                    $liTotal,
-                    '',
+                    count($liAll),
+                    $liFilters['search'],
                     [
                         ['value' => 'label',  'label' => 'Label'],
                         ['value' => 'event',  'label' => 'Event'],
                         ['value' => 'vendor', 'label' => 'Vendor'],
                     ],
-                    ''
+                    $liFilters['field'],
+                    $liTotal
                 ); ?>
 
                 <?php if (!empty($liVendorOptions)): ?>
                 <div style="display:flex;align-items:center;gap:8px;margin:6px 0 10px;">
                     <label for="eim-line-item-vendor-filter" style="font-weight:600;white-space:nowrap;">Filter by Vendor:</label>
-                    <select id="eim-line-item-vendor-filter" class="eim-search-field-select">
+                    <select id="eim-line-item-vendor-filter" class="eim-search-field-select" autocomplete="off">
                         <option value="">— All Vendors —</option>
                         <?php foreach ($liVendorOptions as $vid => $vName): ?>
-                            <option value="<?= esc_attr($vid); ?>"><?= esc_html($vName); ?></option>
+                            <option value="<?= esc_attr($vid); ?>" <?php selected($liFilters['vendor'], $vid); ?>><?= esc_html($vName); ?></option>
                         <?php endforeach; ?>
                     </select>
-                    <button type="button" id="eim-li-vendor-clear" class="button button-small" style="display:none;">Clear</button>
+                    <button type="button" id="eim-li-vendor-clear" class="button button-small" style="<?= $liFilters['vendor'] > 0 ? '' : 'display:none;'; ?>">Clear</button>
                 </div>
                 <?php endif; ?>
 
@@ -1104,7 +1117,7 @@ final class BudgetPage extends AbstractAdminPage
                         </tr>
                     </thead>
                     <tbody id="eim-line-items-table-body">
-                        <?php $this->renderLineItemRows($liItems, $plan); ?>
+                        <?php $this->renderLineItemRows($liItems, $plan, $liFilters['search']); ?>
                     </tbody>
                 </table>
 
@@ -1118,9 +1131,9 @@ final class BudgetPage extends AbstractAdminPage
             <?php /* ── Payments panel ───────────────────────────────────── */ ?>
             <div id="eim-btab-payments" class="eim-btab-panel">
 
-                <?php $this->renderPaymentAccordionSection('needs_payment', 'Needs Payment', $needsPaymentCount, $plan->id, $needsPaymentDueSoonCount, $liVendorOptions); ?>
+                <?php $this->renderPaymentAccordionSection('needs_payment', 'Needs Payment', $needsPaymentCount, $plan->id, $needsPaymentDueSoonCount, $liVendorOptions, $npFilters); ?>
 
-                <?php $this->renderPaymentAccordionSection('paid', 'Paid', $paidCount, $plan->id, 0, $liVendorOptions); ?>
+                <?php $this->renderPaymentAccordionSection('paid', 'Paid', $paidCount, $plan->id, 0, $liVendorOptions, $paidFilters); ?>
 
             </div><!-- /.eim-btab-payments -->
 
@@ -1403,6 +1416,30 @@ final class BudgetPage extends AbstractAdminPage
     }
 
     /**
+     * Reads a line-item table's persisted search/vendor filters from the URL.
+     *
+     * admin-budget.js mirrors each table's controls into `{prefix}_search`,
+     * `{prefix}_field` and `{prefix}_vendor` query params via history.replaceState,
+     * so a page refresh restores them. A vendor not used by this plan (stale or
+     * hand-edited URL) falls back to 0 / "All Vendors".
+     *
+     * @param string            $prefix        Param prefix: 'li', 'needs_payment' or 'paid'.
+     * @param array<int,string> $vendorOptions [vendor_id => company name] for this plan.
+     * @return array{search:string,field:string,vendor:int}
+     */
+    private function lineItemFilterParams(string $prefix, array $vendorOptions): array
+    {
+        $field  = sanitize_key($_GET[$prefix . '_field'] ?? '');
+        $vendor = max(0, (int) ($_GET[$prefix . '_vendor'] ?? 0));
+
+        return [
+            'search' => sanitize_text_field(wp_unslash($_GET[$prefix . '_search'] ?? '')),
+            'field'  => in_array($field, ['label', 'event', 'vendor'], true) ? $field : '',
+            'vendor' => isset($vendorOptions[$vendor]) ? $vendor : 0,
+        ];
+    }
+
+    /**
      * AJAX: returns filtered + searched line items for the Payments tab accordion.
      *
      * GET params: nonce, plan_id, status (needs_payment|paid), query, sort, order, field, page, per_page.
@@ -1459,11 +1496,15 @@ final class BudgetPage extends AbstractAdminPage
     /**
      * Renders the accordion section for a payment status group.
      *
-     * @param int $dueSoonCount Number of items whose deadline is within 30 days (needs_payment only).
+     * @param int                                      $dueSoonCount Number of items whose deadline is within 30 days (needs_payment only).
+     * @param array{search?:string,field?:string,vendor?:int} $filters Persisted filters from lineItemFilterParams().
      */
-    private function renderPaymentAccordionSection(string $status, string $heading, int $count, int $planId, int $dueSoonCount = 0, array $vendorOptions = []): void
+    private function renderPaymentAccordionSection(string $status, string $heading, int $count, int $planId, int $dueSoonCount = 0, array $vendorOptions = [], array $filters = []): void
     {
         $topMargin = $status === 'needs_payment' ? '16px' : '8px';
+        $curSearch = (string) ($filters['search'] ?? '');
+        $curField  = (string) ($filters['field']  ?? '');
+        $curVendor = (int)    ($filters['vendor'] ?? 0);
         ?>
         <div class="eim-payment-section"
              data-status="<?= esc_attr($status); ?>"
@@ -1498,12 +1539,13 @@ final class BudgetPage extends AbstractAdminPage
                 <?php /* Search row */ ?>
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
                     <input type="text" class="eim-payment-search-input regular-text"
+                           value="<?= esc_attr($curSearch); ?>"
                            placeholder="Search line items…" autocomplete="off">
-                    <select class="eim-payment-search-field">
+                    <select class="eim-payment-search-field" autocomplete="off">
                         <option value="">All columns</option>
-                        <option value="label">Label</option>
-                        <option value="event">Event</option>
-                        <option value="vendor">Vendor</option>
+                        <option value="label" <?php selected($curField, 'label'); ?>>Label</option>
+                        <option value="event" <?php selected($curField, 'event'); ?>>Event</option>
+                        <option value="vendor" <?php selected($curField, 'vendor'); ?>>Vendor</option>
                     </select>
                     <select class="eim-payment-per-page" style="height:28px;">
                         <option value="5">5 / page</option>
@@ -1516,13 +1558,13 @@ final class BudgetPage extends AbstractAdminPage
                 <?php if (!empty($vendorOptions)): ?>
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
                     <label style="font-weight:600;white-space:nowrap;font-size:13px;">Filter by Vendor:</label>
-                    <select class="eim-payment-vendor-filter eim-search-field-select">
+                    <select class="eim-payment-vendor-filter eim-search-field-select" autocomplete="off">
                         <option value="">— All Vendors —</option>
                         <?php foreach ($vendorOptions as $vid => $vName): ?>
-                            <option value="<?= esc_attr($vid); ?>"><?= esc_html($vName); ?></option>
+                            <option value="<?= esc_attr($vid); ?>" <?php selected($curVendor, $vid); ?>><?= esc_html($vName); ?></option>
                         <?php endforeach; ?>
                     </select>
-                    <button type="button" class="eim-payment-vendor-clear button button-small" style="display:none;">Clear</button>
+                    <button type="button" class="eim-payment-vendor-clear button button-small" style="<?= $curVendor > 0 ? '' : 'display:none;'; ?>">Clear</button>
                 </div>
                 <?php endif; ?>
 
